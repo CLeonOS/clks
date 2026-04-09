@@ -23,6 +23,24 @@
         0xa3148604f6fab11bULL \
     }
 
+#define LIMINE_MEMMAP_REQUEST \
+    { \
+        LIMINE_COMMON_MAGIC, \
+        LIMINE_REQUEST_MAGIC, \
+        0x67cf3d9d378a806fULL, \
+        0xe304acdfc50c3c62ULL \
+    }
+
+#define LIMINE_MEMMAP_USABLE                 0ULL
+#define LIMINE_MEMMAP_RESERVED               1ULL
+#define LIMINE_MEMMAP_ACPI_RECLAIMABLE       2ULL
+#define LIMINE_MEMMAP_ACPI_NVS               3ULL
+#define LIMINE_MEMMAP_BAD_MEMORY             4ULL
+#define LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE 5ULL
+#define LIMINE_MEMMAP_EXECUTABLE_AND_MODULES 6ULL
+#define LIMINE_MEMMAP_FRAMEBUFFER            7ULL
+#define LIMINE_MEMMAP_RESERVED_MAPPED        8ULL
+
 struct limine_framebuffer {
     void *address;
     u64 width;
@@ -51,6 +69,24 @@ struct limine_framebuffer_request {
     u64 id[4];
     u64 revision;
     struct limine_framebuffer_response *response;
+};
+
+struct limine_memmap_entry {
+    u64 base;
+    u64 length;
+    u64 type;
+};
+
+struct limine_memmap_response {
+    u64 revision;
+    u64 entry_count;
+    struct limine_memmap_entry **entries;
+};
+
+struct limine_memmap_request {
+    u64 id[4];
+    u64 revision;
+    struct limine_memmap_response *response;
 };
 
 #endif

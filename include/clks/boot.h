@@ -6,5 +6,6 @@
 
 clks_bool clks_boot_base_revision_supported(void);
 const struct limine_framebuffer *clks_boot_get_framebuffer(void);
+const struct limine_memmap_response *clks_boot_get_memmap(void);
 
 #endif

@@ -14,6 +14,13 @@ CLKS_USED static volatile struct limine_framebuffer_request limine_framebuffer_r
         .response = CLKS_NULL,
     };
 
+CLKS_USED static volatile struct limine_memmap_request limine_memmap_request
+    __attribute__((section(".limine_requests"))) = {
+        .id = LIMINE_MEMMAP_REQUEST,
+        .revision = 0,
+        .response = CLKS_NULL,
+    };
+
 CLKS_USED static volatile u64 limine_requests_end[]
     __attribute__((section(".limine_requests_end"))) = LIMINE_REQUESTS_END_MARKER;
 
@@ -33,4 +40,14 @@ const struct limine_framebuffer *clks_boot_get_framebuffer(void) {
     }
 
     return request->response->framebuffers[0];
+}
+
+const struct limine_memmap_response *clks_boot_get_memmap(void) {
+    volatile struct limine_memmap_request *request = &limine_memmap_request;
+
+    if (request->response == CLKS_NULL) {
+        return CLKS_NULL;
+    }
+
+    return request->response;
 }
