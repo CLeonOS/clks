@@ -24,9 +24,13 @@
 #define CLKS_SYSCALL_USER_LAUNCH_TRIES   18ULL
 #define CLKS_SYSCALL_USER_LAUNCH_OK      19ULL
 #define CLKS_SYSCALL_USER_LAUNCH_FAIL    20ULL
+#define CLKS_SYSCALL_TTY_COUNT           21ULL
+#define CLKS_SYSCALL_TTY_ACTIVE          22ULL
+#define CLKS_SYSCALL_TTY_SWITCH          23ULL
 
 void clks_syscall_init(void);
 u64 clks_syscall_dispatch(void *frame_ptr);
 u64 clks_syscall_invoke_kernel(u64 id, u64 arg0, u64 arg1, u64 arg2);
 
 #endif
+

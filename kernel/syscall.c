@@ -7,6 +7,7 @@
 #include <clks/service.h>
 #include <clks/string.h>
 #include <clks/syscall.h>
+#include <clks/tty.h>
 #include <clks/types.h>
 #include <clks/userland.h>
 
@@ -220,6 +221,13 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
             return clks_userland_launch_success();
         case CLKS_SYSCALL_USER_LAUNCH_FAIL:
             return clks_userland_launch_failures();
+        case CLKS_SYSCALL_TTY_COUNT:
+            return (u64)clks_tty_count();
+        case CLKS_SYSCALL_TTY_ACTIVE:
+            return (u64)clks_tty_active();
+        case CLKS_SYSCALL_TTY_SWITCH:
+            clks_tty_switch((u32)frame->rbx);
+            return (u64)clks_tty_active();
         default:
             return (u64)-1;
     }
@@ -237,3 +245,4 @@ u64 clks_syscall_invoke_kernel(u64 id, u64 arg0, u64 arg1, u64 arg2) {
 
     return ret;
 }
+
