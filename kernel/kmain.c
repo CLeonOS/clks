@@ -63,7 +63,7 @@ static void clks_task_usrd(u64 tick) {
     clks_userland_tick(tick);
 }
 
-static void clks_stage12_syscall_probe(void) {
+static void clks_stage13_syscall_probe(void) {
     char child_name[96];
     char read_buf[160];
     u64 root_children;
@@ -162,7 +162,7 @@ void clks_kernel_main(void) {
         clks_tty_init();
     }
 
-    clks_log(CLKS_LOG_INFO, "BOOT", "CLEONOS STAGE12 START");
+    clks_log(CLKS_LOG_INFO, "BOOT", "CLEONOS STAGE13 START");
 
     if (boot_fb == CLKS_NULL) {
         clks_log(CLKS_LOG_WARN, "VIDEO", "NO FRAMEBUFFER FROM LIMINE");
@@ -271,11 +271,12 @@ void clks_kernel_main(void) {
     syscall_ticks = clks_syscall_invoke_kernel(CLKS_SYSCALL_TIMER_TICKS, 0ULL, 0ULL, 0ULL);
     clks_log_hex(CLKS_LOG_INFO, "SYSCALL", "TICKS", syscall_ticks);
 
-    clks_stage12_syscall_probe();
+    clks_stage13_syscall_probe();
 
     clks_log(CLKS_LOG_INFO, "TTY", "VIRTUAL TTY0 READY");
     clks_log(CLKS_LOG_DEBUG, "KERNEL", "IDLE LOOP ENTER");
 
     clks_cpu_halt_forever();
 }
+
 

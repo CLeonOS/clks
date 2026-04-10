@@ -39,6 +39,21 @@ static clks_bool clks_userland_probe_elf(const char *path, const char *tag) {
     return CLKS_TRUE;
 }
 
+static void clks_userland_probe_init_script(void) {
+    const void *data;
+    u64 size = 0ULL;
+
+    data = clks_fs_read_all("/shell/init.cmd", &size);
+
+    if (data == CLKS_NULL || size == 0ULL) {
+        clks_log(CLKS_LOG_WARN, "USER", "INIT SCRIPT NOT FOUND /SHELL/INIT.CMD");
+        return;
+    }
+
+    clks_log(CLKS_LOG_INFO, "USER", "INIT SCRIPT READY /SHELL/INIT.CMD");
+    clks_log_hex(CLKS_LOG_INFO, "USER", "INIT_SCRIPT_SIZE", size);
+}
+
 static clks_bool clks_userland_request_shell_exec(void) {
     u64 status = (u64)-1;
 
@@ -78,6 +93,7 @@ clks_bool clks_userland_init(void) {
 
     clks_user_shell_ready = CLKS_TRUE;
     clks_log(CLKS_LOG_INFO, "USER", "SHELL COMMAND ABI READY");
+    clks_userland_probe_init_script();
 
     if (clks_userland_probe_elf("/system/elfrunner.elf", "ELFRUNNER ELF READY") == CLKS_FALSE) {
         return CLKS_FALSE;
