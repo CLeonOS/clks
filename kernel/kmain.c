@@ -1,5 +1,6 @@
 #include <clks/boot.h>
 #include <clks/cpu.h>
+#include <clks/driver.h>
 #include <clks/elfrunner.h>
 #include <clks/framebuffer.h>
 #include <clks/fs.h>
@@ -40,7 +41,7 @@ void clks_kernel_main(void) {
         clks_tty_init();
     }
 
-    clks_log(CLKS_LOG_INFO, "BOOT", "CLEONOS STAGE7 START");
+    clks_log(CLKS_LOG_INFO, "BOOT", "CLEONOS STAGE8 START");
 
     if (boot_fb == CLKS_NULL) {
         clks_log(CLKS_LOG_WARN, "VIDEO", "NO FRAMEBUFFER FROM LIMINE");
@@ -106,6 +107,8 @@ void clks_kernel_main(void) {
         clks_log(CLKS_LOG_ERROR, "USER", "USERLAND INIT FAILED");
         clks_cpu_halt_forever();
     }
+
+    clks_driver_init();
 
     clks_scheduler_init();
 
