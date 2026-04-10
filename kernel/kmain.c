@@ -11,10 +11,45 @@
 #include <clks/pmm.h>
 #include <clks/scheduler.h>
 #include <clks/serial.h>
+#include <clks/service.h>
 #include <clks/syscall.h>
 #include <clks/tty.h>
 #include <clks/types.h>
 #include <clks/userland.h>
+
+static void clks_task_klogd(u64 tick) {
+    static u64 last_emit = 0ULL;
+
+    clks_service_heartbeat(CLKS_SERVICE_LOG, tick);
+
+    if (tick - last_emit >= 1000ULL) {
+        clks_log_hex(CLKS_LOG_DEBUG, "TASK", "KLOGD_TICK", tick);
+        last_emit = tick;
+    }
+}
+
+static void clks_task_kworker(u64 tick) {
+    static u32 phase = 0U;
+
+    clks_service_heartbeat(CLKS_SERVICE_SCHED, tick);
+
+    switch (phase) {
+        case 0U:
+            clks_service_heartbeat(CLKS_SERVICE_MEM, tick);
+            break;
+        case 1U:
+            clks_service_heartbeat(CLKS_SERVICE_FS, tick);
+            break;
+        case 2U:
+            clks_service_heartbeat(CLKS_SERVICE_DRIVER, tick);
+            break;
+        default:
+            clks_service_heartbeat(CLKS_SERVICE_LOG, tick);
+            break;
+    }
+
+    phase = (phase + 1U) & 3U;
+}
 
 void clks_kernel_main(void) {
     const struct limine_framebuffer *boot_fb;
@@ -41,7 +76,7 @@ void clks_kernel_main(void) {
         clks_tty_init();
     }
 
-    clks_log(CLKS_LOG_INFO, "BOOT", "CLEONOS STAGE8 START");
+    clks_log(CLKS_LOG_INFO, "BOOT", "CLEONOS STAGE9 START");
 
     if (boot_fb == CLKS_NULL) {
         clks_log(CLKS_LOG_WARN, "VIDEO", "NO FRAMEBUFFER FROM LIMINE");
@@ -112,16 +147,18 @@ void clks_kernel_main(void) {
 
     clks_scheduler_init();
 
-    if (clks_scheduler_add_kernel_task("klogd", 4U) == CLKS_FALSE) {
+    if (clks_scheduler_add_kernel_task_ex("klogd", 4U, clks_task_klogd) == CLKS_FALSE) {
         clks_log(CLKS_LOG_WARN, "SCHED", "FAILED TO ADD KLOGD TASK");
     }
 
-    if (clks_scheduler_add_kernel_task("kworker", 3U) == CLKS_FALSE) {
+    if (clks_scheduler_add_kernel_task_ex("kworker", 3U, clks_task_kworker) == CLKS_FALSE) {
         clks_log(CLKS_LOG_WARN, "SCHED", "FAILED TO ADD KWORKER TASK");
     }
 
     sched_stats = clks_scheduler_get_stats();
     clks_log_hex(CLKS_LOG_INFO, "SCHED", "TASK_COUNT", sched_stats.task_count);
+
+    clks_service_init();
 
     clks_elfrunner_init();
 

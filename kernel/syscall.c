@@ -1,6 +1,7 @@
 #include <clks/interrupts.h>
 #include <clks/log.h>
 #include <clks/scheduler.h>
+#include <clks/service.h>
 #include <clks/syscall.h>
 #include <clks/types.h>
 
@@ -82,6 +83,14 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
         case CLKS_SYSCALL_CURRENT_TASK_ID: {
             struct clks_scheduler_stats stats = clks_scheduler_get_stats();
             return stats.current_task_id;
+        }
+        case CLKS_SYSCALL_SERVICE_COUNT:
+            return clks_service_count();
+        case CLKS_SYSCALL_SERVICE_READY_COUNT:
+            return clks_service_ready_count();
+        case CLKS_SYSCALL_CONTEXT_SWITCHES: {
+            struct clks_scheduler_stats stats = clks_scheduler_get_stats();
+            return stats.context_switch_count;
         }
         default:
             return (u64)-1;

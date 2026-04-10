@@ -5,6 +5,8 @@
 
 #define CLKS_TASK_NAME_MAX 32U
 
+typedef void (*clks_task_entry_fn)(u64 tick);
+
 enum clks_task_state {
     CLKS_TASK_UNUSED = 0,
     CLKS_TASK_READY = 1,
@@ -20,6 +22,9 @@ struct clks_task_descriptor {
     u32 remaining_ticks;
     u64 total_ticks;
     u64 switch_count;
+    u64 run_count;
+    u64 last_run_tick;
+    clks_task_entry_fn entry;
 };
 
 #endif

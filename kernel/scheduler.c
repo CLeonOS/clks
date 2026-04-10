@@ -44,7 +44,7 @@ void clks_scheduler_init(void) {
     clks_total_timer_ticks = 0;
     clks_context_switch_count = 0;
 
-    clks_scheduler_add_kernel_task("idle", 1U);
+    clks_scheduler_add_kernel_task_ex("idle", 1U, CLKS_NULL);
 
     clks_tasks[0].state = CLKS_TASK_RUNNING;
     clks_tasks[0].remaining_ticks = clks_tasks[0].time_slice_ticks;
@@ -52,7 +52,7 @@ void clks_scheduler_init(void) {
     clks_log(CLKS_LOG_INFO, "SCHED", "ROUND-ROBIN ONLINE");
 }
 
-clks_bool clks_scheduler_add_kernel_task(const char *name, u32 time_slice_ticks) {
+clks_bool clks_scheduler_add_kernel_task_ex(const char *name, u32 time_slice_ticks, clks_task_entry_fn entry) {
     struct clks_task_descriptor *task;
 
     if (name == CLKS_NULL) {
@@ -73,11 +73,40 @@ clks_bool clks_scheduler_add_kernel_task(const char *name, u32 time_slice_ticks)
     task->state = CLKS_TASK_READY;
     task->time_slice_ticks = time_slice_ticks;
     task->remaining_ticks = time_slice_ticks;
-    task->total_ticks = 0;
-    task->switch_count = 0;
+    task->total_ticks = 0ULL;
+    task->switch_count = 0ULL;
+    task->run_count = 0ULL;
+    task->last_run_tick = 0ULL;
+    task->entry = entry;
 
     clks_task_count++;
     return CLKS_TRUE;
+}
+
+clks_bool clks_scheduler_add_kernel_task(const char *name, u32 time_slice_ticks) {
+    return clks_scheduler_add_kernel_task_ex(name, time_slice_ticks, CLKS_NULL);
+}
+
+void clks_scheduler_dispatch_current(u64 tick) {
+    struct clks_task_descriptor *current;
+
+    if (clks_task_count == 0U) {
+        return;
+    }
+
+    current = &clks_tasks[clks_current_task];
+
+    if (current->state != CLKS_TASK_RUNNING && current->state != CLKS_TASK_READY) {
+        return;
+    }
+
+    current->state = CLKS_TASK_RUNNING;
+    current->run_count++;
+    current->last_run_tick = tick;
+
+    if (current->entry != CLKS_NULL) {
+        current->entry(tick);
+    }
 }
 
 void clks_scheduler_on_timer_tick(u64 tick) {
@@ -88,7 +117,6 @@ void clks_scheduler_on_timer_tick(u64 tick) {
     }
 
     clks_total_timer_ticks = tick;
-
     current = &clks_tasks[clks_current_task];
 
     if (current->state == CLKS_TASK_RUNNING || current->state == CLKS_TASK_READY) {
@@ -116,6 +144,8 @@ void clks_scheduler_on_timer_tick(u64 tick) {
             clks_context_switch_count++;
         }
     }
+
+    clks_scheduler_dispatch_current(tick);
 }
 
 struct clks_scheduler_stats clks_scheduler_get_stats(void) {
