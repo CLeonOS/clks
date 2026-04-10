@@ -12,6 +12,13 @@
 #define CLKS_SYSCALL_CONTEXT_SWITCHES    6ULL
 #define CLKS_SYSCALL_KELF_COUNT          7ULL
 #define CLKS_SYSCALL_KELF_RUNS           8ULL
+#define CLKS_SYSCALL_FS_NODE_COUNT       9ULL
+#define CLKS_SYSCALL_FS_CHILD_COUNT      10ULL
+#define CLKS_SYSCALL_FS_GET_CHILD_NAME   11ULL
+#define CLKS_SYSCALL_FS_READ             12ULL
+#define CLKS_SYSCALL_EXEC_PATH           13ULL
+#define CLKS_SYSCALL_EXEC_REQUESTS       14ULL
+#define CLKS_SYSCALL_EXEC_SUCCESS        15ULL
 
 void clks_syscall_init(void);
 u64 clks_syscall_dispatch(void *frame_ptr);

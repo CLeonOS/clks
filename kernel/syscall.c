@@ -1,10 +1,17 @@
+#include <clks/exec.h>
+#include <clks/fs.h>
 #include <clks/interrupts.h>
 #include <clks/kelf.h>
 #include <clks/log.h>
 #include <clks/scheduler.h>
 #include <clks/service.h>
+#include <clks/string.h>
 #include <clks/syscall.h>
 #include <clks/types.h>
+
+#define CLKS_SYSCALL_LOG_MAX_LEN  191U
+#define CLKS_SYSCALL_PATH_MAX     192U
+#define CLKS_SYSCALL_NAME_MAX      96U
 
 struct clks_syscall_frame {
     u64 rax;
@@ -33,21 +40,44 @@ struct clks_syscall_frame {
 
 static clks_bool clks_syscall_ready = CLKS_FALSE;
 
+static clks_bool clks_syscall_copy_user_string(u64 src_addr, char *dst, usize dst_size) {
+    const char *src = (const char *)src_addr;
+    usize i = 0U;
+
+    if (src == CLKS_NULL || dst == CLKS_NULL || dst_size == 0U) {
+        return CLKS_FALSE;
+    }
+
+    while (i + 1U < dst_size) {
+        char ch = src[i];
+        dst[i] = ch;
+
+        if (ch == '\0') {
+            return CLKS_TRUE;
+        }
+
+        i++;
+    }
+
+    dst[dst_size - 1U] = '\0';
+    return CLKS_TRUE;
+}
+
 static u64 clks_syscall_log_write(u64 arg0, u64 arg1) {
     const char *src = (const char *)arg0;
     u64 len = arg1;
-    char buf[192];
+    char buf[CLKS_SYSCALL_LOG_MAX_LEN + 1U];
     u64 i;
 
     if (src == CLKS_NULL || len == 0ULL) {
         return 0ULL;
     }
 
-    if (len > (sizeof(buf) - 1U)) {
-        len = sizeof(buf) - 1U;
+    if (len > CLKS_SYSCALL_LOG_MAX_LEN) {
+        len = CLKS_SYSCALL_LOG_MAX_LEN;
     }
 
-    for (i = 0; i < len; i++) {
+    for (i = 0ULL; i < len; i++) {
         buf[i] = src[i];
     }
 
@@ -55,6 +85,74 @@ static u64 clks_syscall_log_write(u64 arg0, u64 arg1) {
     clks_log(CLKS_LOG_INFO, "SYSCALL", buf);
 
     return len;
+}
+
+static u64 clks_syscall_fs_child_count(u64 arg0) {
+    char path[CLKS_SYSCALL_PATH_MAX];
+
+    if (clks_syscall_copy_user_string(arg0, path, sizeof(path)) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    return clks_fs_count_children(path);
+}
+
+static u64 clks_syscall_fs_get_child_name(u64 arg0, u64 arg1, u64 arg2) {
+    char path[CLKS_SYSCALL_PATH_MAX];
+
+    if (arg2 == 0ULL) {
+        return 0ULL;
+    }
+
+    if (clks_syscall_copy_user_string(arg0, path, sizeof(path)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    if (clks_fs_get_child_name(path, arg1, (char *)arg2, (usize)CLKS_SYSCALL_NAME_MAX) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    return 1ULL;
+}
+
+static u64 clks_syscall_fs_read(u64 arg0, u64 arg1, u64 arg2) {
+    char path[CLKS_SYSCALL_PATH_MAX];
+    const void *data;
+    u64 file_size = 0ULL;
+    u64 copy_len;
+
+    if (arg1 == 0ULL || arg2 == 0ULL) {
+        return 0ULL;
+    }
+
+    if (clks_syscall_copy_user_string(arg0, path, sizeof(path)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    data = clks_fs_read_all(path, &file_size);
+
+    if (data == CLKS_NULL || file_size == 0ULL) {
+        return 0ULL;
+    }
+
+    copy_len = (file_size < arg2) ? file_size : arg2;
+    clks_memcpy((void *)arg1, data, (usize)copy_len);
+    return copy_len;
+}
+
+static u64 clks_syscall_exec_path(u64 arg0) {
+    char path[CLKS_SYSCALL_PATH_MAX];
+    u64 status = (u64)-1;
+
+    if (clks_syscall_copy_user_string(arg0, path, sizeof(path)) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    if (clks_exec_run_path(path, &status) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    return status;
 }
 
 void clks_syscall_init(void) {
@@ -97,6 +195,20 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
             return clks_kelf_count();
         case CLKS_SYSCALL_KELF_RUNS:
             return clks_kelf_total_runs();
+        case CLKS_SYSCALL_FS_NODE_COUNT:
+            return clks_fs_node_count();
+        case CLKS_SYSCALL_FS_CHILD_COUNT:
+            return clks_syscall_fs_child_count(frame->rbx);
+        case CLKS_SYSCALL_FS_GET_CHILD_NAME:
+            return clks_syscall_fs_get_child_name(frame->rbx, frame->rcx, frame->rdx);
+        case CLKS_SYSCALL_FS_READ:
+            return clks_syscall_fs_read(frame->rbx, frame->rcx, frame->rdx);
+        case CLKS_SYSCALL_EXEC_PATH:
+            return clks_syscall_exec_path(frame->rbx);
+        case CLKS_SYSCALL_EXEC_REQUESTS:
+            return clks_exec_request_count();
+        case CLKS_SYSCALL_EXEC_SUCCESS:
+            return clks_exec_success_count();
         default:
             return (u64)-1;
     }

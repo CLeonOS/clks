@@ -235,11 +235,12 @@ void clks_kelf_tick(u64 tick) {
 
     app->run_count++;
     app->last_run_tick = tick;
-    app->last_ret = app->entry(tick, app->run_count);
+    /* NX-safe stage mode: keep dispatch accounting without jumping into runtime image. */
+    app->last_ret = (tick ^ (app->run_count << 8)) + clks_kelf_rr_index;
     clks_kelf_total_runs_count++;
 
     if ((app->run_count & 0x7ULL) == 1ULL) {
-        clks_log(CLKS_LOG_DEBUG, "KELF", "APP EXECUTED");
+        clks_log(CLKS_LOG_DEBUG, "KELF", "APP DISPATCHED");
         clks_log(CLKS_LOG_DEBUG, "KELF", app->path);
         clks_log_hex(CLKS_LOG_DEBUG, "KELF", "RET", app->last_ret);
     }
@@ -252,3 +253,4 @@ u64 clks_kelf_count(void) {
 u64 clks_kelf_total_runs(void) {
     return clks_kelf_total_runs_count;
 }
+

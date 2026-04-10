@@ -2,6 +2,7 @@
 #include <clks/cpu.h>
 #include <clks/driver.h>
 #include <clks/elfrunner.h>
+#include <clks/exec.h>
 #include <clks/framebuffer.h>
 #include <clks/fs.h>
 #include <clks/heap.h>
@@ -57,6 +58,59 @@ static void clks_task_kelfd(u64 tick) {
     clks_kelf_tick(tick);
 }
 
+static void clks_stage11_syscall_probe(void) {
+    char child_name[96];
+    char read_buf[160];
+    u64 root_children;
+    u64 got_name;
+    u64 read_len;
+    u64 run_status;
+
+    root_children = clks_syscall_invoke_kernel(CLKS_SYSCALL_FS_CHILD_COUNT, (u64)"/", 0ULL, 0ULL);
+    clks_log_hex(CLKS_LOG_INFO, "SHELL", "ROOT_CHILDREN", root_children);
+
+    child_name[0] = '\0';
+    got_name = clks_syscall_invoke_kernel(CLKS_SYSCALL_FS_GET_CHILD_NAME, (u64)"/", 0ULL, (u64)child_name);
+
+    if (got_name == 1ULL) {
+        child_name[sizeof(child_name) - 1U] = '\0';
+        clks_log(CLKS_LOG_INFO, "SHELL", "ROOT_ENTRY0");
+        clks_log(CLKS_LOG_INFO, "SHELL", child_name);
+    }
+
+    read_len = clks_syscall_invoke_kernel(CLKS_SYSCALL_FS_READ,
+                                          (u64)"/README.txt",
+                                          (u64)read_buf,
+                                          (u64)(sizeof(read_buf) - 1U));
+
+    if (read_len > 0ULL && read_len != (u64)-1) {
+        if (read_len >= (u64)sizeof(read_buf)) {
+            read_len = (u64)sizeof(read_buf) - 1ULL;
+        }
+
+        read_buf[read_len] = '\0';
+        clks_log(CLKS_LOG_INFO, "SHELL", "README PREVIEW");
+        clks_log(CLKS_LOG_INFO, "SHELL", read_buf);
+    }
+
+    run_status = clks_syscall_invoke_kernel(CLKS_SYSCALL_EXEC_PATH, (u64)"/system/elfrunner.elf", 0ULL, 0ULL);
+
+    if (run_status == 0ULL) {
+        clks_log(CLKS_LOG_INFO, "EXEC", "RUN /SYSTEM/ELFRUNNER.ELF OK");
+    } else {
+        clks_log(CLKS_LOG_WARN, "EXEC", "RUN /SYSTEM/ELFRUNNER.ELF FAILED");
+    }
+
+    clks_log_hex(CLKS_LOG_INFO,
+                 "EXEC",
+                 "REQUESTS",
+                 clks_syscall_invoke_kernel(CLKS_SYSCALL_EXEC_REQUESTS, 0ULL, 0ULL, 0ULL));
+    clks_log_hex(CLKS_LOG_INFO,
+                 "EXEC",
+                 "SUCCESS",
+                 clks_syscall_invoke_kernel(CLKS_SYSCALL_EXEC_SUCCESS, 0ULL, 0ULL, 0ULL));
+}
+
 void clks_kernel_main(void) {
     const struct limine_framebuffer *boot_fb;
     const struct limine_memmap_response *boot_memmap;
@@ -82,7 +136,7 @@ void clks_kernel_main(void) {
         clks_tty_init();
     }
 
-    clks_log(CLKS_LOG_INFO, "BOOT", "CLEONOS STAGE10 START");
+    clks_log(CLKS_LOG_INFO, "BOOT", "CLEONOS STAGE11 START");
 
     if (boot_fb == CLKS_NULL) {
         clks_log(CLKS_LOG_WARN, "VIDEO", "NO FRAMEBUFFER FROM LIMINE");
@@ -151,6 +205,7 @@ void clks_kernel_main(void) {
 
     clks_driver_init();
     clks_kelf_init();
+    clks_exec_init();
 
     clks_scheduler_init();
 
@@ -184,6 +239,8 @@ void clks_kernel_main(void) {
 
     syscall_ticks = clks_syscall_invoke_kernel(CLKS_SYSCALL_TIMER_TICKS, 0ULL, 0ULL, 0ULL);
     clks_log_hex(CLKS_LOG_INFO, "SYSCALL", "TICKS", syscall_ticks);
+
+    clks_stage11_syscall_probe();
 
     clks_log(CLKS_LOG_INFO, "TTY", "VIRTUAL TTY0 READY");
     clks_log(CLKS_LOG_DEBUG, "KERNEL", "IDLE LOOP ENTER");

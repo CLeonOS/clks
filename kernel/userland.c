@@ -36,6 +36,8 @@ clks_bool clks_userland_init(void) {
         return CLKS_FALSE;
     }
 
+    clks_log(CLKS_LOG_INFO, "USER", "SHELL COMMAND ABI READY");
+
     if (clks_userland_probe_elf("/system/elfrunner.elf", "ELFRUNNER ELF READY") == CLKS_FALSE) {
         return CLKS_FALSE;
     }
@@ -46,4 +48,3 @@ clks_bool clks_userland_init(void) {
 
     return CLKS_TRUE;
 }
-
