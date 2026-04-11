@@ -2,6 +2,7 @@
 #include <clks/fs.h>
 #include <clks/interrupts.h>
 #include <clks/kelf.h>
+#include <clks/keyboard.h>
 #include <clks/log.h>
 #include <clks/scheduler.h>
 #include <clks/service.h>
@@ -14,6 +15,7 @@
 #define CLKS_SYSCALL_LOG_MAX_LEN  191U
 #define CLKS_SYSCALL_PATH_MAX     192U
 #define CLKS_SYSCALL_NAME_MAX      96U
+#define CLKS_SYSCALL_IO_MAX_LEN   512U
 
 struct clks_syscall_frame {
     u64 rax;
@@ -87,6 +89,44 @@ static u64 clks_syscall_log_write(u64 arg0, u64 arg1) {
     clks_log(CLKS_LOG_INFO, "SYSCALL", buf);
 
     return len;
+}
+
+static u64 clks_syscall_tty_write(u64 arg0, u64 arg1) {
+    const char *src = (const char *)arg0;
+    u64 len = arg1;
+    char buf[CLKS_SYSCALL_IO_MAX_LEN + 1U];
+    u64 i;
+
+    if (src == CLKS_NULL || len == 0ULL) {
+        return 0ULL;
+    }
+
+    if (len > CLKS_SYSCALL_IO_MAX_LEN) {
+        len = CLKS_SYSCALL_IO_MAX_LEN;
+    }
+
+    for (i = 0ULL; i < len; i++) {
+        buf[i] = src[i];
+    }
+
+    buf[len] = '\0';
+    clks_tty_write(buf);
+    return len;
+}
+
+static u64 clks_syscall_tty_write_char(u64 arg0) {
+    clks_tty_write_char((char)(arg0 & 0xFFULL));
+    return 1ULL;
+}
+
+static u64 clks_syscall_kbd_get_char(void) {
+    char ch;
+
+    if (clks_keyboard_pop_char(&ch) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    return (u64)(u8)ch;
 }
 
 static u64 clks_syscall_fs_child_count(u64 arg0) {
@@ -228,6 +268,12 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
         case CLKS_SYSCALL_TTY_SWITCH:
             clks_tty_switch((u32)frame->rbx);
             return (u64)clks_tty_active();
+        case CLKS_SYSCALL_TTY_WRITE:
+            return clks_syscall_tty_write(frame->rbx, frame->rcx);
+        case CLKS_SYSCALL_TTY_WRITE_CHAR:
+            return clks_syscall_tty_write_char(frame->rbx);
+        case CLKS_SYSCALL_KBD_GET_CHAR:
+            return clks_syscall_kbd_get_char();
         default:
             return (u64)-1;
     }
@@ -245,4 +291,3 @@ u64 clks_syscall_invoke_kernel(u64 id, u64 arg0, u64 arg1, u64 arg2) {
 
     return ret;
 }
-

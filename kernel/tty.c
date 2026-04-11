@@ -141,6 +141,24 @@ void clks_tty_write_char(char ch) {
         return;
     }
 
+    if (ch == '\b') {
+        if (col == 0U && row == 0U) {
+            return;
+        }
+
+        if (col == 0U) {
+            row--;
+            col = clks_tty_cols - 1U;
+        } else {
+            col--;
+        }
+
+        clks_tty_put_visible(tty_index, row, col, ' ');
+        clks_tty_cursor_row[tty_index] = row;
+        clks_tty_cursor_col[tty_index] = col;
+        return;
+    }
+
     if (ch == '\t') {
         clks_tty_write_char(' ');
         clks_tty_write_char(' ');
