@@ -9,6 +9,7 @@
 
 static clks_bool clks_user_shell_ready = CLKS_FALSE;
 static clks_bool clks_user_shell_exec_requested_flag = CLKS_FALSE;
+static clks_bool clks_user_shell_exec_enabled = CLKS_FALSE;
 static u64 clks_user_launch_attempt_count = 0ULL;
 static u64 clks_user_launch_success_count = 0ULL;
 static u64 clks_user_launch_fail_count = 0ULL;
@@ -82,6 +83,7 @@ clks_bool clks_userland_init(void) {
 
     clks_user_shell_ready = CLKS_FALSE;
     clks_user_shell_exec_requested_flag = CLKS_FALSE;
+    clks_user_shell_exec_enabled = CLKS_FALSE;
     clks_user_launch_attempt_count = 0ULL;
     clks_user_launch_success_count = 0ULL;
     clks_user_launch_fail_count = 0ULL;
@@ -103,12 +105,14 @@ clks_bool clks_userland_init(void) {
         return CLKS_FALSE;
     }
 
-    (void)clks_userland_request_shell_exec();
+    clks_log(CLKS_LOG_INFO, "USER", "USER SHELL EXEC DISABLED (KERNEL SHELL MODE)");
     return CLKS_TRUE;
 }
 
 void clks_userland_tick(u64 tick) {
-    if (clks_user_shell_ready == CLKS_FALSE || clks_user_shell_exec_requested_flag == CLKS_TRUE) {
+    if (clks_user_shell_exec_enabled == CLKS_FALSE ||
+        clks_user_shell_ready == CLKS_FALSE ||
+        clks_user_shell_exec_requested_flag == CLKS_TRUE) {
         return;
     }
 

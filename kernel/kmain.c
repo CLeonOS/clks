@@ -95,7 +95,7 @@ void clks_kernel_main(void) {
         clks_tty_init();
     }
 
-    clks_log(CLKS_LOG_INFO, "BOOT", "CLEONOS STAGE16 START");
+    clks_log(CLKS_LOG_INFO, "BOOT", "CLEONOS STAGE18 START");
 
     if (boot_fb == CLKS_NULL) {
         clks_log(CLKS_LOG_WARN, "VIDEO", "NO FRAMEBUFFER FROM LIMINE");
@@ -218,10 +218,12 @@ void clks_kernel_main(void) {
     clks_log_hex(CLKS_LOG_INFO, "SYSCALL", "TICKS", syscall_ticks);
 
     clks_shell_init();
+    clks_log(CLKS_LOG_INFO, "SHELL", "KERNEL SHELL ACTIVE");
 
     clks_log_hex(CLKS_LOG_INFO, "TTY", "COUNT", (u64)clks_tty_count());
     clks_log_hex(CLKS_LOG_INFO, "TTY", "ACTIVE", (u64)clks_tty_active());
     clks_log(CLKS_LOG_INFO, "TTY", "VIRTUAL TTY0 READY");
+    clks_log(CLKS_LOG_INFO, "TTY", "CURSOR ENABLED");
     clks_log(CLKS_LOG_DEBUG, "KERNEL", "IDLE LOOP ENTER");
 
     clks_cpu_halt_forever();

@@ -1,4 +1,5 @@
 #include <clks/framebuffer.h>
+#include <clks/string.h>
 #include <clks/types.h>
 
 #include "psf_font.h"
@@ -99,6 +100,45 @@ void clks_fb_clear(u32 rgb) {
     for (y = 0U; y < clks_fb.info.height; y++) {
         for (x = 0U; x < clks_fb.info.width; x++) {
             clks_fb_put_pixel(x, y, rgb);
+        }
+    }
+}
+
+void clks_fb_scroll_up(u32 pixel_rows, u32 fill_rgb) {
+    usize row_bytes;
+    usize move_bytes;
+    u32 y;
+    u32 x;
+
+    if (clks_fb.ready == CLKS_FALSE) {
+        return;
+    }
+
+    if (clks_fb.info.bpp != 32) {
+        return;
+    }
+
+    if (pixel_rows == 0U) {
+        return;
+    }
+
+    if (pixel_rows >= clks_fb.info.height) {
+        clks_fb_clear(fill_rgb);
+        return;
+    }
+
+    row_bytes = (usize)clks_fb.info.pitch;
+    move_bytes = (usize)(clks_fb.info.height - pixel_rows) * row_bytes;
+
+    clks_memmove(
+        (void *)clks_fb.address,
+        (const void *)(clks_fb.address + ((usize)pixel_rows * row_bytes)),
+        move_bytes
+    );
+
+    for (y = clks_fb.info.height - pixel_rows; y < clks_fb.info.height; y++) {
+        for (x = 0U; x < clks_fb.info.width; x++) {
+            clks_fb_put_pixel(x, y, fill_rgb);
         }
     }
 }
