@@ -1,5 +1,6 @@
 #include <clks/boot.h>
 #include <clks/fs.h>
+#include <clks/heap.h>
 #include <clks/log.h>
 #include <clks/ramdisk.h>
 #include <clks/string.h>
@@ -7,6 +8,8 @@
 
 #define CLKS_FS_MAX_NODES 512U
 #define CLKS_FS_PATH_MAX  CLKS_RAMDISK_PATH_MAX
+
+#define CLKS_FS_NODE_FLAG_HEAP_DATA 0x0001U
 
 struct clks_fs_node {
     clks_bool used;
@@ -26,6 +29,7 @@ struct clks_fs_build_stats {
 static struct clks_fs_node clks_fs_nodes[CLKS_FS_MAX_NODES];
 static u16 clks_fs_nodes_used = 0U;
 static clks_bool clks_fs_ready = CLKS_FALSE;
+static const u8 clks_fs_empty_file_data[1] = {0U};
 
 static clks_bool clks_fs_normalize_external_path(const char *path, char *out_internal, usize out_size) {
     usize in_pos = 0;
@@ -91,6 +95,33 @@ static clks_bool clks_fs_normalize_external_path(const char *path, char *out_int
     }
 
     out_internal[out_pos] = '\0';
+    return CLKS_TRUE;
+}
+
+static clks_bool clks_fs_internal_in_temp_tree(const char *internal_path) {
+    if (internal_path == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    if (internal_path[0] != 't' ||
+        internal_path[1] != 'e' ||
+        internal_path[2] != 'm' ||
+        internal_path[3] != 'p') {
+        return CLKS_FALSE;
+    }
+
+    return (internal_path[4] == '\0' || internal_path[4] == '/') ? CLKS_TRUE : CLKS_FALSE;
+}
+
+static clks_bool clks_fs_internal_is_temp_file_path(const char *internal_path) {
+    if (clks_fs_internal_in_temp_tree(internal_path) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    if (internal_path[4] == '\0') {
+        return CLKS_FALSE;
+    }
+
     return CLKS_TRUE;
 }
 
@@ -176,12 +207,54 @@ static clks_bool clks_fs_split_parent(const char *internal_path, char *parent_ou
     return CLKS_TRUE;
 }
 
+static clks_bool clks_fs_node_has_heap_data(u16 index) {
+    return ((clks_fs_nodes[index].reserved & CLKS_FS_NODE_FLAG_HEAP_DATA) != 0U) ? CLKS_TRUE : CLKS_FALSE;
+}
+
+static void clks_fs_node_set_heap_data(u16 index, clks_bool value) {
+    if (value == CLKS_TRUE) {
+        clks_fs_nodes[index].reserved |= CLKS_FS_NODE_FLAG_HEAP_DATA;
+    } else {
+        clks_fs_nodes[index].reserved &= (u16)(~CLKS_FS_NODE_FLAG_HEAP_DATA);
+    }
+}
+
+static void clks_fs_node_release_heap_data(u16 index) {
+    if (clks_fs_nodes[index].type != CLKS_FS_NODE_FILE) {
+        return;
+    }
+
+    if (clks_fs_node_has_heap_data(index) == CLKS_TRUE && clks_fs_nodes[index].data != CLKS_NULL) {
+        clks_kfree((void *)clks_fs_nodes[index].data);
+    }
+
+    clks_fs_node_set_heap_data(index, CLKS_FALSE);
+}
+
+static i32 clks_fs_alloc_slot(void) {
+    u16 i;
+
+    for (i = 0U; i < clks_fs_nodes_used; i++) {
+        if (clks_fs_nodes[i].used == CLKS_FALSE) {
+            return (i32)i;
+        }
+    }
+
+    if (clks_fs_nodes_used >= CLKS_FS_MAX_NODES) {
+        return -1;
+    }
+
+    clks_fs_nodes_used++;
+    return (i32)(clks_fs_nodes_used - 1U);
+}
+
 static i32 clks_fs_create_or_update_node(const char *internal_path,
                                          enum clks_fs_node_type type,
                                          u16 parent,
                                          const void *data,
                                          u64 size) {
     i32 existing;
+    i32 slot;
     usize path_len;
 
     if (internal_path == CLKS_NULL) {
@@ -208,25 +281,28 @@ static i32 clks_fs_create_or_update_node(const char *internal_path,
         if (type == CLKS_FS_NODE_FILE) {
             node->data = data;
             node->size = size;
+            node->reserved = 0U;
         }
 
+        node->used = CLKS_TRUE;
         return existing;
     }
 
-    if (clks_fs_nodes_used >= CLKS_FS_MAX_NODES) {
+    slot = clks_fs_alloc_slot();
+
+    if (slot < 0) {
         return -1;
     }
 
-    clks_fs_nodes[clks_fs_nodes_used].used = CLKS_TRUE;
-    clks_fs_nodes[clks_fs_nodes_used].type = type;
-    clks_fs_nodes[clks_fs_nodes_used].parent = parent;
-    clks_fs_nodes[clks_fs_nodes_used].reserved = 0U;
-    clks_fs_nodes[clks_fs_nodes_used].data = (type == CLKS_FS_NODE_FILE) ? data : CLKS_NULL;
-    clks_fs_nodes[clks_fs_nodes_used].size = (type == CLKS_FS_NODE_FILE) ? size : 0ULL;
-    clks_memcpy(clks_fs_nodes[clks_fs_nodes_used].path, internal_path, path_len + 1U);
+    clks_fs_nodes[(u16)slot].used = CLKS_TRUE;
+    clks_fs_nodes[(u16)slot].type = type;
+    clks_fs_nodes[(u16)slot].parent = parent;
+    clks_fs_nodes[(u16)slot].reserved = 0U;
+    clks_fs_nodes[(u16)slot].data = (type == CLKS_FS_NODE_FILE) ? data : CLKS_NULL;
+    clks_fs_nodes[(u16)slot].size = (type == CLKS_FS_NODE_FILE) ? size : 0ULL;
+    clks_memcpy(clks_fs_nodes[(u16)slot].path, internal_path, path_len + 1U);
 
-    clks_fs_nodes_used++;
-    return (i32)(clks_fs_nodes_used - 1U);
+    return slot;
 }
 
 static clks_bool clks_fs_ensure_root(void) {
@@ -372,6 +448,38 @@ static clks_bool clks_fs_ramdisk_visit(const struct clks_ramdisk_entry *entry, v
     return CLKS_TRUE;
 }
 
+static clks_bool clks_fs_build_file_payload(const void *data,
+                                            u64 size,
+                                            const void **out_data,
+                                            clks_bool *out_heap_owned) {
+    void *payload;
+
+    if (out_data == CLKS_NULL || out_heap_owned == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    if (size == 0ULL) {
+        *out_data = (const void *)clks_fs_empty_file_data;
+        *out_heap_owned = CLKS_FALSE;
+        return CLKS_TRUE;
+    }
+
+    if (data == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    payload = clks_kmalloc((usize)size);
+
+    if (payload == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    clks_memcpy(payload, data, (usize)size);
+    *out_data = (const void *)payload;
+    *out_heap_owned = CLKS_TRUE;
+    return CLKS_TRUE;
+}
+
 void clks_fs_init(void) {
     const struct limine_file *module;
     struct clks_fs_build_stats stats;
@@ -474,6 +582,10 @@ const void *clks_fs_read_all(const char *path, u64 *out_size) {
         *out_size = clks_fs_nodes[(u16)node_index].size;
     }
 
+    if (clks_fs_nodes[(u16)node_index].size == 0ULL) {
+        return (const void *)clks_fs_empty_file_data;
+    }
+
     return clks_fs_nodes[(u16)node_index].data;
 }
 
@@ -563,10 +675,244 @@ clks_bool clks_fs_get_child_name(const char *dir_path, u64 index, char *out_name
     return CLKS_FALSE;
 }
 
+clks_bool clks_fs_mkdir(const char *path) {
+    char internal[CLKS_FS_PATH_MAX];
+    i32 node_index;
+
+    if (clks_fs_ready == CLKS_FALSE || path == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_fs_normalize_external_path(path, internal, sizeof(internal)) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_fs_internal_in_temp_tree(internal) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    if (internal[0] == '\0') {
+        return CLKS_FALSE;
+    }
+
+    if (clks_fs_ensure_dir_hierarchy(internal) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    node_index = clks_fs_find_node_by_internal(internal);
+
+    if (node_index < 0) {
+        return CLKS_FALSE;
+    }
+
+    return (clks_fs_nodes[(u16)node_index].type == CLKS_FS_NODE_DIR) ? CLKS_TRUE : CLKS_FALSE;
+}
+
+clks_bool clks_fs_write_all(const char *path, const void *data, u64 size) {
+    char internal[CLKS_FS_PATH_MAX];
+    char parent[CLKS_FS_PATH_MAX];
+    const void *payload_data = CLKS_NULL;
+    clks_bool payload_heap_owned = CLKS_FALSE;
+    i32 parent_index;
+    i32 node_index;
+
+    if (clks_fs_ready == CLKS_FALSE || path == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_fs_normalize_external_path(path, internal, sizeof(internal)) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_fs_internal_is_temp_file_path(internal) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_fs_split_parent(internal, parent, sizeof(parent)) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_fs_internal_in_temp_tree(parent) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_fs_ensure_dir_hierarchy(parent) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    parent_index = clks_fs_find_node_by_internal(parent);
+
+    if (parent_index < 0 || clks_fs_nodes[(u16)parent_index].type != CLKS_FS_NODE_DIR) {
+        return CLKS_FALSE;
+    }
+
+    node_index = clks_fs_find_node_by_internal(internal);
+
+    if (node_index >= 0 && clks_fs_nodes[(u16)node_index].type != CLKS_FS_NODE_FILE) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_fs_build_file_payload(data, size, &payload_data, &payload_heap_owned) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    if (node_index >= 0) {
+        clks_fs_node_release_heap_data((u16)node_index);
+    }
+
+    node_index = clks_fs_create_or_update_node(
+        internal,
+        CLKS_FS_NODE_FILE,
+        (u16)parent_index,
+        payload_data,
+        size
+    );
+
+    if (node_index < 0) {
+        if (payload_heap_owned == CLKS_TRUE) {
+            clks_kfree((void *)payload_data);
+        }
+        return CLKS_FALSE;
+    }
+
+    clks_fs_node_set_heap_data((u16)node_index, payload_heap_owned);
+    return CLKS_TRUE;
+}
+
+clks_bool clks_fs_append(const char *path, const void *data, u64 size) {
+    char internal[CLKS_FS_PATH_MAX];
+    i32 node_index;
+    const void *old_data;
+    u64 old_size;
+    u64 new_size;
+    void *merged = CLKS_NULL;
+
+    if (clks_fs_ready == CLKS_FALSE || path == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    if (size > 0ULL && data == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_fs_normalize_external_path(path, internal, sizeof(internal)) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_fs_internal_is_temp_file_path(internal) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    node_index = clks_fs_find_node_by_internal(internal);
+
+    if (node_index < 0) {
+        return clks_fs_write_all(path, data, size);
+    }
+
+    if (clks_fs_nodes[(u16)node_index].type != CLKS_FS_NODE_FILE) {
+        return CLKS_FALSE;
+    }
+
+    old_data = clks_fs_nodes[(u16)node_index].data;
+    old_size = clks_fs_nodes[(u16)node_index].size;
+
+    if (old_size > (0xFFFFFFFFFFFFFFFFULL - size)) {
+        return CLKS_FALSE;
+    }
+
+    new_size = old_size + size;
+
+    if (new_size == 0ULL) {
+        return clks_fs_write_all(path, clks_fs_empty_file_data, 0ULL);
+    }
+
+    merged = clks_kmalloc((usize)new_size);
+
+    if (merged == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    if (old_size > 0ULL && old_data != CLKS_NULL) {
+        clks_memcpy(merged, old_data, (usize)old_size);
+    }
+
+    if (size > 0ULL) {
+        clks_memcpy((u8 *)merged + (usize)old_size, data, (usize)size);
+    }
+    if (clks_fs_write_all(path, merged, new_size) == CLKS_FALSE) {
+        clks_kfree(merged);
+        return CLKS_FALSE;
+    }
+
+    clks_kfree(merged);
+    return CLKS_TRUE;
+}
+
+clks_bool clks_fs_remove(const char *path) {
+    char internal[CLKS_FS_PATH_MAX];
+    i32 node_index;
+    u16 i;
+
+    if (clks_fs_ready == CLKS_FALSE || path == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_fs_normalize_external_path(path, internal, sizeof(internal)) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_fs_internal_in_temp_tree(internal) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_strcmp(internal, "temp") == 0) {
+        return CLKS_FALSE;
+    }
+
+    node_index = clks_fs_find_node_by_internal(internal);
+
+    if (node_index < 0) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_fs_nodes[(u16)node_index].type == CLKS_FS_NODE_DIR) {
+        for (i = 0U; i < clks_fs_nodes_used; i++) {
+            if (clks_fs_nodes[i].used == CLKS_FALSE) {
+                continue;
+            }
+
+            if (clks_fs_nodes[i].parent == (u16)node_index) {
+                return CLKS_FALSE;
+            }
+        }
+    }
+
+    clks_fs_node_release_heap_data((u16)node_index);
+
+    clks_fs_nodes[(u16)node_index].used = CLKS_FALSE;
+    clks_fs_nodes[(u16)node_index].type = CLKS_FS_NODE_FILE;
+    clks_fs_nodes[(u16)node_index].parent = 0U;
+    clks_fs_nodes[(u16)node_index].reserved = 0U;
+    clks_fs_nodes[(u16)node_index].data = CLKS_NULL;
+    clks_fs_nodes[(u16)node_index].size = 0ULL;
+    clks_fs_nodes[(u16)node_index].path[0] = '\0';
+
+    return CLKS_TRUE;
+}
+
 u64 clks_fs_node_count(void) {
+    u16 i;
+    u64 used = 0ULL;
+
     if (clks_fs_ready == CLKS_FALSE) {
         return 0ULL;
     }
 
-    return (u64)clks_fs_nodes_used;
+    for (i = 0U; i < clks_fs_nodes_used; i++) {
+        if (clks_fs_nodes[i].used == CLKS_TRUE) {
+            used++;
+        }
+    }
+
+    return used;
 }

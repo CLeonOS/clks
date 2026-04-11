@@ -19,6 +19,12 @@ clks_bool clks_fs_stat(const char *path, struct clks_fs_node_info *out_info);
 const void *clks_fs_read_all(const char *path, u64 *out_size);
 u64 clks_fs_count_children(const char *dir_path);
 clks_bool clks_fs_get_child_name(const char *dir_path, u64 index, char *out_name, usize out_name_size);
+
+clks_bool clks_fs_mkdir(const char *path);
+clks_bool clks_fs_write_all(const char *path, const void *data, u64 size);
+clks_bool clks_fs_append(const char *path, const void *data, u64 size);
+clks_bool clks_fs_remove(const char *path);
+
 u64 clks_fs_node_count(void);
 
 #endif
