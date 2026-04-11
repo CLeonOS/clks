@@ -4,16 +4,25 @@
 #include <clks/tty.h>
 #include <clks/types.h>
 
-#define CLKS_SC_ALT         0x38U
-#define CLKS_SC_LSHIFT      0x2AU
-#define CLKS_SC_RSHIFT      0x36U
-#define CLKS_SC_F1          0x3BU
-#define CLKS_SC_F2          0x3CU
-#define CLKS_SC_F3          0x3DU
-#define CLKS_SC_F4          0x3EU
-#define CLKS_SC_EXT_PREFIX  0xE0U
+#define CLKS_SC_ALT              0x38U
+#define CLKS_SC_LSHIFT           0x2AU
+#define CLKS_SC_RSHIFT           0x36U
+#define CLKS_SC_F1               0x3BU
+#define CLKS_SC_F2               0x3CU
+#define CLKS_SC_F3               0x3DU
+#define CLKS_SC_F4               0x3EU
+#define CLKS_SC_EXT_PREFIX       0xE0U
 
-#define CLKS_KBD_INPUT_CAP  256U
+#define CLKS_SC_EXT_HOME         0x47U
+#define CLKS_SC_EXT_UP           0x48U
+#define CLKS_SC_EXT_LEFT         0x4BU
+#define CLKS_SC_EXT_RIGHT        0x4DU
+#define CLKS_SC_EXT_END          0x4FU
+#define CLKS_SC_EXT_DOWN         0x50U
+#define CLKS_SC_EXT_DELETE       0x53U
+
+#define CLKS_KBD_INPUT_CAP       256U
+#define CLKS_KBD_DROP_LOG_EVERY  64ULL
 
 static const char clks_kbd_map[128] = {
     [2] = '1', [3] = '2', [4] = '3', [5] = '4', [6] = '5', [7] = '6', [8] = '7', [9] = '8',
@@ -48,14 +57,47 @@ static clks_bool clks_kbd_rshift_down = CLKS_FALSE;
 static clks_bool clks_kbd_e0_prefix = CLKS_FALSE;
 static u64 clks_kbd_hotkey_switches = 0ULL;
 
+static u64 clks_kbd_push_count = 0ULL;
+static u64 clks_kbd_pop_count = 0ULL;
+static u64 clks_kbd_drop_count = 0ULL;
+
+static char clks_keyboard_translate_ext_scancode(u8 code) {
+    switch (code) {
+        case CLKS_SC_EXT_LEFT:
+            return CLKS_KEY_LEFT;
+        case CLKS_SC_EXT_RIGHT:
+            return CLKS_KEY_RIGHT;
+        case CLKS_SC_EXT_UP:
+            return CLKS_KEY_UP;
+        case CLKS_SC_EXT_DOWN:
+            return CLKS_KEY_DOWN;
+        case CLKS_SC_EXT_HOME:
+            return CLKS_KEY_HOME;
+        case CLKS_SC_EXT_END:
+            return CLKS_KEY_END;
+        case CLKS_SC_EXT_DELETE:
+            return CLKS_KEY_DELETE;
+        default:
+            return '\0';
+    }
+}
+
 static clks_bool clks_keyboard_queue_push(char ch) {
     if (clks_kbd_input_count >= CLKS_KBD_INPUT_CAP) {
+        clks_kbd_drop_count++;
+
+        if ((clks_kbd_drop_count % CLKS_KBD_DROP_LOG_EVERY) == 1ULL) {
+            clks_log(CLKS_LOG_WARN, "KBD", "INPUT QUEUE OVERFLOW");
+            clks_log_hex(CLKS_LOG_WARN, "KBD", "DROPPED", clks_kbd_drop_count);
+        }
+
         return CLKS_FALSE;
     }
 
     clks_kbd_input_queue[clks_kbd_input_head] = ch;
     clks_kbd_input_head = (u16)((clks_kbd_input_head + 1U) % CLKS_KBD_INPUT_CAP);
     clks_kbd_input_count++;
+    clks_kbd_push_count++;
     return CLKS_TRUE;
 }
 
@@ -80,9 +122,13 @@ void clks_keyboard_init(void) {
     clks_kbd_rshift_down = CLKS_FALSE;
     clks_kbd_e0_prefix = CLKS_FALSE;
     clks_kbd_hotkey_switches = 0ULL;
+    clks_kbd_push_count = 0ULL;
+    clks_kbd_pop_count = 0ULL;
+    clks_kbd_drop_count = 0ULL;
 
     clks_log(CLKS_LOG_INFO, "KBD", "ALT+F1..F4 TTY HOTKEY ONLINE");
     clks_log(CLKS_LOG_INFO, "KBD", "PS2 INPUT QUEUE ONLINE");
+    clks_log_hex(CLKS_LOG_INFO, "KBD", "QUEUE_CAP", CLKS_KBD_INPUT_CAP);
 }
 
 void clks_keyboard_handle_scancode(u8 scancode) {
@@ -120,7 +166,15 @@ void clks_keyboard_handle_scancode(u8 scancode) {
     }
 
     if (clks_kbd_e0_prefix == CLKS_TRUE) {
+        char ext = clks_keyboard_translate_ext_scancode(code);
         clks_kbd_e0_prefix = CLKS_FALSE;
+
+        if (ext != '\0') {
+            if (clks_keyboard_queue_push(ext) == CLKS_TRUE) {
+                clks_shell_pump_input(1U);
+            }
+        }
+
         return;
     }
 
@@ -165,9 +219,22 @@ clks_bool clks_keyboard_pop_char(char *out_ch) {
     *out_ch = clks_kbd_input_queue[clks_kbd_input_tail];
     clks_kbd_input_tail = (u16)((clks_kbd_input_tail + 1U) % CLKS_KBD_INPUT_CAP);
     clks_kbd_input_count--;
+    clks_kbd_pop_count++;
     return CLKS_TRUE;
 }
 
 u64 clks_keyboard_buffered_count(void) {
     return (u64)clks_kbd_input_count;
+}
+
+u64 clks_keyboard_drop_count(void) {
+    return clks_kbd_drop_count;
+}
+
+u64 clks_keyboard_push_count(void) {
+    return clks_kbd_push_count;
+}
+
+u64 clks_keyboard_pop_count(void) {
+    return clks_kbd_pop_count;
 }

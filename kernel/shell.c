@@ -7,18 +7,29 @@
 #include <clks/tty.h>
 #include <clks/types.h>
 
-#define CLKS_SHELL_LINE_MAX      192U
-#define CLKS_SHELL_CMD_MAX        32U
-#define CLKS_SHELL_ARG_MAX       160U
-#define CLKS_SHELL_NAME_MAX       96U
-#define CLKS_SHELL_PATH_MAX      192U
-#define CLKS_SHELL_CAT_LIMIT     512U
-#define CLKS_SHELL_INPUT_BUDGET  128U
-#define CLKS_SHELL_CLEAR_LINES    56U
+#define CLKS_SHELL_LINE_MAX       192U
+#define CLKS_SHELL_CMD_MAX         32U
+#define CLKS_SHELL_ARG_MAX        160U
+#define CLKS_SHELL_NAME_MAX        96U
+#define CLKS_SHELL_PATH_MAX       192U
+#define CLKS_SHELL_CAT_LIMIT      512U
+#define CLKS_SHELL_INPUT_BUDGET   128U
+#define CLKS_SHELL_CLEAR_LINES     56U
+#define CLKS_SHELL_HISTORY_MAX     16U
+#define CLKS_SHELL_PROMPT_TEXT "cleonos> "
 
 static clks_bool clks_shell_ready = CLKS_FALSE;
 static char clks_shell_line[CLKS_SHELL_LINE_MAX];
 static usize clks_shell_line_len = 0U;
+static usize clks_shell_cursor = 0U;
+static usize clks_shell_rendered_len = 0U;
+
+static char clks_shell_history[CLKS_SHELL_HISTORY_MAX][CLKS_SHELL_LINE_MAX];
+static u32 clks_shell_history_count = 0U;
+static i32 clks_shell_history_nav = -1;
+static char clks_shell_nav_saved_line[CLKS_SHELL_LINE_MAX];
+static usize clks_shell_nav_saved_len = 0U;
+static usize clks_shell_nav_saved_cursor = 0U;
 
 static clks_bool clks_shell_is_space(char ch) {
     return (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') ? CLKS_TRUE : CLKS_FALSE;
@@ -50,12 +61,183 @@ static void clks_shell_writeln(const char *text) {
 }
 
 static void clks_shell_prompt(void) {
-    clks_shell_write("cleonos> ");
+    clks_shell_write(CLKS_SHELL_PROMPT_TEXT);
+}
+
+static void clks_shell_copy_line(char *dst, usize dst_size, const char *src) {
+    usize i = 0U;
+
+    if (dst == CLKS_NULL || src == CLKS_NULL || dst_size == 0U) {
+        return;
+    }
+
+    while (i + 1U < dst_size && src[i] != '\0') {
+        dst[i] = src[i];
+        i++;
+    }
+
+    dst[i] = '\0';
+}
+
+static void clks_shell_history_cancel_nav(void) {
+    clks_shell_history_nav = -1;
+    clks_shell_nav_saved_len = 0U;
+    clks_shell_nav_saved_cursor = 0U;
+    clks_shell_nav_saved_line[0] = '\0';
 }
 
 static void clks_shell_reset_line(void) {
     clks_shell_line_len = 0U;
+    clks_shell_cursor = 0U;
+    clks_shell_rendered_len = 0U;
     clks_shell_line[0] = '\0';
+}
+
+static void clks_shell_load_line(const char *line) {
+    if (line == CLKS_NULL) {
+        clks_shell_reset_line();
+        return;
+    }
+
+    clks_shell_copy_line(clks_shell_line, sizeof(clks_shell_line), line);
+    clks_shell_line_len = clks_strlen(clks_shell_line);
+    clks_shell_cursor = clks_shell_line_len;
+}
+
+static void clks_shell_render_line(void) {
+    usize i;
+
+    if (clks_shell_ready == CLKS_FALSE) {
+        return;
+    }
+
+    clks_shell_write_char('\r');
+    clks_shell_prompt();
+
+    for (i = 0U; i < clks_shell_line_len; i++) {
+        clks_shell_write_char(clks_shell_line[i]);
+    }
+
+    for (i = clks_shell_line_len; i < clks_shell_rendered_len; i++) {
+        clks_shell_write_char(' ');
+    }
+
+    clks_shell_write_char('\r');
+    clks_shell_prompt();
+
+    for (i = 0U; i < clks_shell_cursor; i++) {
+        clks_shell_write_char(clks_shell_line[i]);
+    }
+
+    clks_shell_rendered_len = clks_shell_line_len;
+}
+
+static clks_bool clks_shell_line_has_non_space(const char *line) {
+    usize i = 0U;
+
+    if (line == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    while (line[i] != '\0') {
+        if (clks_shell_is_space(line[i]) == CLKS_FALSE) {
+            return CLKS_TRUE;
+        }
+
+        i++;
+    }
+
+    return CLKS_FALSE;
+}
+
+static void clks_shell_history_push(const char *line) {
+    if (clks_shell_line_has_non_space(line) == CLKS_FALSE) {
+        clks_shell_history_cancel_nav();
+        return;
+    }
+
+    if (clks_shell_history_count > 0U &&
+        clks_strcmp(clks_shell_history[clks_shell_history_count - 1U], line) == 0) {
+        clks_shell_history_cancel_nav();
+        return;
+    }
+
+    if (clks_shell_history_count < CLKS_SHELL_HISTORY_MAX) {
+        clks_shell_copy_line(
+            clks_shell_history[clks_shell_history_count],
+            sizeof(clks_shell_history[clks_shell_history_count]),
+            line
+        );
+        clks_shell_history_count++;
+    } else {
+        u32 i;
+
+        for (i = 1U; i < CLKS_SHELL_HISTORY_MAX; i++) {
+            clks_memcpy(
+                clks_shell_history[i - 1U],
+                clks_shell_history[i],
+                CLKS_SHELL_LINE_MAX
+            );
+        }
+
+        clks_shell_copy_line(
+            clks_shell_history[CLKS_SHELL_HISTORY_MAX - 1U],
+            sizeof(clks_shell_history[CLKS_SHELL_HISTORY_MAX - 1U]),
+            line
+        );
+    }
+
+    clks_shell_history_cancel_nav();
+}
+
+static void clks_shell_history_apply_current(void) {
+    if (clks_shell_history_nav >= 0) {
+        clks_shell_load_line(clks_shell_history[(u32)clks_shell_history_nav]);
+    } else {
+        clks_shell_copy_line(clks_shell_line, sizeof(clks_shell_line), clks_shell_nav_saved_line);
+        clks_shell_line_len = clks_shell_nav_saved_len;
+        if (clks_shell_line_len > CLKS_SHELL_LINE_MAX - 1U) {
+            clks_shell_line_len = CLKS_SHELL_LINE_MAX - 1U;
+            clks_shell_line[clks_shell_line_len] = '\0';
+        }
+        clks_shell_cursor = clks_shell_nav_saved_cursor;
+        if (clks_shell_cursor > clks_shell_line_len) {
+            clks_shell_cursor = clks_shell_line_len;
+        }
+    }
+
+    clks_shell_render_line();
+}
+
+static void clks_shell_history_up(void) {
+    if (clks_shell_history_count == 0U) {
+        return;
+    }
+
+    if (clks_shell_history_nav < 0) {
+        clks_shell_copy_line(clks_shell_nav_saved_line, sizeof(clks_shell_nav_saved_line), clks_shell_line);
+        clks_shell_nav_saved_len = clks_shell_line_len;
+        clks_shell_nav_saved_cursor = clks_shell_cursor;
+        clks_shell_history_nav = (i32)clks_shell_history_count - 1;
+    } else if (clks_shell_history_nav > 0) {
+        clks_shell_history_nav--;
+    }
+
+    clks_shell_history_apply_current();
+}
+
+static void clks_shell_history_down(void) {
+    if (clks_shell_history_nav < 0) {
+        return;
+    }
+
+    if ((u32)clks_shell_history_nav + 1U < clks_shell_history_count) {
+        clks_shell_history_nav++;
+    } else {
+        clks_shell_history_nav = -1;
+    }
+
+    clks_shell_history_apply_current();
 }
 
 static void clks_shell_trim(char *line) {
@@ -215,6 +397,8 @@ static void clks_shell_cmd_help(void) {
     clks_shell_writeln("  cat <file>");
     clks_shell_writeln("  exec <path|name>");
     clks_shell_writeln("  clear");
+    clks_shell_writeln("  kbdstat");
+    clks_shell_writeln("edit keys: Left/Right, Home/End, Up/Down history");
 }
 
 static void clks_shell_cmd_ls(const char *arg) {
@@ -309,6 +493,14 @@ static void clks_shell_cmd_clear(void) {
     }
 }
 
+static void clks_shell_cmd_kbdstat(void) {
+    clks_shell_writeln("kbd stats emitted to kernel log");
+    clks_log_hex(CLKS_LOG_INFO, "KBD", "BUFFERED", clks_keyboard_buffered_count());
+    clks_log_hex(CLKS_LOG_INFO, "KBD", "PUSHED", clks_keyboard_push_count());
+    clks_log_hex(CLKS_LOG_INFO, "KBD", "POPPED", clks_keyboard_pop_count());
+    clks_log_hex(CLKS_LOG_INFO, "KBD", "DROPPED", clks_keyboard_drop_count());
+}
+
 static void clks_shell_execute_line(const char *line) {
     char line_buf[CLKS_SHELL_LINE_MAX];
     char cmd[CLKS_SHELL_CMD_MAX];
@@ -358,6 +550,11 @@ static void clks_shell_execute_line(const char *line) {
         return;
     }
 
+    if (clks_shell_streq(cmd, "kbdstat") == CLKS_TRUE) {
+        clks_shell_cmd_kbdstat();
+        return;
+    }
+
     clks_shell_writeln("unknown command; type 'help'");
 }
 
@@ -369,17 +566,85 @@ static void clks_shell_handle_char(char ch) {
     if (ch == '\n') {
         clks_shell_write_char('\n');
         clks_shell_line[clks_shell_line_len] = '\0';
+        clks_shell_history_push(clks_shell_line);
         clks_shell_execute_line(clks_shell_line);
         clks_shell_reset_line();
+        clks_shell_history_cancel_nav();
         clks_shell_prompt();
         return;
     }
 
-    if (ch == '\b' || ch == 127) {
-        if (clks_shell_line_len > 0U) {
+    if (ch == CLKS_KEY_UP) {
+        clks_shell_history_up();
+        return;
+    }
+
+    if (ch == CLKS_KEY_DOWN) {
+        clks_shell_history_down();
+        return;
+    }
+
+    if (ch == CLKS_KEY_LEFT) {
+        if (clks_shell_cursor > 0U) {
+            clks_shell_cursor--;
+            clks_shell_render_line();
+        }
+        return;
+    }
+
+    if (ch == CLKS_KEY_RIGHT) {
+        if (clks_shell_cursor < clks_shell_line_len) {
+            clks_shell_cursor++;
+            clks_shell_render_line();
+        }
+        return;
+    }
+
+    if (ch == CLKS_KEY_HOME) {
+        if (clks_shell_cursor != 0U) {
+            clks_shell_cursor = 0U;
+            clks_shell_render_line();
+        }
+        return;
+    }
+
+    if (ch == CLKS_KEY_END) {
+        if (clks_shell_cursor != clks_shell_line_len) {
+            clks_shell_cursor = clks_shell_line_len;
+            clks_shell_render_line();
+        }
+        return;
+    }
+
+    if (ch == '\b') {
+        if (clks_shell_cursor > 0U && clks_shell_line_len > 0U) {
+            usize i;
+
+            clks_shell_history_cancel_nav();
+
+            for (i = clks_shell_cursor - 1U; i < clks_shell_line_len; i++) {
+                clks_shell_line[i] = clks_shell_line[i + 1U];
+            }
+
             clks_shell_line_len--;
-            clks_shell_line[clks_shell_line_len] = '\0';
-            clks_shell_write_char('\b');
+            clks_shell_cursor--;
+            clks_shell_render_line();
+        }
+        return;
+    }
+
+    if (ch == CLKS_KEY_DELETE) {
+        if (clks_shell_cursor < clks_shell_line_len) {
+            usize i;
+
+            clks_shell_history_cancel_nav();
+
+            for (i = clks_shell_cursor; i < clks_shell_line_len; i++) {
+                clks_shell_line[i] = clks_shell_line[i + 1U];
+            }
+
+            clks_shell_line_len--;
+            clks_shell_render_line();
         }
         return;
     }
@@ -396,13 +661,35 @@ static void clks_shell_handle_char(char ch) {
         return;
     }
 
-    clks_shell_line[clks_shell_line_len++] = ch;
-    clks_shell_line[clks_shell_line_len] = '\0';
-    clks_shell_write_char(ch);
-}
+    clks_shell_history_cancel_nav();
 
+    if (clks_shell_cursor == clks_shell_line_len) {
+        clks_shell_line[clks_shell_line_len++] = ch;
+        clks_shell_line[clks_shell_line_len] = '\0';
+        clks_shell_cursor = clks_shell_line_len;
+        clks_shell_write_char(ch);
+        clks_shell_rendered_len = clks_shell_line_len;
+        return;
+    }
+
+    {
+        usize i;
+
+        for (i = clks_shell_line_len; i > clks_shell_cursor; i--) {
+            clks_shell_line[i] = clks_shell_line[i - 1U];
+        }
+
+        clks_shell_line[clks_shell_cursor] = ch;
+        clks_shell_line_len++;
+        clks_shell_cursor++;
+        clks_shell_line[clks_shell_line_len] = '\0';
+        clks_shell_render_line();
+    }
+}
 void clks_shell_init(void) {
     clks_shell_reset_line();
+    clks_shell_history_count = 0U;
+    clks_shell_history_cancel_nav();
 
     if (clks_tty_ready() == CLKS_FALSE) {
         clks_shell_ready = CLKS_FALSE;
