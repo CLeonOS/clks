@@ -13,4 +13,7 @@ enum clks_log_level {
 void clks_log(enum clks_log_level level, const char *tag, const char *message);
 void clks_log_hex(enum clks_log_level level, const char *tag, const char *label, u64 value);
 
+u64 clks_log_journal_count(void);
+clks_bool clks_log_journal_read(u64 index_from_oldest, char *out_line, usize out_line_size);
+
 #endif

@@ -1,7 +1,10 @@
 #include <clks/exec.h>
 #include <clks/fs.h>
+#include <clks/heap.h>
 #include <clks/keyboard.h>
 #include <clks/log.h>
+#include <clks/pmm.h>
+#include <clks/scheduler.h>
 #include <clks/shell.h>
 #include <clks/string.h>
 #include <clks/tty.h>
@@ -13,6 +16,8 @@
 #define CLKS_SHELL_NAME_MAX        96U
 #define CLKS_SHELL_PATH_MAX       192U
 #define CLKS_SHELL_CAT_LIMIT      512U
+#define CLKS_SHELL_DMESG_LINE_MAX  256U
+#define CLKS_SHELL_DMESG_DEFAULT    64ULL
 #define CLKS_SHELL_INPUT_BUDGET   128U
 #define CLKS_SHELL_CLEAR_LINES     56U
 #define CLKS_SHELL_HISTORY_MAX     16U
@@ -31,6 +36,11 @@ static i32 clks_shell_history_nav = -1;
 static char clks_shell_nav_saved_line[CLKS_SHELL_LINE_MAX];
 static usize clks_shell_nav_saved_len = 0U;
 static usize clks_shell_nav_saved_cursor = 0U;
+
+static u64 clks_shell_cmd_total = 0ULL;
+static u64 clks_shell_cmd_ok = 0ULL;
+static u64 clks_shell_cmd_fail = 0ULL;
+static u64 clks_shell_cmd_unknown = 0ULL;
 
 static clks_bool clks_shell_is_space(char ch) {
     return (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') ? CLKS_TRUE : CLKS_FALSE;
@@ -551,7 +561,122 @@ static clks_bool clks_shell_split_first_and_rest(const char *arg,
     return CLKS_TRUE;
 }
 
-static void clks_shell_cmd_help(void) {
+static clks_bool clks_shell_split_two_args(const char *arg,
+                                           char *out_first,
+                                           usize out_first_size,
+                                           char *out_second,
+                                           usize out_second_size) {
+    usize i = 0U;
+    usize p = 0U;
+
+    if (arg == CLKS_NULL ||
+        out_first == CLKS_NULL || out_first_size == 0U ||
+        out_second == CLKS_NULL || out_second_size == 0U) {
+        return CLKS_FALSE;
+    }
+
+    out_first[0] = '\0';
+    out_second[0] = '\0';
+
+    while (arg[i] != '\0' && clks_shell_is_space(arg[i]) == CLKS_TRUE) {
+        i++;
+    }
+
+    if (arg[i] == '\0') {
+        return CLKS_FALSE;
+    }
+
+    while (arg[i] != '\0' && clks_shell_is_space(arg[i]) == CLKS_FALSE) {
+        if (p + 1U < out_first_size) {
+            out_first[p++] = arg[i];
+        }
+        i++;
+    }
+
+    out_first[p] = '\0';
+
+    while (arg[i] != '\0' && clks_shell_is_space(arg[i]) == CLKS_TRUE) {
+        i++;
+    }
+
+    if (arg[i] == '\0') {
+        return CLKS_FALSE;
+    }
+
+    p = 0U;
+    while (arg[i] != '\0' && clks_shell_is_space(arg[i]) == CLKS_FALSE) {
+        if (p + 1U < out_second_size) {
+            out_second[p++] = arg[i];
+        }
+        i++;
+    }
+
+    out_second[p] = '\0';
+
+    return (out_first[0] != '\0' && out_second[0] != '\0') ? CLKS_TRUE : CLKS_FALSE;
+}
+
+static clks_bool clks_shell_parse_u64_dec(const char *text, u64 *out_value) {
+    u64 value = 0ULL;
+    usize i = 0U;
+
+    if (text == CLKS_NULL || out_value == CLKS_NULL || text[0] == '\0') {
+        return CLKS_FALSE;
+    }
+
+    while (text[i] != '\0') {
+        u64 digit;
+
+        if (text[i] < '0' || text[i] > '9') {
+            return CLKS_FALSE;
+        }
+
+        digit = (u64)(text[i] - '0');
+
+        if (value > ((0xFFFFFFFFFFFFFFFFULL - digit) / 10ULL)) {
+            return CLKS_FALSE;
+        }
+
+        value = (value * 10ULL) + digit;
+        i++;
+    }
+
+    *out_value = value;
+    return CLKS_TRUE;
+}
+
+static clks_bool clks_shell_path_is_under_temp(const char *path) {
+    if (path == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    if (path[0] != '/' || path[1] != 't' || path[2] != 'e' || path[3] != 'm' || path[4] != 'p') {
+        return CLKS_FALSE;
+    }
+
+    return (path[5] == '\0' || path[5] == '/') ? CLKS_TRUE : CLKS_FALSE;
+}
+
+static void clks_shell_write_hex_u64(u64 value) {
+    int nibble;
+
+    clks_shell_write("0X");
+
+    for (nibble = 15; nibble >= 0; nibble--) {
+        u8 current = (u8)((value >> (nibble * 4)) & 0x0FULL);
+        char out = (current < 10U) ? (char)('0' + current) : (char)('A' + (current - 10U));
+        clks_shell_write_char(out);
+    }
+}
+
+static void clks_shell_print_kv_hex(const char *label, u64 value) {
+    clks_shell_write(label);
+    clks_shell_write(": ");
+    clks_shell_write_hex_u64(value);
+    clks_shell_write_char('\n');
+}
+
+static clks_bool clks_shell_cmd_help(void) {
     clks_shell_writeln("commands:");
     clks_shell_writeln("  help");
     clks_shell_writeln("  ls [dir]");
@@ -562,14 +687,20 @@ static void clks_shell_cmd_help(void) {
     clks_shell_writeln("  touch <file>     (/temp only)");
     clks_shell_writeln("  write <file> <text>   (/temp only)");
     clks_shell_writeln("  append <file> <text>  (/temp only)");
+    clks_shell_writeln("  cp <src> <dst>   (dst /temp only)");
+    clks_shell_writeln("  mv <src> <dst>   (/temp only)");
     clks_shell_writeln("  rm <path>        (/temp only)");
+    clks_shell_writeln("  memstat / fsstat / taskstat");
+    clks_shell_writeln("  dmesg [n]");
+    clks_shell_writeln("  shstat");
     clks_shell_writeln("  exec <path|name>");
     clks_shell_writeln("  clear");
     clks_shell_writeln("  kbdstat");
     clks_shell_writeln("edit keys: Left/Right, Home/End, Up/Down history");
+    return CLKS_TRUE;
 }
 
-static void clks_shell_cmd_ls(const char *arg) {
+static clks_bool clks_shell_cmd_ls(const char *arg) {
     struct clks_fs_node_info info;
     char path[CLKS_SHELL_PATH_MAX];
     const char *target = arg;
@@ -582,19 +713,19 @@ static void clks_shell_cmd_ls(const char *arg) {
 
     if (clks_shell_resolve_path(target, path, sizeof(path)) == CLKS_FALSE) {
         clks_shell_writeln("ls: invalid path");
-        return;
+        return CLKS_FALSE;
     }
 
     if (clks_fs_stat(path, &info) == CLKS_FALSE || info.type != CLKS_FS_NODE_DIR) {
         clks_shell_writeln("ls: directory not found");
-        return;
+        return CLKS_FALSE;
     }
 
     count = clks_fs_count_children(path);
 
     if (count == 0ULL) {
         clks_shell_writeln("(empty)");
-        return;
+        return CLKS_TRUE;
     }
 
     for (i = 0ULL; i < count; i++) {
@@ -607,9 +738,11 @@ static void clks_shell_cmd_ls(const char *arg) {
 
         clks_shell_writeln(name);
     }
+
+    return CLKS_TRUE;
 }
 
-static void clks_shell_cmd_cat(const char *arg) {
+static clks_bool clks_shell_cmd_cat(const char *arg) {
     const void *data;
     u64 size = 0ULL;
     u64 copy_len;
@@ -618,24 +751,24 @@ static void clks_shell_cmd_cat(const char *arg) {
 
     if (arg == CLKS_NULL || arg[0] == '\0') {
         clks_shell_writeln("cat: file path required");
-        return;
+        return CLKS_FALSE;
     }
 
     if (clks_shell_resolve_path(arg, path, sizeof(path)) == CLKS_FALSE) {
         clks_shell_writeln("cat: invalid path");
-        return;
+        return CLKS_FALSE;
     }
 
     data = clks_fs_read_all(path, &size);
 
     if (data == CLKS_NULL) {
         clks_shell_writeln("cat: file not found");
-        return;
+        return CLKS_FALSE;
     }
 
     if (size == 0ULL) {
         clks_shell_writeln("(empty file)");
-        return;
+        return CLKS_TRUE;
     }
 
     copy_len = (size < CLKS_SHELL_CAT_LIMIT) ? size : CLKS_SHELL_CAT_LIMIT;
@@ -647,13 +780,16 @@ static void clks_shell_cmd_cat(const char *arg) {
     if (size > copy_len) {
         clks_shell_writeln("[cat] output truncated");
     }
+
+    return CLKS_TRUE;
 }
 
-static void clks_shell_cmd_pwd(void) {
+static clks_bool clks_shell_cmd_pwd(void) {
     clks_shell_writeln(clks_shell_cwd);
+    return CLKS_TRUE;
 }
 
-static void clks_shell_cmd_cd(const char *arg) {
+static clks_bool clks_shell_cmd_cd(const char *arg) {
     struct clks_fs_node_info info;
     char path[CLKS_SHELL_PATH_MAX];
     const char *target = arg;
@@ -664,55 +800,72 @@ static void clks_shell_cmd_cd(const char *arg) {
 
     if (clks_shell_resolve_path(target, path, sizeof(path)) == CLKS_FALSE) {
         clks_shell_writeln("cd: invalid path");
-        return;
+        return CLKS_FALSE;
     }
 
     if (clks_fs_stat(path, &info) == CLKS_FALSE || info.type != CLKS_FS_NODE_DIR) {
         clks_shell_writeln("cd: directory not found");
-        return;
+        return CLKS_FALSE;
     }
 
     clks_shell_copy_line(clks_shell_cwd, sizeof(clks_shell_cwd), path);
+    return CLKS_TRUE;
 }
 
-static void clks_shell_cmd_mkdir(const char *arg) {
+static clks_bool clks_shell_cmd_mkdir(const char *arg) {
     char path[CLKS_SHELL_PATH_MAX];
 
     if (arg == CLKS_NULL || arg[0] == '\0') {
         clks_shell_writeln("mkdir: directory path required");
-        return;
+        return CLKS_FALSE;
     }
 
     if (clks_shell_resolve_path(arg, path, sizeof(path)) == CLKS_FALSE) {
         clks_shell_writeln("mkdir: invalid path");
-        return;
+        return CLKS_FALSE;
+    }
+
+    if (clks_shell_path_is_under_temp(path) == CLKS_FALSE) {
+        clks_shell_writeln("mkdir: target must be under /temp");
+        return CLKS_FALSE;
     }
 
     if (clks_fs_mkdir(path) == CLKS_FALSE) {
-        clks_shell_writeln("mkdir: failed (only /temp writable)");
+        clks_shell_writeln("mkdir: failed");
+        return CLKS_FALSE;
     }
+
+    return CLKS_TRUE;
 }
 
-static void clks_shell_cmd_touch(const char *arg) {
+static clks_bool clks_shell_cmd_touch(const char *arg) {
     static const char empty_data[1] = {'\0'};
     char path[CLKS_SHELL_PATH_MAX];
 
     if (arg == CLKS_NULL || arg[0] == '\0') {
         clks_shell_writeln("touch: file path required");
-        return;
+        return CLKS_FALSE;
     }
 
     if (clks_shell_resolve_path(arg, path, sizeof(path)) == CLKS_FALSE) {
         clks_shell_writeln("touch: invalid path");
-        return;
+        return CLKS_FALSE;
+    }
+
+    if (clks_shell_path_is_under_temp(path) == CLKS_FALSE) {
+        clks_shell_writeln("touch: target must be under /temp");
+        return CLKS_FALSE;
     }
 
     if (clks_fs_write_all(path, empty_data, 0ULL) == CLKS_FALSE) {
-        clks_shell_writeln("touch: failed (only /temp writable)");
+        clks_shell_writeln("touch: failed");
+        return CLKS_FALSE;
     }
+
+    return CLKS_TRUE;
 }
 
-static void clks_shell_cmd_write(const char *arg) {
+static clks_bool clks_shell_cmd_write(const char *arg) {
     char path_arg[CLKS_SHELL_PATH_MAX];
     char abs_path[CLKS_SHELL_PATH_MAX];
     const char *payload;
@@ -720,27 +873,35 @@ static void clks_shell_cmd_write(const char *arg) {
 
     if (arg == CLKS_NULL || arg[0] == '\0') {
         clks_shell_writeln("write: usage write <file> <text>");
-        return;
+        return CLKS_FALSE;
     }
 
     if (clks_shell_split_first_and_rest(arg, path_arg, sizeof(path_arg), &payload) == CLKS_FALSE) {
         clks_shell_writeln("write: usage write <file> <text>");
-        return;
+        return CLKS_FALSE;
     }
 
     if (clks_shell_resolve_path(path_arg, abs_path, sizeof(abs_path)) == CLKS_FALSE) {
         clks_shell_writeln("write: invalid path");
-        return;
+        return CLKS_FALSE;
+    }
+
+    if (clks_shell_path_is_under_temp(abs_path) == CLKS_FALSE) {
+        clks_shell_writeln("write: target must be under /temp");
+        return CLKS_FALSE;
     }
 
     payload_len = clks_strlen(payload);
 
     if (clks_fs_write_all(abs_path, payload, payload_len) == CLKS_FALSE) {
-        clks_shell_writeln("write: failed (only /temp writable)");
+        clks_shell_writeln("write: failed");
+        return CLKS_FALSE;
     }
+
+    return CLKS_TRUE;
 }
 
-static void clks_shell_cmd_append(const char *arg) {
+static clks_bool clks_shell_cmd_append(const char *arg) {
     char path_arg[CLKS_SHELL_PATH_MAX];
     char abs_path[CLKS_SHELL_PATH_MAX];
     const char *payload;
@@ -748,74 +909,296 @@ static void clks_shell_cmd_append(const char *arg) {
 
     if (arg == CLKS_NULL || arg[0] == '\0') {
         clks_shell_writeln("append: usage append <file> <text>");
-        return;
+        return CLKS_FALSE;
     }
 
     if (clks_shell_split_first_and_rest(arg, path_arg, sizeof(path_arg), &payload) == CLKS_FALSE) {
         clks_shell_writeln("append: usage append <file> <text>");
-        return;
+        return CLKS_FALSE;
     }
 
     if (clks_shell_resolve_path(path_arg, abs_path, sizeof(abs_path)) == CLKS_FALSE) {
         clks_shell_writeln("append: invalid path");
-        return;
+        return CLKS_FALSE;
+    }
+
+    if (clks_shell_path_is_under_temp(abs_path) == CLKS_FALSE) {
+        clks_shell_writeln("append: target must be under /temp");
+        return CLKS_FALSE;
     }
 
     payload_len = clks_strlen(payload);
 
     if (clks_fs_append(abs_path, payload, payload_len) == CLKS_FALSE) {
-        clks_shell_writeln("append: failed (only /temp writable)");
+        clks_shell_writeln("append: failed");
+        return CLKS_FALSE;
     }
+
+    return CLKS_TRUE;
 }
 
-static void clks_shell_cmd_rm(const char *arg) {
+static clks_bool clks_shell_cmd_cp(const char *arg) {
+    char src_arg[CLKS_SHELL_PATH_MAX];
+    char dst_arg[CLKS_SHELL_PATH_MAX];
+    char src_path[CLKS_SHELL_PATH_MAX];
+    char dst_path[CLKS_SHELL_PATH_MAX];
+    struct clks_fs_node_info info;
+    const void *data;
+    u64 size = 0ULL;
+
+    if (arg == CLKS_NULL || arg[0] == '\0') {
+        clks_shell_writeln("cp: usage cp <src> <dst>");
+        return CLKS_FALSE;
+    }
+
+    if (clks_shell_split_two_args(arg, src_arg, sizeof(src_arg), dst_arg, sizeof(dst_arg)) == CLKS_FALSE) {
+        clks_shell_writeln("cp: usage cp <src> <dst>");
+        return CLKS_FALSE;
+    }
+
+    if (clks_shell_resolve_path(src_arg, src_path, sizeof(src_path)) == CLKS_FALSE ||
+        clks_shell_resolve_path(dst_arg, dst_path, sizeof(dst_path)) == CLKS_FALSE) {
+        clks_shell_writeln("cp: invalid path");
+        return CLKS_FALSE;
+    }
+
+    if (clks_shell_path_is_under_temp(dst_path) == CLKS_FALSE) {
+        clks_shell_writeln("cp: destination must be under /temp");
+        return CLKS_FALSE;
+    }
+
+    if (clks_fs_stat(src_path, &info) == CLKS_FALSE || info.type != CLKS_FS_NODE_FILE) {
+        clks_shell_writeln("cp: source file not found");
+        return CLKS_FALSE;
+    }
+
+    data = clks_fs_read_all(src_path, &size);
+
+    if (data == CLKS_NULL) {
+        clks_shell_writeln("cp: failed to read source");
+        return CLKS_FALSE;
+    }
+
+    if (clks_fs_write_all(dst_path, data, size) == CLKS_FALSE) {
+        clks_shell_writeln("cp: failed to write destination");
+        return CLKS_FALSE;
+    }
+
+    return CLKS_TRUE;
+}
+
+static clks_bool clks_shell_cmd_mv(const char *arg) {
+    char src_arg[CLKS_SHELL_PATH_MAX];
+    char dst_arg[CLKS_SHELL_PATH_MAX];
+    char src_path[CLKS_SHELL_PATH_MAX];
+    char dst_path[CLKS_SHELL_PATH_MAX];
+
+    if (arg == CLKS_NULL || arg[0] == '\0') {
+        clks_shell_writeln("mv: usage mv <src> <dst>");
+        return CLKS_FALSE;
+    }
+
+    if (clks_shell_split_two_args(arg, src_arg, sizeof(src_arg), dst_arg, sizeof(dst_arg)) == CLKS_FALSE) {
+        clks_shell_writeln("mv: usage mv <src> <dst>");
+        return CLKS_FALSE;
+    }
+
+    if (clks_shell_resolve_path(src_arg, src_path, sizeof(src_path)) == CLKS_FALSE ||
+        clks_shell_resolve_path(dst_arg, dst_path, sizeof(dst_path)) == CLKS_FALSE) {
+        clks_shell_writeln("mv: invalid path");
+        return CLKS_FALSE;
+    }
+
+    if (clks_shell_path_is_under_temp(src_path) == CLKS_FALSE || clks_shell_path_is_under_temp(dst_path) == CLKS_FALSE) {
+        clks_shell_writeln("mv: source and destination must be under /temp");
+        return CLKS_FALSE;
+    }
+
+    if (clks_shell_cmd_cp(arg) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_fs_remove(src_path) == CLKS_FALSE) {
+        clks_shell_writeln("mv: source remove failed");
+        return CLKS_FALSE;
+    }
+
+    return CLKS_TRUE;
+}
+
+static clks_bool clks_shell_cmd_rm(const char *arg) {
     char path[CLKS_SHELL_PATH_MAX];
 
     if (arg == CLKS_NULL || arg[0] == '\0') {
         clks_shell_writeln("rm: path required");
-        return;
+        return CLKS_FALSE;
     }
 
     if (clks_shell_resolve_path(arg, path, sizeof(path)) == CLKS_FALSE) {
         clks_shell_writeln("rm: invalid path");
-        return;
+        return CLKS_FALSE;
+    }
+
+    if (clks_shell_path_is_under_temp(path) == CLKS_FALSE) {
+        clks_shell_writeln("rm: target must be under /temp");
+        return CLKS_FALSE;
     }
 
     if (clks_fs_remove(path) == CLKS_FALSE) {
-        clks_shell_writeln("rm: failed (only /temp writable; dir must be empty)");
+        clks_shell_writeln("rm: failed (directory must be empty)");
+        return CLKS_FALSE;
     }
+
+    return CLKS_TRUE;
 }
 
-static void clks_shell_cmd_exec(const char *arg) {
+static clks_bool clks_shell_cmd_exec(const char *arg) {
     char path[CLKS_SHELL_PATH_MAX];
     u64 status = (u64)-1;
 
     if (clks_shell_resolve_exec_path(arg, path, sizeof(path)) == CLKS_FALSE) {
         clks_shell_writeln("exec: invalid target");
-        return;
+        return CLKS_FALSE;
     }
 
     if (clks_exec_run_path(path, &status) == CLKS_TRUE && status == 0ULL) {
         clks_shell_writeln("exec: request accepted");
-    } else {
-        clks_shell_writeln("exec: request failed");
+        return CLKS_TRUE;
     }
+
+    clks_shell_writeln("exec: request failed");
+    return CLKS_FALSE;
 }
 
-static void clks_shell_cmd_clear(void) {
+static clks_bool clks_shell_cmd_clear(void) {
     u32 i;
 
     for (i = 0U; i < CLKS_SHELL_CLEAR_LINES; i++) {
         clks_shell_write_char('\n');
     }
+
+    return CLKS_TRUE;
 }
 
-static void clks_shell_cmd_kbdstat(void) {
+static clks_bool clks_shell_cmd_kbdstat(void) {
     clks_shell_writeln("kbd stats emitted to kernel log");
     clks_log_hex(CLKS_LOG_INFO, "KBD", "BUFFERED", clks_keyboard_buffered_count());
     clks_log_hex(CLKS_LOG_INFO, "KBD", "PUSHED", clks_keyboard_push_count());
     clks_log_hex(CLKS_LOG_INFO, "KBD", "POPPED", clks_keyboard_pop_count());
     clks_log_hex(CLKS_LOG_INFO, "KBD", "DROPPED", clks_keyboard_drop_count());
+    return CLKS_TRUE;
+}
+
+static clks_bool clks_shell_cmd_memstat(void) {
+    struct clks_pmm_stats pmm_stats = clks_pmm_get_stats();
+    struct clks_heap_stats heap_stats = clks_heap_get_stats();
+
+    clks_shell_writeln("memstat:");
+    clks_shell_print_kv_hex("  PMM_MANAGED_PAGES", pmm_stats.managed_pages);
+    clks_shell_print_kv_hex("  PMM_FREE_PAGES", pmm_stats.free_pages);
+    clks_shell_print_kv_hex("  PMM_USED_PAGES", pmm_stats.used_pages);
+    clks_shell_print_kv_hex("  PMM_DROPPED_PAGES", pmm_stats.dropped_pages);
+    clks_shell_print_kv_hex("  HEAP_TOTAL_BYTES", (u64)heap_stats.total_bytes);
+    clks_shell_print_kv_hex("  HEAP_USED_BYTES", (u64)heap_stats.used_bytes);
+    clks_shell_print_kv_hex("  HEAP_FREE_BYTES", (u64)heap_stats.free_bytes);
+    clks_shell_print_kv_hex("  HEAP_ALLOC_COUNT", heap_stats.alloc_count);
+    clks_shell_print_kv_hex("  HEAP_FREE_COUNT", heap_stats.free_count);
+
+    return CLKS_TRUE;
+}
+
+static clks_bool clks_shell_cmd_fsstat(void) {
+    clks_shell_writeln("fsstat:");
+    clks_shell_print_kv_hex("  NODE_COUNT", clks_fs_node_count());
+    clks_shell_print_kv_hex("  ROOT_CHILDREN", clks_fs_count_children("/"));
+    clks_shell_print_kv_hex("  SYSTEM_CHILDREN", clks_fs_count_children("/system"));
+    clks_shell_print_kv_hex("  SHELL_CHILDREN", clks_fs_count_children("/shell"));
+    clks_shell_print_kv_hex("  TEMP_CHILDREN", clks_fs_count_children("/temp"));
+    clks_shell_print_kv_hex("  DRIVER_CHILDREN", clks_fs_count_children("/driver"));
+    return CLKS_TRUE;
+}
+
+static clks_bool clks_shell_cmd_taskstat(void) {
+    struct clks_scheduler_stats sched = clks_scheduler_get_stats();
+    u32 i;
+
+    clks_shell_writeln("taskstat:");
+    clks_shell_print_kv_hex("  TASK_COUNT", (u64)sched.task_count);
+    clks_shell_print_kv_hex("  CURRENT_TASK_ID", (u64)sched.current_task_id);
+    clks_shell_print_kv_hex("  TOTAL_TIMER_TICKS", sched.total_timer_ticks);
+    clks_shell_print_kv_hex("  CONTEXT_SWITCH_COUNT", sched.context_switch_count);
+
+    for (i = 0U; i < sched.task_count; i++) {
+        const struct clks_task_descriptor *task = clks_scheduler_get_task(i);
+
+        if (task == CLKS_NULL) {
+            continue;
+        }
+
+        clks_shell_write("  task[");
+        clks_shell_write_hex_u64((u64)task->id);
+        clks_shell_write("] ");
+        clks_shell_write(task->name);
+        clks_shell_write(" state=");
+        clks_shell_write_hex_u64((u64)task->state);
+        clks_shell_write(" slice=");
+        clks_shell_write_hex_u64((u64)task->time_slice_ticks);
+        clks_shell_write(" remain=");
+        clks_shell_write_hex_u64((u64)task->remaining_ticks);
+        clks_shell_write(" run=");
+        clks_shell_write_hex_u64(task->run_count);
+        clks_shell_write(" switch=");
+        clks_shell_write_hex_u64(task->switch_count);
+        clks_shell_write(" last=");
+        clks_shell_write_hex_u64(task->last_run_tick);
+        clks_shell_write_char('\n');
+    }
+
+    return CLKS_TRUE;
+}
+
+static clks_bool clks_shell_cmd_dmesg(const char *arg) {
+    u64 total = clks_log_journal_count();
+    u64 limit = CLKS_SHELL_DMESG_DEFAULT;
+    u64 start;
+    u64 i;
+
+    if (arg != CLKS_NULL && arg[0] != '\0') {
+        if (clks_shell_parse_u64_dec(arg, &limit) == CLKS_FALSE || limit == 0ULL) {
+            clks_shell_writeln("dmesg: usage dmesg [positive_count]");
+            return CLKS_FALSE;
+        }
+    }
+
+    if (total == 0ULL) {
+        clks_shell_writeln("(journal empty)");
+        return CLKS_TRUE;
+    }
+
+    if (limit > total) {
+        limit = total;
+    }
+
+    start = total - limit;
+
+    for (i = start; i < total; i++) {
+        char line[CLKS_SHELL_DMESG_LINE_MAX];
+
+        if (clks_log_journal_read(i, line, sizeof(line)) == CLKS_TRUE) {
+            clks_shell_writeln(line);
+        }
+    }
+
+    return CLKS_TRUE;
+}
+
+static clks_bool clks_shell_cmd_shstat(void) {
+    clks_shell_writeln("shstat:");
+    clks_shell_print_kv_hex("  CMD_TOTAL", clks_shell_cmd_total);
+    clks_shell_print_kv_hex("  CMD_OK", clks_shell_cmd_ok);
+    clks_shell_print_kv_hex("  CMD_FAIL", clks_shell_cmd_fail);
+    clks_shell_print_kv_hex("  CMD_UNKNOWN", clks_shell_cmd_unknown);
+    return CLKS_TRUE;
 }
 
 static void clks_shell_execute_line(const char *line) {
@@ -823,6 +1206,8 @@ static void clks_shell_execute_line(const char *line) {
     char cmd[CLKS_SHELL_CMD_MAX];
     char arg[CLKS_SHELL_ARG_MAX];
     usize i = 0U;
+    clks_bool known = CLKS_TRUE;
+    clks_bool success = CLKS_FALSE;
 
     if (line == CLKS_NULL) {
         return;
@@ -843,71 +1228,62 @@ static void clks_shell_execute_line(const char *line) {
     clks_shell_split_line(line_buf, cmd, sizeof(cmd), arg, sizeof(arg));
 
     if (clks_shell_streq(cmd, "help") == CLKS_TRUE) {
-        clks_shell_cmd_help();
-        return;
+        success = clks_shell_cmd_help();
+    } else if (clks_shell_streq(cmd, "ls") == CLKS_TRUE) {
+        success = clks_shell_cmd_ls(arg);
+    } else if (clks_shell_streq(cmd, "cat") == CLKS_TRUE) {
+        success = clks_shell_cmd_cat(arg);
+    } else if (clks_shell_streq(cmd, "pwd") == CLKS_TRUE) {
+        success = clks_shell_cmd_pwd();
+    } else if (clks_shell_streq(cmd, "cd") == CLKS_TRUE) {
+        success = clks_shell_cmd_cd(arg);
+    } else if (clks_shell_streq(cmd, "mkdir") == CLKS_TRUE) {
+        success = clks_shell_cmd_mkdir(arg);
+    } else if (clks_shell_streq(cmd, "touch") == CLKS_TRUE) {
+        success = clks_shell_cmd_touch(arg);
+    } else if (clks_shell_streq(cmd, "write") == CLKS_TRUE) {
+        success = clks_shell_cmd_write(arg);
+    } else if (clks_shell_streq(cmd, "append") == CLKS_TRUE) {
+        success = clks_shell_cmd_append(arg);
+    } else if (clks_shell_streq(cmd, "cp") == CLKS_TRUE) {
+        success = clks_shell_cmd_cp(arg);
+    } else if (clks_shell_streq(cmd, "mv") == CLKS_TRUE) {
+        success = clks_shell_cmd_mv(arg);
+    } else if (clks_shell_streq(cmd, "rm") == CLKS_TRUE) {
+        success = clks_shell_cmd_rm(arg);
+    } else if (clks_shell_streq(cmd, "memstat") == CLKS_TRUE) {
+        success = clks_shell_cmd_memstat();
+    } else if (clks_shell_streq(cmd, "fsstat") == CLKS_TRUE) {
+        success = clks_shell_cmd_fsstat();
+    } else if (clks_shell_streq(cmd, "taskstat") == CLKS_TRUE) {
+        success = clks_shell_cmd_taskstat();
+    } else if (clks_shell_streq(cmd, "dmesg") == CLKS_TRUE) {
+        success = clks_shell_cmd_dmesg(arg);
+    } else if (clks_shell_streq(cmd, "shstat") == CLKS_TRUE) {
+        success = clks_shell_cmd_shstat();
+    } else if (clks_shell_streq(cmd, "exec") == CLKS_TRUE || clks_shell_streq(cmd, "run") == CLKS_TRUE) {
+        success = clks_shell_cmd_exec(arg);
+    } else if (clks_shell_streq(cmd, "clear") == CLKS_TRUE) {
+        success = clks_shell_cmd_clear();
+    } else if (clks_shell_streq(cmd, "kbdstat") == CLKS_TRUE) {
+        success = clks_shell_cmd_kbdstat();
+    } else {
+        known = CLKS_FALSE;
+        success = CLKS_FALSE;
+        clks_shell_writeln("unknown command; type 'help'");
     }
 
-    if (clks_shell_streq(cmd, "ls") == CLKS_TRUE) {
-        clks_shell_cmd_ls(arg);
-        return;
+    clks_shell_cmd_total++;
+
+    if (success == CLKS_TRUE) {
+        clks_shell_cmd_ok++;
+    } else {
+        clks_shell_cmd_fail++;
     }
 
-    if (clks_shell_streq(cmd, "cat") == CLKS_TRUE) {
-        clks_shell_cmd_cat(arg);
-        return;
+    if (known == CLKS_FALSE) {
+        clks_shell_cmd_unknown++;
     }
-
-    if (clks_shell_streq(cmd, "pwd") == CLKS_TRUE) {
-        clks_shell_cmd_pwd();
-        return;
-    }
-
-    if (clks_shell_streq(cmd, "cd") == CLKS_TRUE) {
-        clks_shell_cmd_cd(arg);
-        return;
-    }
-
-    if (clks_shell_streq(cmd, "mkdir") == CLKS_TRUE) {
-        clks_shell_cmd_mkdir(arg);
-        return;
-    }
-
-    if (clks_shell_streq(cmd, "touch") == CLKS_TRUE) {
-        clks_shell_cmd_touch(arg);
-        return;
-    }
-
-    if (clks_shell_streq(cmd, "write") == CLKS_TRUE) {
-        clks_shell_cmd_write(arg);
-        return;
-    }
-
-    if (clks_shell_streq(cmd, "append") == CLKS_TRUE) {
-        clks_shell_cmd_append(arg);
-        return;
-    }
-
-    if (clks_shell_streq(cmd, "rm") == CLKS_TRUE) {
-        clks_shell_cmd_rm(arg);
-        return;
-    }
-
-    if (clks_shell_streq(cmd, "exec") == CLKS_TRUE || clks_shell_streq(cmd, "run") == CLKS_TRUE) {
-        clks_shell_cmd_exec(arg);
-        return;
-    }
-
-    if (clks_shell_streq(cmd, "clear") == CLKS_TRUE) {
-        clks_shell_cmd_clear();
-        return;
-    }
-
-    if (clks_shell_streq(cmd, "kbdstat") == CLKS_TRUE) {
-        clks_shell_cmd_kbdstat();
-        return;
-    }
-
-    clks_shell_writeln("unknown command; type 'help'");
 }
 
 static void clks_shell_handle_char(char ch) {
@@ -1044,6 +1420,10 @@ void clks_shell_init(void) {
     clks_shell_history_count = 0U;
     clks_shell_history_cancel_nav();
     clks_shell_copy_line(clks_shell_cwd, sizeof(clks_shell_cwd), "/");
+    clks_shell_cmd_total = 0ULL;
+    clks_shell_cmd_ok = 0ULL;
+    clks_shell_cmd_fail = 0ULL;
+    clks_shell_cmd_unknown = 0ULL;
 
     if (clks_tty_ready() == CLKS_FALSE) {
         clks_shell_ready = CLKS_FALSE;
