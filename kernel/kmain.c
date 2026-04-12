@@ -232,5 +232,13 @@ void clks_kernel_main(void) {
     clks_log(CLKS_LOG_INFO, "TTY", "CURSOR ENABLED");
     clks_log(CLKS_LOG_DEBUG, "KERNEL", "IDLE LOOP ENTER");
 
-    clks_cpu_halt_forever();
+    for (;;) {
+        u64 tick_now = clks_interrupts_timer_ticks();
+        clks_scheduler_dispatch_current(tick_now);
+#if defined(CLKS_ARCH_X86_64)
+        __asm__ volatile("hlt");
+#elif defined(CLKS_ARCH_AARCH64)
+        __asm__ volatile("wfe");
+#endif
+    }
 }

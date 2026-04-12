@@ -1,27 +1,45 @@
 #include <clks/elf64.h>
 #include <clks/exec.h>
 #include <clks/fs.h>
+#include <clks/heap.h>
 #include <clks/log.h>
-#include <clks/string.h>
 #include <clks/types.h>
 
 typedef u64 (*clks_exec_entry_fn)(void);
 
-#define CLKS_EXEC_STATUS_UNSUPPORTED 0xFFFFFFFFFFFFFFFEULL
+#define CLKS_EXEC_RUN_STACK_BYTES (64ULL * 1024ULL)
+
+#if defined(CLKS_ARCH_X86_64)
+extern u64 clks_exec_call_on_stack_x86_64(void *entry_ptr, void *stack_top);
+#endif
 
 static u64 clks_exec_requests = 0ULL;
 static u64 clks_exec_success = 0ULL;
 
-static clks_bool clks_exec_is_sync_unsupported(const char *path) {
-    if (path == CLKS_NULL) {
+static clks_bool clks_exec_invoke_entry(void *entry_ptr, u64 *out_ret) {
+    if (entry_ptr == CLKS_NULL || out_ret == CLKS_NULL) {
         return CLKS_FALSE;
     }
 
-    if (clks_strcmp(path, "/shell/shell.elf") == 0) {
+#if defined(CLKS_ARCH_X86_64)
+    {
+        void *stack_base = clks_kmalloc((usize)CLKS_EXEC_RUN_STACK_BYTES);
+        void *stack_top;
+
+        if (stack_base == CLKS_NULL) {
+            clks_log(CLKS_LOG_WARN, "EXEC", "RUN STACK ALLOC FAILED");
+            return CLKS_FALSE;
+        }
+
+        stack_top = (void *)((u8 *)stack_base + (usize)CLKS_EXEC_RUN_STACK_BYTES);
+        *out_ret = clks_exec_call_on_stack_x86_64(entry_ptr, stack_top);
+        clks_kfree(stack_base);
         return CLKS_TRUE;
     }
-
-    return CLKS_FALSE;
+#else
+    *out_ret = ((clks_exec_entry_fn)entry_ptr)();
+    return CLKS_TRUE;
+#endif
 }
 
 void clks_exec_init(void) {
@@ -46,17 +64,6 @@ clks_bool clks_exec_run_path(const char *path, u64 *out_status) {
 
     if (path == CLKS_NULL || path[0] != '/') {
         clks_log(CLKS_LOG_WARN, "EXEC", "INVALID EXEC PATH");
-        return CLKS_FALSE;
-    }
-
-    if (clks_exec_is_sync_unsupported(path) == CLKS_TRUE) {
-        clks_log(CLKS_LOG_WARN, "EXEC", "SYNC EXEC UNSUPPORTED FOR INTERACTIVE ELF");
-        clks_log(CLKS_LOG_WARN, "EXEC", path);
-
-        if (out_status != CLKS_NULL) {
-            *out_status = CLKS_EXEC_STATUS_UNSUPPORTED;
-        }
-
         return CLKS_FALSE;
     }
 
@@ -93,7 +100,12 @@ clks_bool clks_exec_run_path(const char *path, u64 *out_status) {
     clks_log_hex(CLKS_LOG_INFO, "EXEC", "ENTRY", info.entry);
     clks_log_hex(CLKS_LOG_INFO, "EXEC", "PHNUM", (u64)info.phnum);
 
-    run_ret = ((clks_exec_entry_fn)entry_ptr)();
+    if (clks_exec_invoke_entry(entry_ptr, &run_ret) == CLKS_FALSE) {
+        clks_log(CLKS_LOG_WARN, "EXEC", "EXEC RUN INVOKE FAILED");
+        clks_log(CLKS_LOG_WARN, "EXEC", path);
+        clks_elf64_unload(&loaded);
+        return CLKS_FALSE;
+    }
 
     clks_log(CLKS_LOG_INFO, "EXEC", "RUN RETURNED");
     clks_log(CLKS_LOG_INFO, "EXEC", path);

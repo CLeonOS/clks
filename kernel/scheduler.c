@@ -11,6 +11,7 @@ static u32 clks_task_count = 0;
 static u32 clks_current_task = 0;
 static u64 clks_total_timer_ticks = 0;
 static u64 clks_context_switch_count = 0;
+static clks_bool clks_dispatch_active = CLKS_FALSE;
 
 static void clks_sched_copy_name(char *dst, const char *src) {
     u32 i = 0;
@@ -43,6 +44,7 @@ void clks_scheduler_init(void) {
     clks_current_task = 0;
     clks_total_timer_ticks = 0;
     clks_context_switch_count = 0;
+    clks_dispatch_active = CLKS_FALSE;
 
     clks_scheduler_add_kernel_task_ex("idle", 1U, CLKS_NULL);
 
@@ -94,6 +96,10 @@ void clks_scheduler_dispatch_current(u64 tick) {
         return;
     }
 
+    if (clks_dispatch_active == CLKS_TRUE) {
+        return;
+    }
+
     current = &clks_tasks[clks_current_task];
 
     if (current->state != CLKS_TASK_RUNNING && current->state != CLKS_TASK_READY) {
@@ -105,7 +111,9 @@ void clks_scheduler_dispatch_current(u64 tick) {
     current->last_run_tick = tick;
 
     if (current->entry != CLKS_NULL) {
+        clks_dispatch_active = CLKS_TRUE;
         current->entry(tick);
+        clks_dispatch_active = CLKS_FALSE;
     }
 }
 
@@ -117,6 +125,11 @@ void clks_scheduler_on_timer_tick(u64 tick) {
     }
 
     clks_total_timer_ticks = tick;
+
+    if (clks_dispatch_active == CLKS_TRUE) {
+        return;
+    }
+
     current = &clks_tasks[clks_current_task];
 
     if (current->state == CLKS_TASK_RUNNING || current->state == CLKS_TASK_READY) {
@@ -144,8 +157,6 @@ void clks_scheduler_on_timer_tick(u64 tick) {
             clks_context_switch_count++;
         }
     }
-
-    clks_scheduler_dispatch_current(tick);
 }
 
 struct clks_scheduler_stats clks_scheduler_get_stats(void) {

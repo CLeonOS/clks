@@ -174,9 +174,7 @@ void clks_keyboard_handle_scancode(u8 scancode) {
         clks_kbd_e0_prefix = CLKS_FALSE;
 
         if (ext != '\0' && clks_keyboard_shell_input_enabled() == CLKS_TRUE) {
-            if (clks_keyboard_queue_push(ext) == CLKS_TRUE) {
-                clks_shell_pump_input(1U);
-            }
+            (void)clks_keyboard_queue_push(ext);
         }
 
         return;
@@ -204,9 +202,7 @@ void clks_keyboard_handle_scancode(u8 scancode) {
         char translated = clks_keyboard_translate_scancode(code);
 
         if (translated != '\0' && clks_keyboard_shell_input_enabled() == CLKS_TRUE) {
-            if (clks_keyboard_queue_push(translated) == CLKS_TRUE) {
-                clks_shell_pump_input(1U);
-            }
+            (void)clks_keyboard_queue_push(translated);
         }
     }
 }
@@ -242,3 +238,4 @@ u64 clks_keyboard_push_count(void) {
 u64 clks_keyboard_pop_count(void) {
     return clks_kbd_pop_count;
 }
+
