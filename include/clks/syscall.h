@@ -30,6 +30,19 @@
 #define CLKS_SYSCALL_TTY_WRITE           24ULL
 #define CLKS_SYSCALL_TTY_WRITE_CHAR      25ULL
 #define CLKS_SYSCALL_KBD_GET_CHAR        26ULL
+#define CLKS_SYSCALL_FS_STAT_TYPE        27ULL
+#define CLKS_SYSCALL_FS_STAT_SIZE        28ULL
+#define CLKS_SYSCALL_FS_MKDIR            29ULL
+#define CLKS_SYSCALL_FS_WRITE            30ULL
+#define CLKS_SYSCALL_FS_APPEND           31ULL
+#define CLKS_SYSCALL_FS_REMOVE           32ULL
+#define CLKS_SYSCALL_LOG_JOURNAL_COUNT   33ULL
+#define CLKS_SYSCALL_LOG_JOURNAL_READ    34ULL
+#define CLKS_SYSCALL_KBD_BUFFERED        35ULL
+#define CLKS_SYSCALL_KBD_PUSHED          36ULL
+#define CLKS_SYSCALL_KBD_POPPED          37ULL
+#define CLKS_SYSCALL_KBD_DROPPED         38ULL
+#define CLKS_SYSCALL_KBD_HOTKEY_SWITCHES 39ULL
 
 void clks_syscall_init(void);
 u64 clks_syscall_dispatch(void *frame_ptr);

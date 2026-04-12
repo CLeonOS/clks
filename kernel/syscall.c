@@ -1,5 +1,6 @@
 #include <clks/exec.h>
 #include <clks/fs.h>
+#include <clks/heap.h>
 #include <clks/interrupts.h>
 #include <clks/kelf.h>
 #include <clks/keyboard.h>
@@ -12,10 +13,12 @@
 #include <clks/types.h>
 #include <clks/userland.h>
 
-#define CLKS_SYSCALL_LOG_MAX_LEN  191U
-#define CLKS_SYSCALL_PATH_MAX     192U
-#define CLKS_SYSCALL_NAME_MAX      96U
-#define CLKS_SYSCALL_IO_MAX_LEN   512U
+#define CLKS_SYSCALL_LOG_MAX_LEN      191U
+#define CLKS_SYSCALL_PATH_MAX         192U
+#define CLKS_SYSCALL_NAME_MAX          96U
+#define CLKS_SYSCALL_TTY_MAX_LEN      512U
+#define CLKS_SYSCALL_FS_IO_MAX_LEN  65536U
+#define CLKS_SYSCALL_JOURNAL_MAX_LEN  256U
 
 struct clks_syscall_frame {
     u64 rax;
@@ -94,15 +97,15 @@ static u64 clks_syscall_log_write(u64 arg0, u64 arg1) {
 static u64 clks_syscall_tty_write(u64 arg0, u64 arg1) {
     const char *src = (const char *)arg0;
     u64 len = arg1;
-    char buf[CLKS_SYSCALL_IO_MAX_LEN + 1U];
+    char buf[CLKS_SYSCALL_TTY_MAX_LEN + 1U];
     u64 i;
 
     if (src == CLKS_NULL || len == 0ULL) {
         return 0ULL;
     }
 
-    if (len > CLKS_SYSCALL_IO_MAX_LEN) {
-        len = CLKS_SYSCALL_IO_MAX_LEN;
+    if (len > CLKS_SYSCALL_TTY_MAX_LEN) {
+        len = CLKS_SYSCALL_TTY_MAX_LEN;
     }
 
     for (i = 0ULL; i < len; i++) {
@@ -197,6 +200,139 @@ static u64 clks_syscall_exec_path(u64 arg0) {
     return status;
 }
 
+static u64 clks_syscall_fs_stat_type(u64 arg0) {
+    char path[CLKS_SYSCALL_PATH_MAX];
+    struct clks_fs_node_info info;
+
+    if (clks_syscall_copy_user_string(arg0, path, sizeof(path)) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    if (clks_fs_stat(path, &info) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    return (u64)info.type;
+}
+
+static u64 clks_syscall_fs_stat_size(u64 arg0) {
+    char path[CLKS_SYSCALL_PATH_MAX];
+    struct clks_fs_node_info info;
+
+    if (clks_syscall_copy_user_string(arg0, path, sizeof(path)) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    if (clks_fs_stat(path, &info) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    return info.size;
+}
+
+static u64 clks_syscall_fs_mkdir(u64 arg0) {
+    char path[CLKS_SYSCALL_PATH_MAX];
+
+    if (clks_syscall_copy_user_string(arg0, path, sizeof(path)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    return (clks_fs_mkdir(path) == CLKS_TRUE) ? 1ULL : 0ULL;
+}
+
+static u64 clks_syscall_fs_write_common(u64 arg0, u64 arg1, u64 arg2, clks_bool append_mode) {
+    char path[CLKS_SYSCALL_PATH_MAX];
+    void *heap_copy = CLKS_NULL;
+    const void *payload = CLKS_NULL;
+    clks_bool ok;
+
+    if (clks_syscall_copy_user_string(arg0, path, sizeof(path)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    if (arg2 > CLKS_SYSCALL_FS_IO_MAX_LEN) {
+        return 0ULL;
+    }
+
+    if (arg2 > 0ULL) {
+        if (arg1 == 0ULL) {
+            return 0ULL;
+        }
+
+        heap_copy = clks_kmalloc((usize)arg2);
+
+        if (heap_copy == CLKS_NULL) {
+            return 0ULL;
+        }
+
+        clks_memcpy(heap_copy, (const void *)arg1, (usize)arg2);
+        payload = (const void *)heap_copy;
+    }
+
+    if (append_mode == CLKS_TRUE) {
+        ok = clks_fs_append(path, payload, arg2);
+    } else {
+        ok = clks_fs_write_all(path, payload, arg2);
+    }
+
+    if (heap_copy != CLKS_NULL) {
+        clks_kfree(heap_copy);
+    }
+
+    return (ok == CLKS_TRUE) ? 1ULL : 0ULL;
+}
+
+static u64 clks_syscall_fs_write(u64 arg0, u64 arg1, u64 arg2) {
+    return clks_syscall_fs_write_common(arg0, arg1, arg2, CLKS_FALSE);
+}
+
+static u64 clks_syscall_fs_append(u64 arg0, u64 arg1, u64 arg2) {
+    return clks_syscall_fs_write_common(arg0, arg1, arg2, CLKS_TRUE);
+}
+
+static u64 clks_syscall_fs_remove(u64 arg0) {
+    char path[CLKS_SYSCALL_PATH_MAX];
+
+    if (clks_syscall_copy_user_string(arg0, path, sizeof(path)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    return (clks_fs_remove(path) == CLKS_TRUE) ? 1ULL : 0ULL;
+}
+
+static u64 clks_syscall_log_journal_count(void) {
+    return clks_log_journal_count();
+}
+
+static u64 clks_syscall_log_journal_read(u64 arg0, u64 arg1, u64 arg2) {
+    char line[CLKS_SYSCALL_JOURNAL_MAX_LEN];
+    usize line_len;
+    usize copy_len;
+
+    if (arg1 == 0ULL || arg2 == 0ULL) {
+        return 0ULL;
+    }
+
+    if (clks_log_journal_read(arg0, line, sizeof(line)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    line_len = clks_strlen(line) + 1U;
+    copy_len = line_len;
+
+    if (copy_len > (usize)arg2) {
+        copy_len = (usize)arg2;
+    }
+
+    if (copy_len > sizeof(line)) {
+        copy_len = sizeof(line);
+    }
+
+    clks_memcpy((void *)arg1, line, copy_len);
+    ((char *)arg1)[copy_len - 1U] = '\0';
+    return 1ULL;
+}
+
 void clks_syscall_init(void) {
     clks_syscall_ready = CLKS_TRUE;
     clks_log(CLKS_LOG_INFO, "SYSCALL", "INT80 FRAMEWORK ONLINE");
@@ -274,6 +410,32 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
             return clks_syscall_tty_write_char(frame->rbx);
         case CLKS_SYSCALL_KBD_GET_CHAR:
             return clks_syscall_kbd_get_char();
+        case CLKS_SYSCALL_FS_STAT_TYPE:
+            return clks_syscall_fs_stat_type(frame->rbx);
+        case CLKS_SYSCALL_FS_STAT_SIZE:
+            return clks_syscall_fs_stat_size(frame->rbx);
+        case CLKS_SYSCALL_FS_MKDIR:
+            return clks_syscall_fs_mkdir(frame->rbx);
+        case CLKS_SYSCALL_FS_WRITE:
+            return clks_syscall_fs_write(frame->rbx, frame->rcx, frame->rdx);
+        case CLKS_SYSCALL_FS_APPEND:
+            return clks_syscall_fs_append(frame->rbx, frame->rcx, frame->rdx);
+        case CLKS_SYSCALL_FS_REMOVE:
+            return clks_syscall_fs_remove(frame->rbx);
+        case CLKS_SYSCALL_LOG_JOURNAL_COUNT:
+            return clks_syscall_log_journal_count();
+        case CLKS_SYSCALL_LOG_JOURNAL_READ:
+            return clks_syscall_log_journal_read(frame->rbx, frame->rcx, frame->rdx);
+        case CLKS_SYSCALL_KBD_BUFFERED:
+            return clks_keyboard_buffered_count();
+        case CLKS_SYSCALL_KBD_PUSHED:
+            return clks_keyboard_push_count();
+        case CLKS_SYSCALL_KBD_POPPED:
+            return clks_keyboard_pop_count();
+        case CLKS_SYSCALL_KBD_DROPPED:
+            return clks_keyboard_drop_count();
+        case CLKS_SYSCALL_KBD_HOTKEY_SWITCHES:
+            return clks_keyboard_hotkey_switch_count();
         default:
             return (u64)-1;
     }
