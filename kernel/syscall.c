@@ -5,6 +5,7 @@
 #include <clks/kelf.h>
 #include <clks/keyboard.h>
 #include <clks/log.h>
+#include <clks/serial.h>
 #include <clks/scheduler.h>
 #include <clks/service.h>
 #include <clks/string.h>
@@ -378,6 +379,16 @@ static u64 clks_syscall_log_journal_read(u64 arg0, u64 arg1, u64 arg2) {
     return 1ULL;
 }
 
+static void clks_syscall_serial_write_hex64(u64 value) {
+    i32 nibble;
+
+    for (nibble = 15; nibble >= 0; nibble--) {
+        u64 current = (value >> (u64)(nibble * 4)) & 0x0FULL;
+        char ch = (current < 10ULL) ? (char)('0' + current) : (char)('A' + (current - 10ULL));
+        clks_serial_write_char(ch);
+    }
+}
+
 static void clks_syscall_trace_user_program(u64 id) {
     clks_bool user_program_running =
         (clks_exec_is_running() == CLKS_TRUE && clks_exec_current_path_is_user() == CLKS_TRUE)
@@ -386,7 +397,7 @@ static void clks_syscall_trace_user_program(u64 id) {
 
     if (user_program_running == CLKS_FALSE) {
         if (clks_syscall_user_trace_active == CLKS_TRUE) {
-            clks_log(CLKS_LOG_DEBUG, "SYSCALL", "USER_TRACE_END");
+            clks_serial_write("[DEBUG][SYSCALL] USER_TRACE_END\n");
         }
 
         clks_syscall_user_trace_active = CLKS_FALSE;
@@ -397,16 +408,20 @@ static void clks_syscall_trace_user_program(u64 id) {
     if (clks_syscall_user_trace_active == CLKS_FALSE) {
         clks_syscall_user_trace_active = CLKS_TRUE;
         clks_syscall_user_trace_budget = CLKS_SYSCALL_USER_TRACE_BUDGET;
-        clks_log(CLKS_LOG_DEBUG, "SYSCALL", "USER_TRACE_BEGIN");
-        clks_log_hex(CLKS_LOG_DEBUG, "SYSCALL", "PID", clks_exec_current_pid());
+        clks_serial_write("[DEBUG][SYSCALL] USER_TRACE_BEGIN\n");
+        clks_serial_write("[DEBUG][SYSCALL] PID: 0X");
+        clks_syscall_serial_write_hex64(clks_exec_current_pid());
+        clks_serial_write("\n");
     }
 
     if (clks_syscall_user_trace_budget > 0ULL) {
-        clks_log_hex(CLKS_LOG_DEBUG, "SYSCALL", "USER_ID", id);
+        clks_serial_write("[DEBUG][SYSCALL] USER_ID: 0X");
+        clks_syscall_serial_write_hex64(id);
+        clks_serial_write("\n");
         clks_syscall_user_trace_budget--;
 
         if (clks_syscall_user_trace_budget == 0ULL) {
-            clks_log(CLKS_LOG_DEBUG, "SYSCALL", "USER_TRACE_BUDGET_EXHAUSTED");
+            clks_serial_write("[DEBUG][SYSCALL] USER_TRACE_BUDGET_EXHAUSTED\n");
         }
     }
 }
