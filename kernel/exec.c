@@ -47,6 +47,69 @@ static clks_bool clks_exec_exit_requested_stack[CLKS_EXEC_MAX_DEPTH];
 static u64 clks_exec_exit_status_stack[CLKS_EXEC_MAX_DEPTH];
 static u32 clks_exec_pid_stack_depth = 0U;
 
+static clks_bool clks_exec_has_prefix(const char *text, const char *prefix) {
+    usize i = 0U;
+
+    if (text == CLKS_NULL || prefix == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    while (prefix[i] != '\0') {
+        if (text[i] != prefix[i]) {
+            return CLKS_FALSE;
+        }
+
+        i++;
+    }
+
+    return CLKS_TRUE;
+}
+
+static clks_bool clks_exec_has_suffix(const char *text, const char *suffix) {
+    usize text_len;
+    usize suffix_len;
+    usize i;
+
+    if (text == CLKS_NULL || suffix == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    text_len = clks_strlen(text);
+    suffix_len = clks_strlen(suffix);
+
+    if (suffix_len > text_len) {
+        return CLKS_FALSE;
+    }
+
+    for (i = 0U; i < suffix_len; i++) {
+        if (text[text_len - suffix_len + i] != suffix[i]) {
+            return CLKS_FALSE;
+        }
+    }
+
+    return CLKS_TRUE;
+}
+
+static clks_bool clks_exec_path_is_user_program(const char *path) {
+    if (path == CLKS_NULL || path[0] != '/') {
+        return CLKS_FALSE;
+    }
+
+    if (clks_exec_has_prefix(path, "/system/") == CLKS_TRUE) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_exec_has_prefix(path, "/driver/") == CLKS_TRUE) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_exec_has_prefix(path, "/shell/") == CLKS_TRUE) {
+        return CLKS_TRUE;
+    }
+
+    return clks_exec_has_suffix(path, ".elf");
+}
+
 static void clks_exec_copy_path(char *dst, usize dst_size, const char *src) {
     usize i = 0U;
 
@@ -394,4 +457,25 @@ u64 clks_exec_success_count(void) {
 
 clks_bool clks_exec_is_running(void) {
     return (clks_exec_running_depth > 0U) ? CLKS_TRUE : CLKS_FALSE;
+}
+
+clks_bool clks_exec_current_path_is_user(void) {
+    i32 depth_index;
+    i32 slot;
+    const struct clks_exec_proc_record *proc;
+
+    depth_index = clks_exec_current_depth_index();
+
+    if (depth_index < 0) {
+        return CLKS_FALSE;
+    }
+
+    slot = clks_exec_proc_find_slot_by_pid(clks_exec_pid_stack[(u32)depth_index]);
+
+    if (slot < 0) {
+        return CLKS_FALSE;
+    }
+
+    proc = &clks_exec_proc_table[(u32)slot];
+    return clks_exec_path_is_user_program(proc->path);
 }

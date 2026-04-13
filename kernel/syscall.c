@@ -19,6 +19,7 @@
 #define CLKS_SYSCALL_TTY_MAX_LEN      512U
 #define CLKS_SYSCALL_FS_IO_MAX_LEN  65536U
 #define CLKS_SYSCALL_JOURNAL_MAX_LEN  256U
+#define CLKS_SYSCALL_USER_TRACE_BUDGET 128ULL
 
 struct clks_syscall_frame {
     u64 rax;
@@ -46,6 +47,8 @@ struct clks_syscall_frame {
 };
 
 static clks_bool clks_syscall_ready = CLKS_FALSE;
+static clks_bool clks_syscall_user_trace_active = CLKS_FALSE;
+static u64 clks_syscall_user_trace_budget = 0ULL;
 
 static clks_bool clks_syscall_copy_user_string(u64 src_addr, char *dst, usize dst_size) {
     const char *src = (const char *)src_addr;
@@ -375,8 +378,43 @@ static u64 clks_syscall_log_journal_read(u64 arg0, u64 arg1, u64 arg2) {
     return 1ULL;
 }
 
+static void clks_syscall_trace_user_program(u64 id) {
+    clks_bool user_program_running =
+        (clks_exec_is_running() == CLKS_TRUE && clks_exec_current_path_is_user() == CLKS_TRUE)
+            ? CLKS_TRUE
+            : CLKS_FALSE;
+
+    if (user_program_running == CLKS_FALSE) {
+        if (clks_syscall_user_trace_active == CLKS_TRUE) {
+            clks_log(CLKS_LOG_DEBUG, "SYSCALL", "USER_TRACE_END");
+        }
+
+        clks_syscall_user_trace_active = CLKS_FALSE;
+        clks_syscall_user_trace_budget = 0ULL;
+        return;
+    }
+
+    if (clks_syscall_user_trace_active == CLKS_FALSE) {
+        clks_syscall_user_trace_active = CLKS_TRUE;
+        clks_syscall_user_trace_budget = CLKS_SYSCALL_USER_TRACE_BUDGET;
+        clks_log(CLKS_LOG_DEBUG, "SYSCALL", "USER_TRACE_BEGIN");
+        clks_log_hex(CLKS_LOG_DEBUG, "SYSCALL", "PID", clks_exec_current_pid());
+    }
+
+    if (clks_syscall_user_trace_budget > 0ULL) {
+        clks_log_hex(CLKS_LOG_DEBUG, "SYSCALL", "USER_ID", id);
+        clks_syscall_user_trace_budget--;
+
+        if (clks_syscall_user_trace_budget == 0ULL) {
+            clks_log(CLKS_LOG_DEBUG, "SYSCALL", "USER_TRACE_BUDGET_EXHAUSTED");
+        }
+    }
+}
+
 void clks_syscall_init(void) {
     clks_syscall_ready = CLKS_TRUE;
+    clks_syscall_user_trace_active = CLKS_FALSE;
+    clks_syscall_user_trace_budget = 0ULL;
     clks_log(CLKS_LOG_INFO, "SYSCALL", "INT80 FRAMEWORK ONLINE");
 }
 
@@ -389,6 +427,7 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
     }
 
     id = frame->rax;
+    clks_syscall_trace_user_program(id);
 
     switch (id) {
         case CLKS_SYSCALL_LOG_WRITE:

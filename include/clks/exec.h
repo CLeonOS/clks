@@ -14,5 +14,6 @@ u64 clks_exec_yield(void);
 u64 clks_exec_request_count(void);
 u64 clks_exec_success_count(void);
 clks_bool clks_exec_is_running(void);
+clks_bool clks_exec_current_path_is_user(void);
 
 #endif

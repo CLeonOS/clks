@@ -14,6 +14,7 @@ static u64 clks_user_launch_attempt_count = 0ULL;
 static u64 clks_user_launch_success_count = 0ULL;
 static u64 clks_user_launch_fail_count = 0ULL;
 static u64 clks_user_last_try_tick = 0ULL;
+static clks_bool clks_user_first_try_pending = CLKS_FALSE;
 
 static clks_bool clks_userland_probe_elf(const char *path, const char *tag) {
     const void *image;
@@ -83,11 +84,12 @@ clks_bool clks_userland_init(void) {
 
     clks_user_shell_ready = CLKS_FALSE;
     clks_user_shell_exec_requested_flag = CLKS_FALSE;
-    clks_user_shell_exec_enabled = CLKS_FALSE;
+    clks_user_shell_exec_enabled = CLKS_TRUE;
     clks_user_launch_attempt_count = 0ULL;
     clks_user_launch_success_count = 0ULL;
     clks_user_launch_fail_count = 0ULL;
     clks_user_last_try_tick = 0ULL;
+    clks_user_first_try_pending = CLKS_TRUE;
 
     if (clks_userland_probe_elf("/shell/shell.elf", "SHELL ELF READY") == CLKS_FALSE) {
         return CLKS_FALSE;
@@ -105,7 +107,7 @@ clks_bool clks_userland_init(void) {
         return CLKS_FALSE;
     }
 
-    clks_log(CLKS_LOG_INFO, "USER", "USER SHELL EXEC DISABLED (KERNEL SHELL MODE)");
+    clks_log(CLKS_LOG_INFO, "USER", "USER SHELL AUTO EXEC ENABLED");
     return CLKS_TRUE;
 }
 
@@ -113,6 +115,13 @@ void clks_userland_tick(u64 tick) {
     if (clks_user_shell_exec_enabled == CLKS_FALSE ||
         clks_user_shell_ready == CLKS_FALSE ||
         clks_user_shell_exec_requested_flag == CLKS_TRUE) {
+        return;
+    }
+
+    if (clks_user_first_try_pending == CLKS_TRUE) {
+        clks_user_first_try_pending = CLKS_FALSE;
+        clks_user_last_try_tick = tick;
+        (void)clks_userland_request_shell_exec();
         return;
     }
 
@@ -130,6 +139,10 @@ clks_bool clks_userland_shell_ready(void) {
 
 clks_bool clks_userland_shell_exec_requested(void) {
     return clks_user_shell_exec_requested_flag;
+}
+
+clks_bool clks_userland_shell_auto_exec_enabled(void) {
+    return clks_user_shell_exec_enabled;
 }
 
 u64 clks_userland_launch_attempts(void) {

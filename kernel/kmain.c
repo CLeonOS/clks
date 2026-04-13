@@ -99,7 +99,7 @@ void clks_kernel_main(void) {
         clks_tty_init();
     }
 
-    clks_log(CLKS_LOG_INFO, "BOOT", "CLEONOS Stage25 START");
+    clks_log(CLKS_LOG_INFO, "BOOT", "CLEONOS Stage28 START");
 
     if (boot_fb == CLKS_NULL) {
         clks_log(CLKS_LOG_WARN, "VIDEO", "NO FRAMEBUFFER FROM LIMINE");
@@ -224,7 +224,12 @@ void clks_kernel_main(void) {
     clks_log_hex(CLKS_LOG_INFO, "SYSCALL", "TICKS", syscall_ticks);
 
     clks_shell_init();
-    clks_log(CLKS_LOG_INFO, "SHELL", "KERNEL SHELL ACTIVE");
+
+    if (clks_userland_shell_auto_exec_enabled() == CLKS_TRUE) {
+        clks_log(CLKS_LOG_INFO, "SHELL", "DEFAULT ENTER USER SHELL MODE");
+    } else {
+        clks_log(CLKS_LOG_INFO, "SHELL", "KERNEL SHELL ACTIVE");
+    }
 
     clks_log_hex(CLKS_LOG_INFO, "TTY", "COUNT", (u64)clks_tty_count());
     clks_log_hex(CLKS_LOG_INFO, "TTY", "ACTIVE", (u64)clks_tty_active());
