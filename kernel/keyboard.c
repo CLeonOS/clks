@@ -20,6 +20,8 @@
 #define CLKS_SC_EXT_RIGHT        0x4DU
 #define CLKS_SC_EXT_END          0x4FU
 #define CLKS_SC_EXT_DOWN         0x50U
+#define CLKS_SC_EXT_PAGEUP       0x49U
+#define CLKS_SC_EXT_PAGEDOWN     0x51U
 #define CLKS_SC_EXT_DELETE       0x53U
 
 #define CLKS_KBD_INPUT_CAP       256U
@@ -216,10 +218,22 @@ void clks_keyboard_handle_scancode(u8 scancode) {
     }
 
     if (clks_kbd_e0_prefix == CLKS_TRUE) {
-        char ext = clks_keyboard_translate_ext_scancode(code);
+        char ext;
         u32 active_tty = clks_tty_active();
 
         clks_kbd_e0_prefix = CLKS_FALSE;
+
+        if (code == CLKS_SC_EXT_PAGEUP) {
+            clks_tty_scrollback_page_up();
+            return;
+        }
+
+        if (code == CLKS_SC_EXT_PAGEDOWN) {
+            clks_tty_scrollback_page_down();
+            return;
+        }
+
+        ext = clks_keyboard_translate_ext_scancode(code);
 
         if (ext != '\0') {
             if (clks_keyboard_queue_push_for_tty(active_tty, ext) == CLKS_TRUE &&
