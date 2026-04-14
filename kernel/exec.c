@@ -5,6 +5,7 @@
 #include <clks/heap.h>
 #include <clks/interrupts.h>
 #include <clks/log.h>
+#include <clks/serial.h>
 #include <clks/string.h>
 #include <clks/types.h>
 #include <clks/tty.h>
@@ -51,6 +52,39 @@ static clks_bool clks_exec_exit_requested_stack[CLKS_EXEC_MAX_DEPTH];
 static u64 clks_exec_exit_status_stack[CLKS_EXEC_MAX_DEPTH];
 static u32 clks_exec_pid_stack_depth = 0U;
 
+static void clks_exec_serial_write_hex64(u64 value) {
+    int nibble;
+
+    clks_serial_write("0X");
+
+    for (nibble = 15; nibble >= 0; nibble--) {
+        u8 current = (u8)((value >> (nibble * 4)) & 0x0FULL);
+        char out = (current < 10U) ? (char)('0' + current) : (char)('A' + (current - 10U));
+        clks_serial_write_char(out);
+    }
+}
+
+static void clks_exec_log_info_serial(const char *message) {
+    clks_serial_write("[INFO][EXEC] ");
+
+    if (message != CLKS_NULL) {
+        clks_serial_write(message);
+    }
+
+    clks_serial_write("\n");
+}
+
+static void clks_exec_log_hex_serial(const char *label, u64 value) {
+    clks_serial_write("[INFO][EXEC] ");
+
+    if (label != CLKS_NULL) {
+        clks_serial_write(label);
+    }
+
+    clks_serial_write(": ");
+    clks_exec_serial_write_hex64(value);
+    clks_serial_write("\n");
+}
 static clks_bool clks_exec_has_prefix(const char *text, const char *prefix) {
     usize i = 0U;
 
@@ -322,10 +356,10 @@ static clks_bool clks_exec_run_proc_slot(i32 slot, u64 *out_status) {
         goto fail;
     }
 
-    clks_log(CLKS_LOG_INFO, "EXEC", "EXEC RUN START");
-    clks_log(CLKS_LOG_INFO, "EXEC", proc->path);
-    clks_log_hex(CLKS_LOG_INFO, "EXEC", "ENTRY", info.entry);
-    clks_log_hex(CLKS_LOG_INFO, "EXEC", "PHNUM", (u64)info.phnum);
+    clks_exec_log_info_serial("EXEC RUN START");
+    clks_exec_log_info_serial(proc->path);
+    clks_exec_log_hex_serial("ENTRY", info.entry);
+    clks_exec_log_hex_serial("PHNUM", (u64)info.phnum);
 
     clks_exec_running_depth++;
     depth_counted = CLKS_TRUE;
@@ -345,9 +379,9 @@ static clks_bool clks_exec_run_proc_slot(i32 slot, u64 *out_status) {
         run_ret = clks_exec_exit_status_stack[(u32)depth_index];
     }
 
-    clks_log(CLKS_LOG_INFO, "EXEC", "RUN RETURNED");
-    clks_log(CLKS_LOG_INFO, "EXEC", proc->path);
-    clks_log_hex(CLKS_LOG_INFO, "EXEC", "RET", run_ret);
+    clks_exec_log_info_serial("RUN RETURNED");
+    clks_exec_log_info_serial(proc->path);
+    clks_exec_log_hex_serial("RET", run_ret);
 
     clks_exec_success++;
 
@@ -477,7 +511,7 @@ void clks_exec_init(void) {
     clks_memset(clks_exec_exit_requested_stack, 0, sizeof(clks_exec_exit_requested_stack));
     clks_memset(clks_exec_exit_status_stack, 0, sizeof(clks_exec_exit_status_stack));
     clks_memset(clks_exec_proc_table, 0, sizeof(clks_exec_proc_table));
-    clks_log(CLKS_LOG_INFO, "EXEC", "PATH EXEC FRAMEWORK ONLINE");
+    clks_exec_log_info_serial("PATH EXEC FRAMEWORK ONLINE");
 }
 
 clks_bool clks_exec_run_path(const char *path, u64 *out_status) {
@@ -518,9 +552,9 @@ clks_bool clks_exec_spawn_path(const char *path, u64 *out_pid) {
         *out_pid = pid;
     }
 
-    clks_log(CLKS_LOG_INFO, "EXEC", "SPAWN QUEUED");
-    clks_log(CLKS_LOG_INFO, "EXEC", path);
-    clks_log_hex(CLKS_LOG_INFO, "EXEC", "PID", pid);
+    clks_exec_log_info_serial("SPAWN QUEUED");
+    clks_exec_log_info_serial(path);
+    clks_exec_log_hex_serial("PID", pid);
 
     return CLKS_TRUE;
 }
@@ -683,3 +717,4 @@ clks_bool clks_exec_current_path_is_user(void) {
     proc = &clks_exec_proc_table[(u32)slot];
     return clks_exec_path_is_user_program(proc->path);
 }
+
