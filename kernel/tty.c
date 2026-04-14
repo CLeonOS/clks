@@ -14,11 +14,15 @@
 #define CLKS_TTY_DESKTOP_INDEX 1U
 #define CLKS_TTY_ANSI_MAX_LEN 95U
 #define CLKS_TTY_SCROLLBACK_LINES 256U
+#define CLKS_TTY_STYLE_NONE 0U
+#define CLKS_TTY_STYLE_BOLD ((u8)CLKS_FB_STYLE_BOLD)
+#define CLKS_TTY_STYLE_UNDERLINE ((u8)CLKS_FB_STYLE_UNDERLINE)
 
 typedef struct clks_tty_ansi_state {
     clks_bool in_escape;
     clks_bool saw_csi;
     clks_bool bold;
+    clks_bool underline;
     clks_bool inverse;
     u32 saved_row;
     u32 saved_col;
@@ -29,6 +33,7 @@ typedef struct clks_tty_ansi_state {
 static char clks_tty_cells[CLKS_TTY_COUNT][CLKS_TTY_MAX_ROWS][CLKS_TTY_MAX_COLS];
 static u32 clks_tty_cell_fg[CLKS_TTY_COUNT][CLKS_TTY_MAX_ROWS][CLKS_TTY_MAX_COLS];
 static u32 clks_tty_cell_bg[CLKS_TTY_COUNT][CLKS_TTY_MAX_ROWS][CLKS_TTY_MAX_COLS];
+static u8 clks_tty_cell_style[CLKS_TTY_COUNT][CLKS_TTY_MAX_ROWS][CLKS_TTY_MAX_COLS];
 static u32 clks_tty_cursor_row[CLKS_TTY_COUNT];
 static u32 clks_tty_cursor_col[CLKS_TTY_COUNT];
 static u32 clks_tty_current_fg[CLKS_TTY_COUNT];
@@ -37,6 +42,7 @@ static clks_tty_ansi_state clks_tty_ansi[CLKS_TTY_COUNT];
 static char clks_tty_scrollback_cells[CLKS_TTY_COUNT][CLKS_TTY_SCROLLBACK_LINES][CLKS_TTY_MAX_COLS];
 static u32 clks_tty_scrollback_fg[CLKS_TTY_COUNT][CLKS_TTY_SCROLLBACK_LINES][CLKS_TTY_MAX_COLS];
 static u32 clks_tty_scrollback_bg[CLKS_TTY_COUNT][CLKS_TTY_SCROLLBACK_LINES][CLKS_TTY_MAX_COLS];
+static u8 clks_tty_scrollback_style[CLKS_TTY_COUNT][CLKS_TTY_SCROLLBACK_LINES][CLKS_TTY_MAX_COLS];
 static u32 clks_tty_scrollback_head[CLKS_TTY_COUNT];
 static u32 clks_tty_scrollback_count[CLKS_TTY_COUNT];
 static u32 clks_tty_scrollback_offset[CLKS_TTY_COUNT];
@@ -70,8 +76,15 @@ static void clks_tty_reset_blink_timer(void) {
     clks_tty_blink_last_tick = CLKS_TTY_BLINK_TICK_UNSET;
 }
 
-static void clks_tty_draw_cell_with_colors(u32 row, u32 col, char ch, u32 fg, u32 bg) {
-    clks_fb_draw_char(col * clks_tty_cell_width, row * clks_tty_cell_height, ch, fg, bg);
+static void clks_tty_draw_cell_with_colors(u32 row, u32 col, char ch, u32 fg, u32 bg, u8 style) {
+    clks_fb_draw_char_styled(
+        col * clks_tty_cell_width,
+        row * clks_tty_cell_height,
+        ch,
+        fg,
+        bg,
+        (u32)style
+    );
 }
 
 static void clks_tty_draw_cell(u32 tty_index, u32 row, u32 col) {
@@ -80,7 +93,8 @@ static void clks_tty_draw_cell(u32 tty_index, u32 row, u32 col) {
         col,
         clks_tty_cells[tty_index][row][col],
         clks_tty_cell_fg[tty_index][row][col],
-        clks_tty_cell_bg[tty_index][row][col]
+        clks_tty_cell_bg[tty_index][row][col],
+        clks_tty_cell_style[tty_index][row][col]
     );
 }
 
@@ -122,6 +136,11 @@ static void clks_tty_scrollback_push_row(u32 tty_index, u32 row) {
         clks_tty_cell_bg[tty_index][row],
         (usize)clks_tty_cols * sizeof(u32)
     );
+    clks_memcpy(
+        clks_tty_scrollback_style[tty_index][slot],
+        clks_tty_cell_style[tty_index][row],
+        clks_tty_cols
+    );
 
     clks_tty_scrollback_head[tty_index] = (slot + 1U) % CLKS_TTY_SCROLLBACK_LINES;
 
@@ -143,6 +162,7 @@ static void clks_tty_reset_color_state(u32 tty_index) {
     clks_tty_current_fg[tty_index] = CLKS_TTY_FG;
     clks_tty_current_bg[tty_index] = CLKS_TTY_BG;
     clks_tty_ansi[tty_index].bold = CLKS_FALSE;
+    clks_tty_ansi[tty_index].underline = CLKS_FALSE;
     clks_tty_ansi[tty_index].inverse = CLKS_FALSE;
 }
 
@@ -160,6 +180,7 @@ static void clks_tty_fill_row(u32 tty_index, u32 row, char ch) {
         clks_tty_cells[tty_index][row][col] = ch;
         clks_tty_cell_fg[tty_index][row][col] = CLKS_TTY_FG;
         clks_tty_cell_bg[tty_index][row][col] = CLKS_TTY_BG;
+        clks_tty_cell_style[tty_index][row][col] = CLKS_TTY_STYLE_NONE;
     }
 }
 
@@ -205,6 +226,7 @@ static void clks_tty_draw_cursor(void) {
     u32 col;
     u32 fg;
     u32 bg;
+    u8 style;
     char ch;
 
     if (clks_tty_is_ready == CLKS_FALSE) {
@@ -232,8 +254,9 @@ static void clks_tty_draw_cursor(void) {
     ch = clks_tty_cells[clks_tty_active_index][row][col];
     fg = clks_tty_cell_fg[clks_tty_active_index][row][col];
     bg = clks_tty_cell_bg[clks_tty_active_index][row][col];
+    style = clks_tty_cell_style[clks_tty_active_index][row][col];
 
-    clks_tty_draw_cell_with_colors(row, col, ch, bg, fg);
+    clks_tty_draw_cell_with_colors(row, col, ch, bg, fg, style);
     clks_tty_cursor_visible = CLKS_TRUE;
 }
 
@@ -260,7 +283,8 @@ static void clks_tty_redraw_active(void) {
                     col,
                     clks_tty_scrollback_cells[tty_index][phys][col],
                     clks_tty_scrollback_fg[tty_index][phys][col],
-                    clks_tty_scrollback_bg[tty_index][phys][col]
+                    clks_tty_scrollback_bg[tty_index][phys][col],
+                    clks_tty_scrollback_style[tty_index][phys][col]
                 );
             }
 
@@ -280,7 +304,8 @@ static void clks_tty_redraw_active(void) {
                     col,
                     clks_tty_cells[tty_index][src_row][col],
                     clks_tty_cell_fg[tty_index][src_row][col],
-                    clks_tty_cell_bg[tty_index][src_row][col]
+                    clks_tty_cell_bg[tty_index][src_row][col],
+                    clks_tty_cell_style[tty_index][src_row][col]
                 );
             }
         }
@@ -307,6 +332,11 @@ static void clks_tty_scroll_up(u32 tty_index) {
             clks_tty_cell_bg[tty_index][row],
             (usize)clks_tty_cols * sizeof(u32)
         );
+        clks_memcpy(
+            clks_tty_cell_style[tty_index][row - 1U],
+            clks_tty_cell_style[tty_index][row],
+            clks_tty_cols
+        );
     }
 
     clks_tty_fill_row(tty_index, clks_tty_rows - 1U, ' ');
@@ -328,6 +358,7 @@ static void clks_tty_scroll_up(u32 tty_index) {
 static void clks_tty_put_visible(u32 tty_index, u32 row, u32 col, char ch) {
     u32 fg = clks_tty_current_fg[tty_index];
     u32 bg = clks_tty_current_bg[tty_index];
+    u8 style = CLKS_TTY_STYLE_NONE;
 
     if (clks_tty_ansi[tty_index].inverse == CLKS_TRUE) {
         u32 swap = fg;
@@ -335,9 +366,18 @@ static void clks_tty_put_visible(u32 tty_index, u32 row, u32 col, char ch) {
         bg = swap;
     }
 
+    if (clks_tty_ansi[tty_index].bold == CLKS_TRUE) {
+        style = (u8)(style | CLKS_TTY_STYLE_BOLD);
+    }
+
+    if (clks_tty_ansi[tty_index].underline == CLKS_TRUE) {
+        style = (u8)(style | CLKS_TTY_STYLE_UNDERLINE);
+    }
+
     clks_tty_cells[tty_index][row][col] = ch;
     clks_tty_cell_fg[tty_index][row][col] = fg;
     clks_tty_cell_bg[tty_index][row][col] = bg;
+    clks_tty_cell_style[tty_index][row][col] = style;
 
     if (tty_index == clks_tty_active_index) {
         clks_tty_draw_cell(tty_index, row, col);
@@ -516,6 +556,7 @@ static void clks_tty_ansi_clear_line_mode(u32 tty_index, u32 mode) {
         clks_tty_cells[tty_index][row][col] = ' ';
         clks_tty_cell_fg[tty_index][row][col] = CLKS_TTY_FG;
         clks_tty_cell_bg[tty_index][row][col] = CLKS_TTY_BG;
+        clks_tty_cell_style[tty_index][row][col] = CLKS_TTY_STYLE_NONE;
     }
 
     if (tty_index == clks_tty_active_index) {
@@ -547,6 +588,7 @@ static void clks_tty_ansi_clear_screen_mode(u32 tty_index, u32 mode) {
                 clks_tty_cells[tty_index][row][col] = ' ';
                 clks_tty_cell_fg[tty_index][row][col] = CLKS_TTY_FG;
                 clks_tty_cell_bg[tty_index][row][col] = CLKS_TTY_BG;
+                clks_tty_cell_style[tty_index][row][col] = CLKS_TTY_STYLE_NONE;
             }
         }
     } else if (mode == 1U) {
@@ -557,6 +599,7 @@ static void clks_tty_ansi_clear_screen_mode(u32 tty_index, u32 mode) {
                 clks_tty_cells[tty_index][row][col] = ' ';
                 clks_tty_cell_fg[tty_index][row][col] = CLKS_TTY_FG;
                 clks_tty_cell_bg[tty_index][row][col] = CLKS_TTY_BG;
+                clks_tty_cell_style[tty_index][row][col] = CLKS_TTY_STYLE_NONE;
             }
         }
     } else {
@@ -565,6 +608,7 @@ static void clks_tty_ansi_clear_screen_mode(u32 tty_index, u32 mode) {
                 clks_tty_cells[tty_index][row][col] = ' ';
                 clks_tty_cell_fg[tty_index][row][col] = CLKS_TTY_FG;
                 clks_tty_cell_bg[tty_index][row][col] = CLKS_TTY_BG;
+                clks_tty_cell_style[tty_index][row][col] = CLKS_TTY_STYLE_NONE;
             }
         }
     }
@@ -602,6 +646,11 @@ static void clks_tty_ansi_apply_sgr_params(u32 tty_index, const char *params, u3
             continue;
         }
 
+        if (code == 4U) {
+            clks_tty_ansi[tty_index].underline = CLKS_TRUE;
+            continue;
+        }
+
         if (code == 7U) {
             clks_tty_ansi[tty_index].inverse = CLKS_TRUE;
             continue;
@@ -609,6 +658,11 @@ static void clks_tty_ansi_apply_sgr_params(u32 tty_index, const char *params, u3
 
         if (code == 22U) {
             clks_tty_ansi[tty_index].bold = CLKS_FALSE;
+            continue;
+        }
+
+        if (code == 24U) {
+            clks_tty_ansi[tty_index].underline = CLKS_FALSE;
             continue;
         }
 
@@ -1195,4 +1249,6 @@ u32 clks_tty_count(void) {
 clks_bool clks_tty_ready(void) {
     return clks_tty_is_ready;
 }
+
+
 

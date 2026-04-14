@@ -197,7 +197,7 @@ void clks_fb_scroll_up(u32 pixel_rows, u32 fill_rgb) {
     }
 }
 
-void clks_fb_draw_char(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb) {
+void clks_fb_draw_char_styled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32 style_flags) {
     const u8 *glyph;
     u32 row;
     u32 col;
@@ -206,6 +206,9 @@ void clks_fb_draw_char(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb) {
     u32 row_stride;
     u32 draw_cols;
     u32 draw_rows;
+    clks_bool style_bold;
+    clks_bool style_underline;
+    u32 underline_row;
 
     if (clks_fb.ready == CLKS_FALSE || clks_fb.font == CLKS_NULL) {
         return;
@@ -256,6 +259,10 @@ void clks_fb_draw_char(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb) {
         draw_rows = clks_fb.info.height - y;
     }
 
+    style_bold = ((style_flags & CLKS_FB_STYLE_BOLD) != 0U) ? CLKS_TRUE : CLKS_FALSE;
+    style_underline = ((style_flags & CLKS_FB_STYLE_UNDERLINE) != 0U) ? CLKS_TRUE : CLKS_FALSE;
+    underline_row = (rows > 1U) ? (rows - 2U) : 0U;
+
     for (row = 0U; row < draw_rows; row++) {
         const u8 *row_bits = glyph + ((usize)row * (usize)row_stride);
         volatile u32 *dst_row = (volatile u32 *)(
@@ -265,9 +272,29 @@ void clks_fb_draw_char(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb) {
         for (col = 0U; col < draw_cols; col++) {
             u8 bits = row_bits[col >> 3U];
             u8 mask = (u8)(0x80U >> (col & 7U));
-            dst_row[col] = (bits & mask) != 0U ? fg_rgb : bg_rgb;
+            clks_bool pixel_on = ((bits & mask) != 0U) ? CLKS_TRUE : CLKS_FALSE;
+
+            if (style_bold == CLKS_TRUE && pixel_on == CLKS_FALSE && col > 0U) {
+                u32 left_col = col - 1U;
+                u8 left_bits = row_bits[left_col >> 3U];
+                u8 left_mask = (u8)(0x80U >> (left_col & 7U));
+
+                if ((left_bits & left_mask) != 0U) {
+                    pixel_on = CLKS_TRUE;
+                }
+            }
+
+            if (style_underline == CLKS_TRUE && row == underline_row) {
+                pixel_on = CLKS_TRUE;
+            }
+
+            dst_row[col] = (pixel_on == CLKS_TRUE) ? fg_rgb : bg_rgb;
         }
     }
+}
+
+void clks_fb_draw_char(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb) {
+    clks_fb_draw_char_styled(x, y, ch, fg_rgb, bg_rgb, 0U);
 }
 
 clks_bool clks_fb_load_psf_font(const void *blob, u64 blob_size) {
