@@ -8,6 +8,7 @@
 #define CLKS_SC_ALT              0x38U
 #define CLKS_SC_LSHIFT           0x2AU
 #define CLKS_SC_RSHIFT           0x36U
+#define CLKS_SC_CTRL             0x1DU
 #define CLKS_SC_F1               0x3BU
 #define CLKS_SC_F2               0x3CU
 #define CLKS_SC_F3               0x3DU
@@ -58,6 +59,8 @@ static u16 clks_kbd_input_count[CLKS_KBD_TTY_MAX];
 static clks_bool clks_kbd_alt_down = CLKS_FALSE;
 static clks_bool clks_kbd_lshift_down = CLKS_FALSE;
 static clks_bool clks_kbd_rshift_down = CLKS_FALSE;
+static clks_bool clks_kbd_lctrl_down = CLKS_FALSE;
+static clks_bool clks_kbd_rctrl_down = CLKS_FALSE;
 static clks_bool clks_kbd_e0_prefix = CLKS_FALSE;
 static u64 clks_kbd_hotkey_switches = 0ULL;
 
@@ -160,6 +163,39 @@ static char clks_keyboard_translate_scancode(u8 code) {
     return clks_kbd_map[code];
 }
 
+static clks_bool clks_keyboard_ctrl_active(void) {
+    return (clks_kbd_lctrl_down == CLKS_TRUE || clks_kbd_rctrl_down == CLKS_TRUE) ? CLKS_TRUE : CLKS_FALSE;
+}
+
+static clks_bool clks_keyboard_try_emit_ctrl_shortcut(u8 code, u32 tty_index) {
+    char shortcut = '\0';
+
+    if (clks_keyboard_ctrl_active() == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    switch (code) {
+        case 0x1EU:
+            shortcut = CLKS_KEY_SELECT_ALL;
+            break;
+        case 0x2EU:
+            shortcut = CLKS_KEY_COPY;
+            break;
+        case 0x2FU:
+            shortcut = CLKS_KEY_PASTE;
+            break;
+        default:
+            return CLKS_FALSE;
+    }
+
+    if (clks_keyboard_queue_push_for_tty(tty_index, shortcut) == CLKS_TRUE &&
+        clks_keyboard_should_pump_shell_now() == CLKS_TRUE) {
+        clks_shell_pump_input(1U);
+    }
+
+    return CLKS_TRUE;
+}
+
 void clks_keyboard_init(void) {
     u32 tty;
 
@@ -172,6 +208,8 @@ void clks_keyboard_init(void) {
     clks_kbd_alt_down = CLKS_FALSE;
     clks_kbd_lshift_down = CLKS_FALSE;
     clks_kbd_rshift_down = CLKS_FALSE;
+    clks_kbd_lctrl_down = CLKS_FALSE;
+    clks_kbd_rctrl_down = CLKS_FALSE;
     clks_kbd_e0_prefix = CLKS_FALSE;
     clks_kbd_hotkey_switches = 0ULL;
     clks_kbd_push_count = 0ULL;
@@ -195,8 +233,24 @@ void clks_keyboard_handle_scancode(u8 scancode) {
     released = ((scancode & 0x80U) != 0U) ? CLKS_TRUE : CLKS_FALSE;
     code = (u8)(scancode & 0x7FU);
 
+    if (code == CLKS_SC_CTRL) {
+        if (clks_kbd_e0_prefix == CLKS_TRUE) {
+            clks_kbd_rctrl_down = (released == CLKS_FALSE) ? CLKS_TRUE : CLKS_FALSE;
+            clks_kbd_e0_prefix = CLKS_FALSE;
+            return;
+        }
+
+        clks_kbd_lctrl_down = (released == CLKS_FALSE) ? CLKS_TRUE : CLKS_FALSE;
+        return;
+    }
+
     if (code == CLKS_SC_ALT) {
         clks_kbd_alt_down = (released == CLKS_FALSE) ? CLKS_TRUE : CLKS_FALSE;
+
+        if (clks_kbd_e0_prefix == CLKS_TRUE) {
+            clks_kbd_e0_prefix = CLKS_FALSE;
+        }
+
         return;
     }
 
@@ -264,8 +318,14 @@ void clks_keyboard_handle_scancode(u8 scancode) {
     }
 
     {
-        char translated = clks_keyboard_translate_scancode(code);
         u32 active_tty = clks_tty_active();
+        char translated;
+
+        if (clks_keyboard_try_emit_ctrl_shortcut(code, active_tty) == CLKS_TRUE) {
+            return;
+        }
+
+        translated = clks_keyboard_translate_scancode(code);
 
         if (translated != '\0') {
             if (clks_keyboard_queue_push_for_tty(active_tty, translated) == CLKS_TRUE &&
@@ -320,3 +380,4 @@ u64 clks_keyboard_push_count(void) {
 u64 clks_keyboard_pop_count(void) {
     return clks_kbd_pop_count;
 }
+

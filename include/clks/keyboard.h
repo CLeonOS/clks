@@ -10,6 +10,9 @@
 #define CLKS_KEY_HOME    ((char)0x05)
 #define CLKS_KEY_END     ((char)0x06)
 #define CLKS_KEY_DELETE  ((char)0x07)
+#define CLKS_KEY_SELECT_ALL ((char)0x10)
+#define CLKS_KEY_COPY       ((char)0x11)
+#define CLKS_KEY_PASTE      ((char)0x12)
 
 void clks_keyboard_init(void);
 void clks_keyboard_handle_scancode(u8 scancode);
@@ -22,3 +25,4 @@ u64 clks_keyboard_push_count(void);
 u64 clks_keyboard_pop_count(void);
 
 #endif
+
