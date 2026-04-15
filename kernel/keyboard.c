@@ -92,20 +92,26 @@ static u32 clks_keyboard_clamp_tty_index(u32 tty_index) {
     return tty_index;
 }
 
+static clks_bool clks_keyboard_shift_active(void) {
+    return (clks_kbd_lshift_down == CLKS_TRUE || clks_kbd_rshift_down == CLKS_TRUE) ? CLKS_TRUE : CLKS_FALSE;
+}
+
 static char clks_keyboard_translate_ext_scancode(u8 code) {
+    clks_bool shift_active = clks_keyboard_shift_active();
+
     switch (code) {
         case CLKS_SC_EXT_LEFT:
-            return CLKS_KEY_LEFT;
+            return (shift_active == CLKS_TRUE) ? CLKS_KEY_SHIFT_LEFT : CLKS_KEY_LEFT;
         case CLKS_SC_EXT_RIGHT:
-            return CLKS_KEY_RIGHT;
+            return (shift_active == CLKS_TRUE) ? CLKS_KEY_SHIFT_RIGHT : CLKS_KEY_RIGHT;
         case CLKS_SC_EXT_UP:
             return CLKS_KEY_UP;
         case CLKS_SC_EXT_DOWN:
             return CLKS_KEY_DOWN;
         case CLKS_SC_EXT_HOME:
-            return CLKS_KEY_HOME;
+            return (shift_active == CLKS_TRUE) ? CLKS_KEY_SHIFT_HOME : CLKS_KEY_HOME;
         case CLKS_SC_EXT_END:
-            return CLKS_KEY_END;
+            return (shift_active == CLKS_TRUE) ? CLKS_KEY_SHIFT_END : CLKS_KEY_END;
         case CLKS_SC_EXT_DELETE:
             return CLKS_KEY_DELETE;
         default:

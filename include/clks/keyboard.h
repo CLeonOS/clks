@@ -13,6 +13,10 @@
 #define CLKS_KEY_SELECT_ALL ((char)0x10)
 #define CLKS_KEY_COPY       ((char)0x11)
 #define CLKS_KEY_PASTE      ((char)0x12)
+#define CLKS_KEY_SHIFT_LEFT ((char)0x13)
+#define CLKS_KEY_SHIFT_RIGHT ((char)0x14)
+#define CLKS_KEY_SHIFT_HOME ((char)0x15)
+#define CLKS_KEY_SHIFT_END  ((char)0x16)
 
 void clks_keyboard_init(void);
 void clks_keyboard_handle_scancode(u8 scancode);
