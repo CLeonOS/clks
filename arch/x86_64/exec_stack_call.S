@@ -2,6 +2,8 @@
 
 .global clks_exec_call_on_stack_x86_64
 .type clks_exec_call_on_stack_x86_64, @function
+.global clks_exec_abort_to_caller_x86_64
+.type clks_exec_abort_to_caller_x86_64, @function
 
 clks_exec_call_on_stack_x86_64:
     mov r11, rsp
@@ -16,4 +18,12 @@ clks_exec_call_on_stack_x86_64:
     ret
 
 .size clks_exec_call_on_stack_x86_64, .-clks_exec_call_on_stack_x86_64
+
+clks_exec_abort_to_caller_x86_64:
+    mov rax, rsi
+    mov rsp, rdi
+    mov rsp, [rsp]
+    ret
+
+.size clks_exec_abort_to_caller_x86_64, .-clks_exec_abort_to_caller_x86_64
 .section .note.GNU-stack,"",@progbits

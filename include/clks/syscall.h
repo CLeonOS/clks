@@ -54,6 +54,16 @@
 #define CLKS_SYSCALL_AUDIO_AVAILABLE     48ULL
 #define CLKS_SYSCALL_AUDIO_PLAY_TONE     49ULL
 #define CLKS_SYSCALL_AUDIO_STOP          50ULL
+#define CLKS_SYSCALL_EXEC_PATHV          51ULL
+#define CLKS_SYSCALL_SPAWN_PATHV         52ULL
+#define CLKS_SYSCALL_PROC_ARGC           53ULL
+#define CLKS_SYSCALL_PROC_ARGV           54ULL
+#define CLKS_SYSCALL_PROC_ENVC           55ULL
+#define CLKS_SYSCALL_PROC_ENV            56ULL
+#define CLKS_SYSCALL_PROC_LAST_SIGNAL    57ULL
+#define CLKS_SYSCALL_PROC_FAULT_VECTOR   58ULL
+#define CLKS_SYSCALL_PROC_FAULT_ERROR    59ULL
+#define CLKS_SYSCALL_PROC_FAULT_RIP      60ULL
 
 void clks_syscall_init(void);
 u64 clks_syscall_dispatch(void *frame_ptr);

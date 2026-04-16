@@ -16,6 +16,12 @@ typedef u64 (*clks_exec_entry_fn)(void);
 #define CLKS_EXEC_MAX_PROCS       64U
 #define CLKS_EXEC_MAX_DEPTH       16U
 #define CLKS_EXEC_PATH_MAX        192U
+#define CLKS_EXEC_ARG_LINE_MAX    256U
+#define CLKS_EXEC_ENV_LINE_MAX    512U
+#define CLKS_EXEC_MAX_ARGS         24U
+#define CLKS_EXEC_MAX_ENVS         24U
+#define CLKS_EXEC_ITEM_MAX        128U
+#define CLKS_EXEC_STATUS_SIGNAL_FLAG (1ULL << 63)
 
 enum clks_exec_proc_state {
     CLKS_EXEC_PROC_UNUSED = 0,
@@ -34,10 +40,21 @@ struct clks_exec_proc_record {
     u64 exit_status;
     u32 tty_index;
     char path[CLKS_EXEC_PATH_MAX];
+    char argv_line[CLKS_EXEC_ARG_LINE_MAX];
+    char env_line[CLKS_EXEC_ENV_LINE_MAX];
+    u32 argc;
+    u32 envc;
+    char argv_items[CLKS_EXEC_MAX_ARGS][CLKS_EXEC_ITEM_MAX];
+    char env_items[CLKS_EXEC_MAX_ENVS][CLKS_EXEC_ITEM_MAX];
+    u64 last_signal;
+    u64 last_fault_vector;
+    u64 last_fault_error;
+    u64 last_fault_rip;
 };
 
 #if defined(CLKS_ARCH_X86_64)
 extern u64 clks_exec_call_on_stack_x86_64(void *entry_ptr, void *stack_top);
+extern void clks_exec_abort_to_caller_x86_64(void);
 #endif
 
 static u64 clks_exec_requests = 0ULL;
@@ -50,6 +67,8 @@ static u64 clks_exec_next_pid = 1ULL;
 static u64 clks_exec_pid_stack[CLKS_EXEC_MAX_DEPTH];
 static clks_bool clks_exec_exit_requested_stack[CLKS_EXEC_MAX_DEPTH];
 static u64 clks_exec_exit_status_stack[CLKS_EXEC_MAX_DEPTH];
+static u64 clks_exec_unwind_slot_stack[CLKS_EXEC_MAX_DEPTH];
+static clks_bool clks_exec_unwind_slot_valid_stack[CLKS_EXEC_MAX_DEPTH];
 static u32 clks_exec_pid_stack_depth = 0U;
 
 static void clks_exec_serial_write_hex64(u64 value) {
@@ -163,6 +182,155 @@ static void clks_exec_copy_path(char *dst, usize dst_size, const char *src) {
     dst[i] = '\0';
 }
 
+static void clks_exec_copy_line(char *dst, usize dst_size, const char *src) {
+    usize i = 0U;
+
+    if (dst == CLKS_NULL || dst_size == 0U) {
+        return;
+    }
+
+    if (src == CLKS_NULL) {
+        dst[0] = '\0';
+        return;
+    }
+
+    while (src[i] != '\0' && i + 1U < dst_size) {
+        dst[i] = src[i];
+        i++;
+    }
+
+    dst[i] = '\0';
+}
+
+static void clks_exec_clear_items(char items[][CLKS_EXEC_ITEM_MAX], u32 max_count) {
+    u32 i;
+
+    for (i = 0U; i < max_count; i++) {
+        items[i][0] = '\0';
+    }
+}
+
+static u32 clks_exec_parse_whitespace_items(const char *line,
+                                            char items[][CLKS_EXEC_ITEM_MAX],
+                                            u32 max_count) {
+    u32 count = 0U;
+    usize i = 0U;
+
+    if (line == CLKS_NULL || items == CLKS_NULL || max_count == 0U) {
+        return 0U;
+    }
+
+    while (line[i] != '\0') {
+        usize p = 0U;
+
+        while (line[i] == ' ' || line[i] == '\t' || line[i] == '\r' || line[i] == '\n') {
+            i++;
+        }
+
+        if (line[i] == '\0') {
+            break;
+        }
+
+        if (count >= max_count) {
+            break;
+        }
+
+        while (line[i] != '\0' &&
+               line[i] != ' ' &&
+               line[i] != '\t' &&
+               line[i] != '\r' &&
+               line[i] != '\n') {
+            if (p + 1U < CLKS_EXEC_ITEM_MAX) {
+                items[count][p++] = line[i];
+            }
+
+            i++;
+        }
+
+        items[count][p] = '\0';
+        count++;
+    }
+
+    return count;
+}
+
+static u32 clks_exec_parse_env_items(const char *line,
+                                     char items[][CLKS_EXEC_ITEM_MAX],
+                                     u32 max_count) {
+    u32 count = 0U;
+    usize i = 0U;
+
+    if (line == CLKS_NULL || items == CLKS_NULL || max_count == 0U) {
+        return 0U;
+    }
+
+    while (line[i] != '\0') {
+        usize p = 0U;
+        usize end_trim = 0U;
+
+        while (line[i] == ' ' || line[i] == '\t' || line[i] == ';' || line[i] == '\r' || line[i] == '\n') {
+            i++;
+        }
+
+        if (line[i] == '\0') {
+            break;
+        }
+
+        if (count >= max_count) {
+            break;
+        }
+
+        while (line[i] != '\0' && line[i] != ';' && line[i] != '\r' && line[i] != '\n') {
+            if (p + 1U < CLKS_EXEC_ITEM_MAX) {
+                items[count][p++] = line[i];
+            }
+            i++;
+        }
+
+        while (p > 0U && (items[count][p - 1U] == ' ' || items[count][p - 1U] == '\t')) {
+            p--;
+        }
+
+        end_trim = p;
+        items[count][end_trim] = '\0';
+
+        if (end_trim > 0U) {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+static u64 clks_exec_signal_from_vector(u64 vector) {
+    switch (vector) {
+        case 0ULL:
+        case 16ULL:
+        case 19ULL:
+            return 8ULL;
+        case 6ULL:
+            return 4ULL;
+        case 3ULL:
+            return 5ULL;
+        case 14ULL:
+        case 13ULL:
+        case 12ULL:
+        case 11ULL:
+        case 10ULL:
+        case 17ULL:
+            return 11ULL;
+        default:
+            return 6ULL;
+    }
+}
+
+static u64 clks_exec_encode_signal_status(u64 signal, u64 vector, u64 error_code) {
+    return CLKS_EXEC_STATUS_SIGNAL_FLAG |
+           (signal & 0xFFULL) |
+           ((vector & 0xFFULL) << 8) |
+           ((error_code & 0xFFFFULL) << 16);
+}
+
 static i32 clks_exec_proc_find_slot_by_pid(u64 pid) {
     u32 i;
 
@@ -225,6 +393,8 @@ static u64 clks_exec_alloc_pid(void) {
 static struct clks_exec_proc_record *clks_exec_prepare_proc_record(i32 slot,
                                                                     u64 pid,
                                                                     const char *path,
+                                                                    const char *argv_line,
+                                                                    const char *env_line,
                                                                     enum clks_exec_proc_state state) {
     struct clks_exec_proc_record *proc;
 
@@ -244,10 +414,36 @@ static struct clks_exec_proc_record *clks_exec_prepare_proc_record(i32 slot,
     proc->exit_status = (u64)-1;
     proc->tty_index = clks_tty_active();
     clks_exec_copy_path(proc->path, sizeof(proc->path), path);
+    clks_exec_copy_line(proc->argv_line, sizeof(proc->argv_line), argv_line);
+    clks_exec_copy_line(proc->env_line, sizeof(proc->env_line), env_line);
+    clks_exec_clear_items(proc->argv_items, CLKS_EXEC_MAX_ARGS);
+    clks_exec_clear_items(proc->env_items, CLKS_EXEC_MAX_ENVS);
+    proc->argc = 0U;
+    proc->envc = 0U;
+    proc->last_signal = 0ULL;
+    proc->last_fault_vector = 0ULL;
+    proc->last_fault_error = 0ULL;
+    proc->last_fault_rip = 0ULL;
+
+    if (proc->argc < CLKS_EXEC_MAX_ARGS) {
+        clks_exec_copy_path(proc->argv_items[proc->argc], CLKS_EXEC_ITEM_MAX, path);
+        proc->argc++;
+    }
+
+    if (proc->argv_line[0] != '\0' && proc->argc < CLKS_EXEC_MAX_ARGS) {
+        proc->argc += clks_exec_parse_whitespace_items(proc->argv_line,
+                                                       &proc->argv_items[proc->argc],
+                                                       (u32)(CLKS_EXEC_MAX_ARGS - proc->argc));
+    }
+
+    if (proc->env_line[0] != '\0') {
+        proc->envc = clks_exec_parse_env_items(proc->env_line, proc->env_items, CLKS_EXEC_MAX_ENVS);
+    }
+
     return proc;
 }
 
-static clks_bool clks_exec_invoke_entry(void *entry_ptr, u64 *out_ret) {
+static clks_bool clks_exec_invoke_entry(void *entry_ptr, u32 depth_index, u64 *out_ret) {
     if (entry_ptr == CLKS_NULL || out_ret == CLKS_NULL) {
         return CLKS_FALSE;
     }
@@ -256,6 +452,7 @@ static clks_bool clks_exec_invoke_entry(void *entry_ptr, u64 *out_ret) {
     {
         void *stack_base = clks_kmalloc((usize)CLKS_EXEC_RUN_STACK_BYTES);
         void *stack_top;
+        u64 unwind_slot;
 
         if (stack_base == CLKS_NULL) {
             clks_log(CLKS_LOG_WARN, "EXEC", "RUN STACK ALLOC FAILED");
@@ -263,11 +460,17 @@ static clks_bool clks_exec_invoke_entry(void *entry_ptr, u64 *out_ret) {
         }
 
         stack_top = (void *)((u8 *)stack_base + (usize)CLKS_EXEC_RUN_STACK_BYTES);
+        unwind_slot = (((u64)stack_top) & ~0xFULL) - 8ULL;
+        clks_exec_unwind_slot_stack[depth_index] = unwind_slot;
+        clks_exec_unwind_slot_valid_stack[depth_index] = CLKS_TRUE;
         *out_ret = clks_exec_call_on_stack_x86_64(entry_ptr, stack_top);
+        clks_exec_unwind_slot_valid_stack[depth_index] = CLKS_FALSE;
+        clks_exec_unwind_slot_stack[depth_index] = 0ULL;
         clks_kfree(stack_base);
         return CLKS_TRUE;
     }
 #else
+    (void)depth_index;
     *out_ret = ((clks_exec_entry_fn)entry_ptr)();
     return CLKS_TRUE;
 #endif
@@ -364,7 +567,7 @@ static clks_bool clks_exec_run_proc_slot(i32 slot, u64 *out_status) {
     clks_exec_running_depth++;
     depth_counted = CLKS_TRUE;
 
-    if (clks_exec_invoke_entry(entry_ptr, &run_ret) == CLKS_FALSE) {
+    if (clks_exec_invoke_entry(entry_ptr, (u32)depth_index, &run_ret) == CLKS_FALSE) {
         clks_log(CLKS_LOG_WARN, "EXEC", "EXEC RUN INVOKE FAILED");
         clks_log(CLKS_LOG_WARN, "EXEC", proc->path);
         goto fail;
@@ -450,7 +653,11 @@ static clks_bool clks_exec_dispatch_pending_once(void) {
     return CLKS_FALSE;
 }
 
-static clks_bool clks_exec_run_path_internal(const char *path, u64 *out_status, u64 *out_pid) {
+static clks_bool clks_exec_run_path_internal(const char *path,
+                                             const char *argv_line,
+                                             const char *env_line,
+                                             u64 *out_status,
+                                             u64 *out_pid) {
     i32 slot;
     u64 pid;
     struct clks_exec_proc_record *proc;
@@ -479,7 +686,7 @@ static clks_bool clks_exec_run_path_internal(const char *path, u64 *out_status, 
     }
 
     pid = clks_exec_alloc_pid();
-    proc = clks_exec_prepare_proc_record(slot, pid, path, CLKS_EXEC_PROC_RUNNING);
+    proc = clks_exec_prepare_proc_record(slot, pid, path, argv_line, env_line, CLKS_EXEC_PROC_RUNNING);
 
     if (proc == CLKS_NULL) {
         return CLKS_FALSE;
@@ -510,15 +717,21 @@ void clks_exec_init(void) {
     clks_memset(clks_exec_pid_stack, 0, sizeof(clks_exec_pid_stack));
     clks_memset(clks_exec_exit_requested_stack, 0, sizeof(clks_exec_exit_requested_stack));
     clks_memset(clks_exec_exit_status_stack, 0, sizeof(clks_exec_exit_status_stack));
+    clks_memset(clks_exec_unwind_slot_stack, 0, sizeof(clks_exec_unwind_slot_stack));
+    clks_memset(clks_exec_unwind_slot_valid_stack, 0, sizeof(clks_exec_unwind_slot_valid_stack));
     clks_memset(clks_exec_proc_table, 0, sizeof(clks_exec_proc_table));
     clks_exec_log_info_serial("PATH EXEC FRAMEWORK ONLINE");
 }
 
 clks_bool clks_exec_run_path(const char *path, u64 *out_status) {
-    return clks_exec_run_path_internal(path, out_status, CLKS_NULL);
+    return clks_exec_run_path_internal(path, CLKS_NULL, CLKS_NULL, out_status, CLKS_NULL);
 }
 
-clks_bool clks_exec_spawn_path(const char *path, u64 *out_pid) {
+clks_bool clks_exec_run_pathv(const char *path, const char *argv_line, const char *env_line, u64 *out_status) {
+    return clks_exec_run_path_internal(path, argv_line, env_line, out_status, CLKS_NULL);
+}
+
+clks_bool clks_exec_spawn_pathv(const char *path, const char *argv_line, const char *env_line, u64 *out_pid) {
     i32 slot;
     u64 pid;
     struct clks_exec_proc_record *proc;
@@ -542,7 +755,7 @@ clks_bool clks_exec_spawn_path(const char *path, u64 *out_pid) {
     }
 
     pid = clks_exec_alloc_pid();
-    proc = clks_exec_prepare_proc_record(slot, pid, path, CLKS_EXEC_PROC_PENDING);
+    proc = clks_exec_prepare_proc_record(slot, pid, path, argv_line, env_line, CLKS_EXEC_PROC_PENDING);
 
     if (proc == CLKS_NULL) {
         return CLKS_FALSE;
@@ -557,6 +770,10 @@ clks_bool clks_exec_spawn_path(const char *path, u64 *out_pid) {
     clks_exec_log_hex_serial("PID", pid);
 
     return CLKS_TRUE;
+}
+
+clks_bool clks_exec_spawn_path(const char *path, u64 *out_pid) {
+    return clks_exec_spawn_pathv(path, CLKS_NULL, CLKS_NULL, out_pid);
 }
 
 u64 clks_exec_wait_pid(u64 pid, u64 *out_status) {
@@ -648,6 +865,159 @@ u32 clks_exec_current_tty(void) {
     }
 
     return proc->tty_index;
+}
+
+static struct clks_exec_proc_record *clks_exec_current_proc(void) {
+    i32 depth_index = clks_exec_current_depth_index();
+    i32 slot;
+
+    if (depth_index < 0) {
+        return CLKS_NULL;
+    }
+
+    slot = clks_exec_proc_find_slot_by_pid(clks_exec_pid_stack[(u32)depth_index]);
+
+    if (slot < 0) {
+        return CLKS_NULL;
+    }
+
+    if (clks_exec_proc_table[(u32)slot].used == CLKS_FALSE) {
+        return CLKS_NULL;
+    }
+
+    return &clks_exec_proc_table[(u32)slot];
+}
+
+u64 clks_exec_current_argc(void) {
+    const struct clks_exec_proc_record *proc = clks_exec_current_proc();
+
+    if (proc == CLKS_NULL) {
+        return 0ULL;
+    }
+
+    return (u64)proc->argc;
+}
+
+clks_bool clks_exec_copy_current_argv(u64 index, char *out_value, usize out_size) {
+    const struct clks_exec_proc_record *proc = clks_exec_current_proc();
+
+    if (proc == CLKS_NULL || out_value == CLKS_NULL || out_size == 0U) {
+        return CLKS_FALSE;
+    }
+
+    if (index >= (u64)proc->argc || index >= CLKS_EXEC_MAX_ARGS) {
+        return CLKS_FALSE;
+    }
+
+    clks_exec_copy_line(out_value, out_size, proc->argv_items[(u32)index]);
+    return CLKS_TRUE;
+}
+
+u64 clks_exec_current_envc(void) {
+    const struct clks_exec_proc_record *proc = clks_exec_current_proc();
+
+    if (proc == CLKS_NULL) {
+        return 0ULL;
+    }
+
+    return (u64)proc->envc;
+}
+
+clks_bool clks_exec_copy_current_env(u64 index, char *out_value, usize out_size) {
+    const struct clks_exec_proc_record *proc = clks_exec_current_proc();
+
+    if (proc == CLKS_NULL || out_value == CLKS_NULL || out_size == 0U) {
+        return CLKS_FALSE;
+    }
+
+    if (index >= (u64)proc->envc || index >= CLKS_EXEC_MAX_ENVS) {
+        return CLKS_FALSE;
+    }
+
+    clks_exec_copy_line(out_value, out_size, proc->env_items[(u32)index]);
+    return CLKS_TRUE;
+}
+
+u64 clks_exec_current_signal(void) {
+    const struct clks_exec_proc_record *proc = clks_exec_current_proc();
+    return (proc != CLKS_NULL) ? proc->last_signal : 0ULL;
+}
+
+u64 clks_exec_current_fault_vector(void) {
+    const struct clks_exec_proc_record *proc = clks_exec_current_proc();
+    return (proc != CLKS_NULL) ? proc->last_fault_vector : 0ULL;
+}
+
+u64 clks_exec_current_fault_error(void) {
+    const struct clks_exec_proc_record *proc = clks_exec_current_proc();
+    return (proc != CLKS_NULL) ? proc->last_fault_error : 0ULL;
+}
+
+u64 clks_exec_current_fault_rip(void) {
+    const struct clks_exec_proc_record *proc = clks_exec_current_proc();
+    return (proc != CLKS_NULL) ? proc->last_fault_rip : 0ULL;
+}
+
+clks_bool clks_exec_handle_exception(u64 vector,
+                                     u64 error_code,
+                                     u64 rip,
+                                     u64 *io_rip,
+                                     u64 *io_rdi,
+                                     u64 *io_rsi) {
+    i32 depth_index;
+    struct clks_exec_proc_record *proc;
+    u64 signal;
+    u64 status;
+
+    if (clks_exec_is_running() == CLKS_FALSE || clks_exec_current_path_is_user() == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    depth_index = clks_exec_current_depth_index();
+    proc = clks_exec_current_proc();
+
+    if (depth_index < 0 || proc == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    signal = clks_exec_signal_from_vector(vector);
+    status = clks_exec_encode_signal_status(signal, vector, error_code);
+
+    proc->last_signal = signal;
+    proc->last_fault_vector = vector;
+    proc->last_fault_error = error_code;
+    proc->last_fault_rip = rip;
+
+    clks_exec_exit_requested_stack[(u32)depth_index] = CLKS_TRUE;
+    clks_exec_exit_status_stack[(u32)depth_index] = status;
+
+    clks_exec_log_info_serial("USER EXCEPTION CAPTURED");
+    clks_exec_log_info_serial(proc->path);
+    clks_exec_log_hex_serial("PID", proc->pid);
+    clks_exec_log_hex_serial("SIGNAL", signal);
+    clks_exec_log_hex_serial("VECTOR", vector);
+    clks_exec_log_hex_serial("ERROR", error_code);
+    clks_exec_log_hex_serial("RIP", rip);
+
+#if defined(CLKS_ARCH_X86_64)
+    if (io_rip == CLKS_NULL || io_rdi == CLKS_NULL || io_rsi == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_exec_unwind_slot_valid_stack[(u32)depth_index] == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    *io_rip = (u64)clks_exec_abort_to_caller_x86_64;
+    *io_rdi = clks_exec_unwind_slot_stack[(u32)depth_index];
+    *io_rsi = status;
+    return CLKS_TRUE;
+#else
+    (void)io_rip;
+    (void)io_rdi;
+    (void)io_rsi;
+    return CLKS_FALSE;
+#endif
 }
 
 u64 clks_exec_sleep_ticks(u64 ticks) {

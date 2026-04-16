@@ -1,5 +1,6 @@
 #include <clks/compiler.h>
 #include <clks/cpu.h>
+#include <clks/exec.h>
 #include <clks/interrupts.h>
 #include <clks/log.h>
 #include <clks/keyboard.h>
@@ -250,6 +251,15 @@ void clks_interrupt_dispatch(struct clks_interrupt_frame *frame) {
     }
 
     if (vector < 32U) {
+        if (clks_exec_handle_exception(vector,
+                                       frame->error_code,
+                                       frame->rip,
+                                       &frame->rip,
+                                       &frame->rdi,
+                                       &frame->rsi) == CLKS_TRUE) {
+            return;
+        }
+
         clks_panic_exception(clks_exception_names[vector], vector, frame->error_code, frame->rip);
     }
 

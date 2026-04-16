@@ -22,6 +22,9 @@
 #define CLKS_SYSCALL_TTY_MAX_LEN      512U
 #define CLKS_SYSCALL_FS_IO_MAX_LEN  65536U
 #define CLKS_SYSCALL_JOURNAL_MAX_LEN  256U
+#define CLKS_SYSCALL_ARG_LINE_MAX     256U
+#define CLKS_SYSCALL_ENV_LINE_MAX     512U
+#define CLKS_SYSCALL_ITEM_MAX         128U
 #define CLKS_SYSCALL_USER_TRACE_BUDGET 128ULL
 
 struct clks_syscall_frame {
@@ -85,6 +88,19 @@ static clks_bool clks_syscall_copy_user_string(u64 src_addr, char *dst, usize ds
 
     dst[dst_size - 1U] = '\0';
     return CLKS_TRUE;
+}
+
+static clks_bool clks_syscall_copy_user_optional_string(u64 src_addr, char *dst, usize dst_size) {
+    if (dst == CLKS_NULL || dst_size == 0U) {
+        return CLKS_FALSE;
+    }
+
+    if (src_addr == 0ULL) {
+        dst[0] = '\0';
+        return CLKS_TRUE;
+    }
+
+    return clks_syscall_copy_user_string(src_addr, dst, dst_size);
 }
 
 static u64 clks_syscall_log_write(u64 arg0, u64 arg1) {
@@ -218,6 +234,31 @@ static u64 clks_syscall_exec_path(u64 arg0) {
     return status;
 }
 
+static u64 clks_syscall_exec_pathv(u64 arg0, u64 arg1, u64 arg2) {
+    char path[CLKS_SYSCALL_PATH_MAX];
+    char argv_line[CLKS_SYSCALL_ARG_LINE_MAX];
+    char env_line[CLKS_SYSCALL_ENV_LINE_MAX];
+    u64 status = (u64)-1;
+
+    if (clks_syscall_copy_user_string(arg0, path, sizeof(path)) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    if (clks_syscall_copy_user_optional_string(arg1, argv_line, sizeof(argv_line)) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    if (clks_syscall_copy_user_optional_string(arg2, env_line, sizeof(env_line)) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    if (clks_exec_run_pathv(path, argv_line, env_line, &status) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    return status;
+}
+
 static u64 clks_syscall_getpid(void) {
     return clks_exec_current_pid();
 }
@@ -237,6 +278,31 @@ static u64 clks_syscall_spawn_path(u64 arg0) {
     return pid;
 }
 
+static u64 clks_syscall_spawn_pathv(u64 arg0, u64 arg1, u64 arg2) {
+    char path[CLKS_SYSCALL_PATH_MAX];
+    char argv_line[CLKS_SYSCALL_ARG_LINE_MAX];
+    char env_line[CLKS_SYSCALL_ENV_LINE_MAX];
+    u64 pid = (u64)-1;
+
+    if (clks_syscall_copy_user_string(arg0, path, sizeof(path)) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    if (clks_syscall_copy_user_optional_string(arg1, argv_line, sizeof(argv_line)) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    if (clks_syscall_copy_user_optional_string(arg2, env_line, sizeof(env_line)) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    if (clks_exec_spawn_pathv(path, argv_line, env_line, &pid) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    return pid;
+}
+
 static u64 clks_syscall_waitpid(u64 arg0, u64 arg1) {
     u64 status = (u64)-1;
     u64 wait_ret = clks_exec_wait_pid(arg0, &status);
@@ -246,6 +312,54 @@ static u64 clks_syscall_waitpid(u64 arg0, u64 arg1) {
     }
 
     return wait_ret;
+}
+
+static u64 clks_syscall_proc_argc(void) {
+    return clks_exec_current_argc();
+}
+
+static u64 clks_syscall_proc_argv(u64 arg0, u64 arg1, u64 arg2) {
+    if (arg1 == 0ULL || arg2 == 0ULL) {
+        return 0ULL;
+    }
+
+    if (arg2 > CLKS_SYSCALL_ITEM_MAX) {
+        arg2 = CLKS_SYSCALL_ITEM_MAX;
+    }
+
+    return (clks_exec_copy_current_argv(arg0, (char *)arg1, (usize)arg2) == CLKS_TRUE) ? 1ULL : 0ULL;
+}
+
+static u64 clks_syscall_proc_envc(void) {
+    return clks_exec_current_envc();
+}
+
+static u64 clks_syscall_proc_env(u64 arg0, u64 arg1, u64 arg2) {
+    if (arg1 == 0ULL || arg2 == 0ULL) {
+        return 0ULL;
+    }
+
+    if (arg2 > CLKS_SYSCALL_ITEM_MAX) {
+        arg2 = CLKS_SYSCALL_ITEM_MAX;
+    }
+
+    return (clks_exec_copy_current_env(arg0, (char *)arg1, (usize)arg2) == CLKS_TRUE) ? 1ULL : 0ULL;
+}
+
+static u64 clks_syscall_proc_last_signal(void) {
+    return clks_exec_current_signal();
+}
+
+static u64 clks_syscall_proc_fault_vector(void) {
+    return clks_exec_current_fault_vector();
+}
+
+static u64 clks_syscall_proc_fault_error(void) {
+    return clks_exec_current_fault_error();
+}
+
+static u64 clks_syscall_proc_fault_rip(void) {
+    return clks_exec_current_fault_rip();
 }
 
 static u64 clks_syscall_exit(u64 arg0) {
@@ -530,6 +644,8 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
             return clks_syscall_fs_read(frame->rbx, frame->rcx, frame->rdx);
         case CLKS_SYSCALL_EXEC_PATH:
             return clks_syscall_exec_path(frame->rbx);
+        case CLKS_SYSCALL_EXEC_PATHV:
+            return clks_syscall_exec_pathv(frame->rbx, frame->rcx, frame->rdx);
         case CLKS_SYSCALL_EXEC_REQUESTS:
             return clks_exec_request_count();
         case CLKS_SYSCALL_EXEC_SUCCESS:
@@ -587,8 +703,26 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
             return clks_syscall_getpid();
         case CLKS_SYSCALL_SPAWN_PATH:
             return clks_syscall_spawn_path(frame->rbx);
+        case CLKS_SYSCALL_SPAWN_PATHV:
+            return clks_syscall_spawn_pathv(frame->rbx, frame->rcx, frame->rdx);
         case CLKS_SYSCALL_WAITPID:
             return clks_syscall_waitpid(frame->rbx, frame->rcx);
+        case CLKS_SYSCALL_PROC_ARGC:
+            return clks_syscall_proc_argc();
+        case CLKS_SYSCALL_PROC_ARGV:
+            return clks_syscall_proc_argv(frame->rbx, frame->rcx, frame->rdx);
+        case CLKS_SYSCALL_PROC_ENVC:
+            return clks_syscall_proc_envc();
+        case CLKS_SYSCALL_PROC_ENV:
+            return clks_syscall_proc_env(frame->rbx, frame->rcx, frame->rdx);
+        case CLKS_SYSCALL_PROC_LAST_SIGNAL:
+            return clks_syscall_proc_last_signal();
+        case CLKS_SYSCALL_PROC_FAULT_VECTOR:
+            return clks_syscall_proc_fault_vector();
+        case CLKS_SYSCALL_PROC_FAULT_ERROR:
+            return clks_syscall_proc_fault_error();
+        case CLKS_SYSCALL_PROC_FAULT_RIP:
+            return clks_syscall_proc_fault_rip();
         case CLKS_SYSCALL_EXIT:
             return clks_syscall_exit(frame->rbx);
         case CLKS_SYSCALL_SLEEP_TICKS:
