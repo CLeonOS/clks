@@ -32,7 +32,7 @@
 #define CLKS_SYSCALL_KDBG_STACK_WINDOW_BYTES (128ULL * 1024ULL)
 #define CLKS_SYSCALL_KERNEL_SYMBOL_FILE "/system/kernel.sym"
 #define CLKS_SYSCALL_KERNEL_ADDR_BASE 0xFFFF800000000000ULL
-#define CLKS_SYSCALL_STATS_MAX_ID     CLKS_SYSCALL_STATS_RECENT_ID
+#define CLKS_SYSCALL_STATS_MAX_ID     CLKS_SYSCALL_FD_DUP
 #define CLKS_SYSCALL_STATS_RING_SIZE  256U
 
 struct clks_syscall_frame {
@@ -208,6 +208,40 @@ static u64 clks_syscall_kbd_get_char(void) {
     }
 
     return (u64)(u8)ch;
+}
+
+static u64 clks_syscall_fd_open(u64 arg0, u64 arg1, u64 arg2) {
+    char path[CLKS_SYSCALL_PATH_MAX];
+
+    if (clks_syscall_copy_user_string(arg0, path, sizeof(path)) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    return clks_exec_fd_open(path, arg1, arg2);
+}
+
+static u64 clks_syscall_fd_read(u64 arg0, u64 arg1, u64 arg2) {
+    if (arg2 > 0ULL && arg1 == 0ULL) {
+        return (u64)-1;
+    }
+
+    return clks_exec_fd_read(arg0, (void *)arg1, arg2);
+}
+
+static u64 clks_syscall_fd_write(u64 arg0, u64 arg1, u64 arg2) {
+    if (arg2 > 0ULL && arg1 == 0ULL) {
+        return (u64)-1;
+    }
+
+    return clks_exec_fd_write(arg0, (const void *)arg1, arg2);
+}
+
+static u64 clks_syscall_fd_close(u64 arg0) {
+    return clks_exec_fd_close(arg0);
+}
+
+static u64 clks_syscall_fd_dup(u64 arg0) {
+    return clks_exec_fd_dup(arg0);
 }
 
 static clks_bool clks_syscall_procfs_is_root(const char *path) {
@@ -1786,6 +1820,16 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
             return clks_syscall_stats_recent_window();
         case CLKS_SYSCALL_STATS_RECENT_ID:
             return clks_syscall_stats_recent_id(frame->rbx);
+        case CLKS_SYSCALL_FD_OPEN:
+            return clks_syscall_fd_open(frame->rbx, frame->rcx, frame->rdx);
+        case CLKS_SYSCALL_FD_READ:
+            return clks_syscall_fd_read(frame->rbx, frame->rcx, frame->rdx);
+        case CLKS_SYSCALL_FD_WRITE:
+            return clks_syscall_fd_write(frame->rbx, frame->rcx, frame->rdx);
+        case CLKS_SYSCALL_FD_CLOSE:
+            return clks_syscall_fd_close(frame->rbx);
+        case CLKS_SYSCALL_FD_DUP:
+            return clks_syscall_fd_dup(frame->rbx);
         default:
             return (u64)-1;
     }

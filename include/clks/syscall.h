@@ -75,6 +75,11 @@
 #define CLKS_SYSCALL_STATS_ID_COUNT      69ULL
 #define CLKS_SYSCALL_STATS_RECENT_WINDOW 70ULL
 #define CLKS_SYSCALL_STATS_RECENT_ID     71ULL
+#define CLKS_SYSCALL_FD_OPEN             72ULL
+#define CLKS_SYSCALL_FD_READ             73ULL
+#define CLKS_SYSCALL_FD_WRITE            74ULL
+#define CLKS_SYSCALL_FD_CLOSE            75ULL
+#define CLKS_SYSCALL_FD_DUP              76ULL
 
 void clks_syscall_init(void);
 u64 clks_syscall_dispatch(void *frame_ptr);

@@ -4,6 +4,7 @@
 #include <clks/fs.h>
 #include <clks/heap.h>
 #include <clks/interrupts.h>
+#include <clks/keyboard.h>
 #include <clks/log.h>
 #include <clks/serial.h>
 #include <clks/string.h>
@@ -18,6 +19,7 @@ typedef u64 (*clks_exec_entry_fn)(void);
 #define CLKS_EXEC_PATH_MAX        192U
 #define CLKS_EXEC_ARG_LINE_MAX    256U
 #define CLKS_EXEC_ENV_LINE_MAX    512U
+#define CLKS_EXEC_FD_MAX           32U
 #define CLKS_EXEC_MAX_ARGS         24U
 #define CLKS_EXEC_MAX_ENVS         24U
 #define CLKS_EXEC_ITEM_MAX        128U
@@ -25,6 +27,19 @@ typedef u64 (*clks_exec_entry_fn)(void);
 #define CLKS_EXEC_DEFAULT_KILL_SIGNAL CLKS_EXEC_SIGNAL_TERM
 #define CLKS_EXEC_KERNEL_ADDR_BASE 0xFFFF800000000000ULL
 #define CLKS_EXEC_UNWIND_CTX_BYTES 56ULL
+#define CLKS_EXEC_FD_ACCESS_MASK 0x3ULL
+#define CLKS_EXEC_O_RDONLY       0x0000ULL
+#define CLKS_EXEC_O_WRONLY       0x0001ULL
+#define CLKS_EXEC_O_RDWR         0x0002ULL
+#define CLKS_EXEC_O_CREAT        0x0040ULL
+#define CLKS_EXEC_O_TRUNC        0x0200ULL
+#define CLKS_EXEC_O_APPEND       0x0400ULL
+
+enum clks_exec_fd_kind {
+    CLKS_EXEC_FD_KIND_NONE = 0,
+    CLKS_EXEC_FD_KIND_TTY = 1,
+    CLKS_EXEC_FD_KIND_FILE = 2,
+};
 
 enum clks_exec_proc_state {
     CLKS_EXEC_PROC_UNUSED = 0,
@@ -32,6 +47,15 @@ enum clks_exec_proc_state {
     CLKS_EXEC_PROC_RUNNING = 2,
     CLKS_EXEC_PROC_EXITED = 3,
     CLKS_EXEC_PROC_STOPPED = 4,
+};
+
+struct clks_exec_fd_entry {
+    clks_bool used;
+    enum clks_exec_fd_kind kind;
+    u64 flags;
+    u64 offset;
+    u32 tty_index;
+    char path[CLKS_EXEC_PATH_MAX];
 };
 
 struct clks_exec_proc_record {
@@ -57,6 +81,7 @@ struct clks_exec_proc_record {
     u64 last_fault_vector;
     u64 last_fault_error;
     u64 last_fault_rip;
+    struct clks_exec_fd_entry fds[CLKS_EXEC_FD_MAX];
 };
 
 #if defined(CLKS_ARCH_X86_64)
@@ -80,6 +105,8 @@ static clks_bool clks_exec_unwind_slot_valid_stack[CLKS_EXEC_MAX_DEPTH];
 static u64 clks_exec_image_begin_stack[CLKS_EXEC_MAX_DEPTH];
 static u64 clks_exec_image_end_stack[CLKS_EXEC_MAX_DEPTH];
 static u32 clks_exec_pid_stack_depth = 0U;
+
+static struct clks_exec_proc_record *clks_exec_current_proc(void);
 
 static void clks_exec_serial_write_hex64(u64 value) {
     int nibble;
@@ -424,6 +451,188 @@ static u64 clks_exec_alloc_pid(void) {
     return pid;
 }
 
+static clks_bool clks_exec_fd_access_mode_valid(u64 flags) {
+    u64 mode = flags & CLKS_EXEC_FD_ACCESS_MASK;
+    return (mode == CLKS_EXEC_O_RDONLY || mode == CLKS_EXEC_O_WRONLY || mode == CLKS_EXEC_O_RDWR) ? CLKS_TRUE
+                                                                                                    : CLKS_FALSE;
+}
+
+static clks_bool clks_exec_fd_can_read(u64 flags) {
+    u64 mode = flags & CLKS_EXEC_FD_ACCESS_MASK;
+    return (mode == CLKS_EXEC_O_RDONLY || mode == CLKS_EXEC_O_RDWR) ? CLKS_TRUE : CLKS_FALSE;
+}
+
+static clks_bool clks_exec_fd_can_write(u64 flags) {
+    u64 mode = flags & CLKS_EXEC_FD_ACCESS_MASK;
+    return (mode == CLKS_EXEC_O_WRONLY || mode == CLKS_EXEC_O_RDWR) ? CLKS_TRUE : CLKS_FALSE;
+}
+
+static clks_bool clks_exec_path_is_dev_tty(const char *path) {
+    return (path != CLKS_NULL && clks_strcmp(path, "/dev/tty") == 0) ? CLKS_TRUE : CLKS_FALSE;
+}
+
+static void clks_exec_fd_init_defaults(struct clks_exec_proc_record *proc) {
+    if (proc == CLKS_NULL) {
+        return;
+    }
+
+    clks_memset(proc->fds, 0, sizeof(proc->fds));
+
+    proc->fds[0].used = CLKS_TRUE;
+    proc->fds[0].kind = CLKS_EXEC_FD_KIND_TTY;
+    proc->fds[0].flags = CLKS_EXEC_O_RDONLY;
+    proc->fds[0].offset = 0ULL;
+    proc->fds[0].tty_index = proc->tty_index;
+    proc->fds[0].path[0] = '\0';
+
+    proc->fds[1].used = CLKS_TRUE;
+    proc->fds[1].kind = CLKS_EXEC_FD_KIND_TTY;
+    proc->fds[1].flags = CLKS_EXEC_O_WRONLY;
+    proc->fds[1].offset = 0ULL;
+    proc->fds[1].tty_index = proc->tty_index;
+    proc->fds[1].path[0] = '\0';
+
+    proc->fds[2].used = CLKS_TRUE;
+    proc->fds[2].kind = CLKS_EXEC_FD_KIND_TTY;
+    proc->fds[2].flags = CLKS_EXEC_O_WRONLY;
+    proc->fds[2].offset = 0ULL;
+    proc->fds[2].tty_index = proc->tty_index;
+    proc->fds[2].path[0] = '\0';
+}
+
+static i32 clks_exec_fd_find_free(struct clks_exec_proc_record *proc) {
+    u32 i;
+
+    if (proc == CLKS_NULL) {
+        return -1;
+    }
+
+    for (i = 0U; i < CLKS_EXEC_FD_MAX; i++) {
+        if (proc->fds[i].used == CLKS_FALSE) {
+            return (i32)i;
+        }
+    }
+
+    return -1;
+}
+
+static struct clks_exec_fd_entry *clks_exec_fd_lookup(struct clks_exec_proc_record *proc, u64 fd) {
+    if (proc == CLKS_NULL || fd >= CLKS_EXEC_FD_MAX) {
+        return CLKS_NULL;
+    }
+
+    if (proc->fds[(u32)fd].used == CLKS_FALSE) {
+        return CLKS_NULL;
+    }
+
+    return &proc->fds[(u32)fd];
+}
+
+static u64 clks_exec_fd_file_read(struct clks_exec_fd_entry *entry, void *out_buffer, u64 size) {
+    const void *file_data;
+    u64 file_size = 0ULL;
+    u64 read_len;
+
+    if (entry == CLKS_NULL || out_buffer == CLKS_NULL || size == 0ULL) {
+        return 0ULL;
+    }
+
+    file_data = clks_fs_read_all(entry->path, &file_size);
+
+    if (file_data == CLKS_NULL) {
+        return (u64)-1;
+    }
+
+    if (entry->offset >= file_size) {
+        return 0ULL;
+    }
+
+    read_len = file_size - entry->offset;
+
+    if (read_len > size) {
+        read_len = size;
+    }
+
+    clks_memcpy(out_buffer, (const u8 *)file_data + (usize)entry->offset, (usize)read_len);
+    entry->offset += read_len;
+    return read_len;
+}
+
+static u64 clks_exec_fd_file_write(struct clks_exec_fd_entry *entry, const void *buffer, u64 size) {
+    const void *old_data = CLKS_NULL;
+    u64 old_size = 0ULL;
+    u64 write_pos;
+    u64 new_size;
+    void *merged = CLKS_NULL;
+    clks_bool ok;
+
+    if (entry == CLKS_NULL) {
+        return (u64)-1;
+    }
+
+    if (size == 0ULL) {
+        return 0ULL;
+    }
+
+    if (buffer == CLKS_NULL) {
+        return (u64)-1;
+    }
+
+    if ((entry->flags & CLKS_EXEC_O_APPEND) != 0ULL) {
+        if (clks_fs_append(entry->path, buffer, size) == CLKS_FALSE) {
+            return (u64)-1;
+        }
+
+        entry->offset += size;
+        return size;
+    }
+
+    old_data = clks_fs_read_all(entry->path, &old_size);
+
+    if (old_data == CLKS_NULL) {
+        return (u64)-1;
+    }
+
+    write_pos = entry->offset;
+
+    if (write_pos > (0xFFFFFFFFFFFFFFFFULL - size)) {
+        return (u64)-1;
+    }
+
+    new_size = write_pos + size;
+
+    if (new_size < old_size) {
+        new_size = old_size;
+    }
+
+    if (new_size == 0ULL) {
+        return 0ULL;
+    }
+
+    merged = clks_kmalloc((usize)new_size);
+
+    if (merged == CLKS_NULL) {
+        return (u64)-1;
+    }
+
+    clks_memset(merged, 0, (usize)new_size);
+
+    if (old_size > 0ULL) {
+        clks_memcpy(merged, old_data, (usize)old_size);
+    }
+
+    clks_memcpy((u8 *)merged + (usize)write_pos, buffer, (usize)size);
+    ok = clks_fs_write_all(entry->path, merged, new_size);
+    clks_kfree(merged);
+
+    if (ok == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    entry->offset = write_pos + size;
+    return size;
+}
+
 static struct clks_exec_proc_record *clks_exec_prepare_proc_record(i32 slot,
                                                                     u64 pid,
                                                                     const char *path,
@@ -461,6 +670,7 @@ static struct clks_exec_proc_record *clks_exec_prepare_proc_record(i32 slot,
     proc->last_fault_vector = 0ULL;
     proc->last_fault_error = 0ULL;
     proc->last_fault_rip = 0ULL;
+    clks_exec_fd_init_defaults(proc);
 
     if (proc->argc < CLKS_EXEC_MAX_ARGS) {
         clks_exec_copy_path(proc->argv_items[proc->argc], CLKS_EXEC_ITEM_MAX, path);
@@ -963,6 +1173,215 @@ clks_bool clks_exec_request_exit(u64 status) {
     clks_exec_exit_requested_stack[(u32)depth_index] = CLKS_TRUE;
     clks_exec_exit_status_stack[(u32)depth_index] = status;
     return CLKS_TRUE;
+}
+
+u64 clks_exec_fd_open(const char *path, u64 flags, u64 mode) {
+    struct clks_exec_proc_record *proc = clks_exec_current_proc();
+    struct clks_fs_node_info info;
+    i32 fd_slot;
+    u8 empty_payload = 0U;
+
+    (void)mode;
+
+    if (proc == CLKS_NULL || path == CLKS_NULL || path[0] != '/') {
+        return (u64)-1;
+    }
+
+    if (clks_strlen(path) >= CLKS_EXEC_PATH_MAX) {
+        return (u64)-1;
+    }
+
+    if (clks_exec_fd_access_mode_valid(flags) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    if (((flags & CLKS_EXEC_O_TRUNC) != 0ULL || (flags & CLKS_EXEC_O_APPEND) != 0ULL) &&
+        clks_exec_fd_can_write(flags) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    fd_slot = clks_exec_fd_find_free(proc);
+
+    if (fd_slot < 0) {
+        return (u64)-1;
+    }
+
+    if (clks_exec_path_is_dev_tty(path) == CLKS_TRUE) {
+        struct clks_exec_fd_entry *entry = &proc->fds[(u32)fd_slot];
+
+        clks_memset(entry, 0, sizeof(*entry));
+        entry->used = CLKS_TRUE;
+        entry->kind = CLKS_EXEC_FD_KIND_TTY;
+        entry->flags = flags;
+        entry->offset = 0ULL;
+        entry->tty_index = proc->tty_index;
+        entry->path[0] = '\0';
+        return (u64)fd_slot;
+    }
+
+    if (clks_fs_stat(path, &info) == CLKS_FALSE) {
+        if ((flags & CLKS_EXEC_O_CREAT) == 0ULL || clks_exec_fd_can_write(flags) == CLKS_FALSE) {
+            return (u64)-1;
+        }
+
+        if (clks_fs_write_all(path, &empty_payload, 0ULL) == CLKS_FALSE || clks_fs_stat(path, &info) == CLKS_FALSE) {
+            return (u64)-1;
+        }
+    }
+
+    if (info.type != CLKS_FS_NODE_FILE) {
+        return (u64)-1;
+    }
+
+    if ((flags & CLKS_EXEC_O_TRUNC) != 0ULL) {
+        if (clks_fs_write_all(path, &empty_payload, 0ULL) == CLKS_FALSE || clks_fs_stat(path, &info) == CLKS_FALSE) {
+            return (u64)-1;
+        }
+    }
+
+    {
+        struct clks_exec_fd_entry *entry = &proc->fds[(u32)fd_slot];
+
+        clks_memset(entry, 0, sizeof(*entry));
+        entry->used = CLKS_TRUE;
+        entry->kind = CLKS_EXEC_FD_KIND_FILE;
+        entry->flags = flags;
+        entry->offset = ((flags & CLKS_EXEC_O_APPEND) != 0ULL) ? info.size : 0ULL;
+        entry->tty_index = proc->tty_index;
+        clks_exec_copy_path(entry->path, sizeof(entry->path), path);
+    }
+
+    return (u64)fd_slot;
+}
+
+u64 clks_exec_fd_read(u64 fd, void *out_buffer, u64 size) {
+    struct clks_exec_proc_record *proc = clks_exec_current_proc();
+    struct clks_exec_fd_entry *entry;
+
+    if (proc == CLKS_NULL) {
+        return (u64)-1;
+    }
+
+    if (size == 0ULL) {
+        return 0ULL;
+    }
+
+    if (out_buffer == CLKS_NULL) {
+        return (u64)-1;
+    }
+
+    entry = clks_exec_fd_lookup(proc, fd);
+
+    if (entry == CLKS_NULL || clks_exec_fd_can_read(entry->flags) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    if (entry->kind == CLKS_EXEC_FD_KIND_TTY) {
+        u64 count = 0ULL;
+        char *dst = (char *)out_buffer;
+
+        while (count < size) {
+            char ch;
+
+            if (clks_keyboard_pop_char_for_tty(entry->tty_index, &ch) == CLKS_FALSE) {
+                break;
+            }
+
+            dst[count] = ch;
+            count++;
+        }
+
+        return count;
+    }
+
+    if (entry->kind == CLKS_EXEC_FD_KIND_FILE) {
+        return clks_exec_fd_file_read(entry, out_buffer, size);
+    }
+
+    return (u64)-1;
+}
+
+u64 clks_exec_fd_write(u64 fd, const void *buffer, u64 size) {
+    struct clks_exec_proc_record *proc = clks_exec_current_proc();
+    struct clks_exec_fd_entry *entry;
+
+    if (proc == CLKS_NULL) {
+        return (u64)-1;
+    }
+
+    if (size == 0ULL) {
+        return 0ULL;
+    }
+
+    if (buffer == CLKS_NULL) {
+        return (u64)-1;
+    }
+
+    entry = clks_exec_fd_lookup(proc, fd);
+
+    if (entry == CLKS_NULL || clks_exec_fd_can_write(entry->flags) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    if (entry->kind == CLKS_EXEC_FD_KIND_TTY) {
+        u64 i;
+        const char *src = (const char *)buffer;
+
+        for (i = 0ULL; i < size; i++) {
+            clks_tty_write_char(src[i]);
+        }
+
+        return size;
+    }
+
+    if (entry->kind == CLKS_EXEC_FD_KIND_FILE) {
+        return clks_exec_fd_file_write(entry, buffer, size);
+    }
+
+    return (u64)-1;
+}
+
+u64 clks_exec_fd_close(u64 fd) {
+    struct clks_exec_proc_record *proc = clks_exec_current_proc();
+    struct clks_exec_fd_entry *entry;
+
+    if (proc == CLKS_NULL) {
+        return (u64)-1;
+    }
+
+    entry = clks_exec_fd_lookup(proc, fd);
+
+    if (entry == CLKS_NULL) {
+        return (u64)-1;
+    }
+
+    clks_memset(entry, 0, sizeof(*entry));
+    return 0ULL;
+}
+
+u64 clks_exec_fd_dup(u64 fd) {
+    struct clks_exec_proc_record *proc = clks_exec_current_proc();
+    struct clks_exec_fd_entry *entry;
+    i32 fd_slot;
+
+    if (proc == CLKS_NULL) {
+        return (u64)-1;
+    }
+
+    entry = clks_exec_fd_lookup(proc, fd);
+
+    if (entry == CLKS_NULL) {
+        return (u64)-1;
+    }
+
+    fd_slot = clks_exec_fd_find_free(proc);
+
+    if (fd_slot < 0) {
+        return (u64)-1;
+    }
+
+    proc->fds[(u32)fd_slot] = *entry;
+    return (u64)fd_slot;
 }
 
 u64 clks_exec_current_pid(void) {
