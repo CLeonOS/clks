@@ -2,66 +2,76 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-CLKS 是 CLeonOS 项目的内核部分。  
-它包含架构启动代码、中断处理、内存管理、调度器、syscall 层、存储、TTY/控制台与核心运行时服务。
+CLKS 是供 CLeonOS 使用的独立内核仓库。
+它包含架构启动代码、中断处理、内存管理、调度器、syscall/运行时层、存储、TTY/控制台和内核支持库。
 
 ## 当前状态
 
-CLKS 目前可以在单仓库中以仅内核模式构建，但还不是完全独立仓库形态的构建系统。
+CLKS 现在可作为独立仓库构建。
 
-- 已支持仅内核构建模式。
-- 用户态/ISO 目标是可选项，可以关闭。
-- 仍有部分构建脚本与根目录共享（`cmake/`、`configs/`、`scripts/`）。
+- 内核构建不再依赖 CLeonOS 用户态源码。
+- menuconfig 资产已在本仓库内（`configs/menuconfig`、`scripts/menuconfig.py`）。
+- CMake 辅助脚本已在本仓库内（`cmake/`）。
 
 ## 目录结构
 
 ```text
-clks/
-|- arch/          # 架构相关启动与底层代码
-|- include/       # 对外内核头文件
-|- kernel/        # 内核核心子系统
-|- rust/          # 内核使用的 Rust staticlib
-|- third_party/   # 内核使用的第三方源码
-|- CMakeLists.txt # 内核构建规则
-|- Makefile       # 面向内核的包装入口（委托到根构建）
+.
+|- arch/                # 架构启动/链接脚本/中断胶水层
+|- include/             # 对外内核头文件
+|- kernel/              # 内核核心子系统
+|- rust/                # 内核 Rust staticlib
+|- third_party/         # 内嵌第三方源码
+|- cmake/               # 构建辅助脚本（日志/工具检查/符号生成）
+|- configs/menuconfig/  # CLKS 特性元数据与生成配置
+|- scripts/             # menuconfig 启动脚本
+|- .github/workflows/   # CI（build-kernel/style-check）
+|- CMakeLists.txt       # CLKS 独立 CMake 入口
+|- Makefile             # 便捷包装入口
 ```
 
-## 构建（仅内核）
-
-在仓库根目录执行：
+## 构建
 
 ```bash
-make kernel CLEONOS_ENABLE=OFF
+make kernel
 ```
 
-或通过 CLKS 包装入口：
+构建符号映射：
 
 ```bash
-make -C clks kernel
+make kernel-symbols
 ```
 
-## Menuconfig（CLKS 作用域）
+直接用 CMake：
 
 ```bash
-make menuconfig-clks
+cmake -S . -B build-cmake -DCMAKE_BUILD_TYPE=Release
+cmake --build build-cmake --target kernel
 ```
 
-或：
+## Menuconfig
 
 ```bash
-make -C clks menuconfig
+make menuconfig
 ```
 
-以上命令会更新 `configs/menuconfig/` 下的 CLKS 相关配置输出（包含 `config.clks.cmake`）。
+或 GUI：
 
-## 后续独立拆分建议
+```bash
+make menuconfig-gui
+```
 
-若要将 CLKS 拆成独立仓库，下一步关键工作是把共享构建资产迁移到 `clks/`（或引入等价副本），重点包括：
+生成输出位于 `configs/menuconfig/`。
 
-- `cmake/` 工具脚本（`log.cmake`、符号化生成、工具检查）
-- 当前位于 `configs/` 下的启动配置与镜像打包相关内容
-- 当前位于 `scripts/` 与 `configs/menuconfig/` 下的 menuconfig 启动器与特性元数据
+## CI
+
+`build-kernel` 工作流会在 push/PR 构建 `clks_kernel.elf` 和 `kernel.sym`。
+
+## 与 CLeonOS 集成
+
+在 CLeonOS 主仓库中，CLKS 应通过 git submodule 引用。
+主仓库只维护子模块指针，并把内核构建委托给本仓库。
 
 ## 许可证
 
-Apache-2.0（与项目根目录一致）。
+Apache-2.0。

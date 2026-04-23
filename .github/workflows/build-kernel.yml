@@ -1,0 +1,65 @@
+name: Build CLKS Kernel
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-kernel:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            git \
+            clang \
+            lld \
+            llvm \
+            python3
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Generate CLKS menuconfig defaults
+        run: |
+          python3 scripts/menuconfig.py --clks-only --defaults --non-interactive --preset full
+
+      - name: Configure
+        run: |
+          cmake -S . -B build-cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DNO_COLOR=1 \
+            -DCC=gcc \
+            -DKERNEL_CXX=g++ \
+            -DLD=ld.lld \
+            -DNM=llvm-nm \
+            -DADDR2LINE=llvm-addr2line \
+            -DOBJCOPY_FOR_TARGET=llvm-objcopy \
+            -DOBJDUMP_FOR_TARGET=llvm-objdump \
+            -DREADELF_FOR_TARGET=llvm-readelf
+
+      - name: Build kernel
+        run: cmake --build build-cmake --target kernel -- -j"$(nproc)"
+
+      - name: Build kernel symbols
+        run: cmake --build build-cmake --target kernel-symbols -- -j"$(nproc)"
+
+      - name: Upload kernel artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: clks-kernel
+          path: |
+            build/x86_64/clks_kernel.elf
+            build/x86_64/kernel.sym
+          if-no-files-found: error

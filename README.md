@@ -2,66 +2,76 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-CLKS is the kernel component of the CLeonOS project.  
-It includes architecture startup code, interrupt handling, memory management, scheduler, syscall layer, storage, TTY/console, and core runtime services.
+CLKS is the standalone kernel repository used by CLeonOS.
+It contains architecture startup code, interrupt handling, memory management, scheduler, syscall/runtime layers, storage, TTY/console, and kernel support libraries.
 
 ## Status
 
-CLKS can be built in kernel-only mode from the current mono-repo, but it is not yet a fully independent repository build system.
+CLKS now builds as an independent repository.
 
-- Kernel-only mode is available.
-- Userland/ISO targets are optional and can be disabled.
-- Some build scripts are still shared at repository root (`cmake/`, `configs/`, `scripts/`).
+- Kernel build no longer depends on CLeonOS userland sources.
+- menuconfig assets are local to this repository (`configs/menuconfig`, `scripts/menuconfig.py`).
+- CMake helper scripts are local to this repository (`cmake/`).
 
 ## Directory Layout
 
 ```text
-clks/
-|- arch/          # Architecture-specific startup and low-level code
-|- include/       # Public kernel headers
-|- kernel/        # Core kernel subsystems
-|- rust/          # Rust staticlib used by kernel
-|- third_party/   # Embedded third-party sources used by kernel
-|- CMakeLists.txt # Kernel build rules
-|- Makefile       # Kernel-focused wrapper (delegates to root build)
+.
+|- arch/                # Architecture startup/linker/interrupt glue
+|- include/             # Public kernel headers
+|- kernel/              # Core kernel subsystems
+|- rust/                # Kernel Rust staticlib
+|- third_party/         # Embedded third-party sources
+|- cmake/               # Build helper scripts (log/check/symbol generation)
+|- configs/menuconfig/  # CLKS feature metadata and generated config outputs
+|- scripts/             # menuconfig launcher
+|- .github/workflows/   # CI (build-kernel/style-check)
+|- CMakeLists.txt       # Standalone CLKS CMake entry
+|- Makefile             # Convenience wrapper
 ```
 
-## Build (Kernel-Only)
-
-From repository root:
+## Build
 
 ```bash
-make kernel CLEONOS_ENABLE=OFF
+make kernel
 ```
 
-or via CLKS wrapper:
+Build symbols map:
 
 ```bash
-make -C clks kernel
+make kernel-symbols
 ```
 
-## Menuconfig (CLKS Scope)
+Direct CMake:
 
 ```bash
-make menuconfig-clks
+cmake -S . -B build-cmake -DCMAKE_BUILD_TYPE=Release
+cmake --build build-cmake --target kernel
 ```
 
-or:
+## Menuconfig
 
 ```bash
-make -C clks menuconfig
+make menuconfig
 ```
 
-This updates CLKS-focused config outputs under `configs/menuconfig/` (including `config.clks.cmake`).
+or GUI mode:
 
-## Notes for Future Split
+```bash
+make menuconfig-gui
+```
 
-To make CLKS a standalone repo, the next required step is moving shared build assets into `clks/` (or vendoring equivalents), especially:
+Outputs are generated under `configs/menuconfig/`.
 
-- `cmake/` helper scripts (`log.cmake`, symbol generation, tool checks)
-- boot config and image packaging pieces currently under `configs/`
-- menuconfig launcher and feature metadata currently under `scripts/` and `configs/menuconfig/`
+## CI
+
+`build-kernel` workflow builds `clks_kernel.elf` and `kernel.sym` on push/PR.
+
+## Integration With CLeonOS
+
+In the CLeonOS mono-repo, CLKS should be referenced as a git submodule.
+The main repo should only track the submodule pointer and delegate kernel build to this repo.
 
 ## License
 
-Apache-2.0 (same as project root).
+Apache-2.0.
