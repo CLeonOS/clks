@@ -35,6 +35,13 @@ CLKS_USED static volatile struct limine_module_request limine_module_request
         .response = CLKS_NULL,
 };
 
+CLKS_USED static volatile struct limine_hhdm_request limine_hhdm_request __attribute__((section(".limine_requests"))) =
+    {
+        .id = LIMINE_HHDM_REQUEST,
+        .revision = 0,
+        .response = CLKS_NULL,
+};
+
 CLKS_USED static volatile u64 limine_requests_end[] __attribute__((section(".limine_requests_end"))) =
     LIMINE_REQUESTS_END_MARKER;
 
@@ -98,4 +105,24 @@ const struct limine_file *clks_boot_get_module(u64 index) {
     }
 
     return request->response->modules[index];
+}
+
+u64 clks_boot_get_hhdm_offset(void) {
+    volatile struct limine_hhdm_request *request = &limine_hhdm_request;
+
+    if (request->response == CLKS_NULL) {
+        return 0ULL;
+    }
+
+    return request->response->offset;
+}
+
+void *clks_boot_phys_to_virt(u64 phys_addr) {
+    u64 offset = clks_boot_get_hhdm_offset();
+
+    if (offset == 0ULL) {
+        return CLKS_NULL;
+    }
+
+    return (void *)(usize)(phys_addr + offset);
 }

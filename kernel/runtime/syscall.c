@@ -9,6 +9,7 @@
 #include <clks/kelf.h>
 #include <clks/keyboard.h>
 #include <clks/log.h>
+#include <clks/net.h>
 #include <clks/serial.h>
 #include <clks/scheduler.h>
 #include <clks/service.h>
@@ -37,8 +38,9 @@
 #define CLKS_SYSCALL_KDBG_STACK_WINDOW_BYTES (128ULL * 1024ULL)
 #define CLKS_SYSCALL_KERNEL_SYMBOL_FILE "/system/kernel.sym"
 #define CLKS_SYSCALL_KERNEL_ADDR_BASE 0xFFFF800000000000ULL
-#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_DISK_WRITE_SECTOR
+#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_NET_UDP_RECV
 #define CLKS_SYSCALL_DISK_SECTOR_BYTES 512U
+#define CLKS_SYSCALL_NET_UDP_PAYLOAD_MAX 1472U
 #define CLKS_SYSCALL_STATS_RING_SIZE 256U
 #define CLKS_SYSCALL_USC_MAX_ALLOWED_APPS 64U
 #define CLKS_SYSCALL_USC_PERM_RULE_FILE ".usc_permanent_allowlist"
@@ -161,6 +163,22 @@ struct clks_syscall_fb_blit_req {
     u64 dst_x;
     u64 dst_y;
     u64 scale;
+};
+
+struct clks_syscall_net_udp_send_req {
+    u64 dst_ipv4_be;
+    u64 dst_port;
+    u64 src_port;
+    u64 payload_ptr;
+    u64 payload_len;
+};
+
+struct clks_syscall_net_udp_recv_req {
+    u64 out_payload_ptr;
+    u64 payload_capacity;
+    u64 out_src_ipv4_ptr;
+    u64 out_src_port_ptr;
+    u64 out_dst_port_ptr;
 };
 
 static clks_bool clks_syscall_ready = CLKS_FALSE;
@@ -582,6 +600,134 @@ static u64 clks_syscall_disk_write_sector(u64 arg0, u64 arg1) {
 
     clks_memcpy(sector, (const void *)arg1, (usize)CLKS_SYSCALL_DISK_SECTOR_BYTES);
     return (clks_disk_write_sector(arg0, (const void *)sector) == CLKS_TRUE) ? 1ULL : 0ULL;
+}
+
+static u64 clks_syscall_net_available(void) {
+    return (clks_net_available() == CLKS_TRUE) ? 1ULL : 0ULL;
+}
+
+static u64 clks_syscall_net_ipv4_addr(void) {
+    return (u64)clks_net_ipv4_addr_be();
+}
+
+static u64 clks_syscall_net_ping(u64 arg0, u64 arg1) {
+    return (clks_net_ping_ipv4((u32)arg0, arg1) == CLKS_TRUE) ? 1ULL : 0ULL;
+}
+
+static u64 clks_syscall_net_udp_send(u64 arg0) {
+    struct clks_syscall_net_udp_send_req req;
+    void *payload_copy = CLKS_NULL;
+    u64 payload_len;
+    u64 sent = 0ULL;
+
+    if (arg0 == 0ULL) {
+        return 0ULL;
+    }
+
+    if (clks_syscall_user_ptr_readable(arg0, (u64)sizeof(req)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    clks_memcpy(&req, (const void *)arg0, sizeof(req));
+
+    payload_len = req.payload_len;
+    if (payload_len > (u64)CLKS_SYSCALL_NET_UDP_PAYLOAD_MAX) {
+        return 0ULL;
+    }
+
+    if (payload_len > 0ULL) {
+        if (req.payload_ptr == 0ULL) {
+            return 0ULL;
+        }
+
+        if (clks_syscall_user_ptr_readable(req.payload_ptr, payload_len) == CLKS_FALSE) {
+            return 0ULL;
+        }
+
+        payload_copy = clks_kmalloc((usize)payload_len);
+        if (payload_copy == CLKS_NULL) {
+            return 0ULL;
+        }
+
+        clks_memcpy(payload_copy, (const void *)req.payload_ptr, (usize)payload_len);
+    }
+
+    sent = clks_net_udp_send((u32)req.dst_ipv4_be, (u16)req.dst_port, (u16)req.src_port, payload_copy, payload_len);
+
+    if (payload_copy != CLKS_NULL) {
+        clks_kfree(payload_copy);
+    }
+
+    return sent;
+}
+
+static u64 clks_syscall_net_udp_recv(u64 arg0) {
+    struct clks_syscall_net_udp_recv_req req;
+    u8 packet[CLKS_SYSCALL_NET_UDP_PAYLOAD_MAX];
+    u64 capacity;
+    u64 got;
+    u32 src_ipv4 = 0U;
+    u16 src_port = 0U;
+    u16 dst_port = 0U;
+
+    if (arg0 == 0ULL) {
+        return 0ULL;
+    }
+
+    if (clks_syscall_user_ptr_readable(arg0, (u64)sizeof(req)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    clks_memcpy(&req, (const void *)arg0, sizeof(req));
+
+    if (req.out_payload_ptr == 0ULL || req.payload_capacity == 0ULL) {
+        return 0ULL;
+    }
+
+    capacity = req.payload_capacity;
+    if (capacity > (u64)sizeof(packet)) {
+        capacity = (u64)sizeof(packet);
+    }
+
+    if (clks_syscall_user_ptr_writable(req.out_payload_ptr, capacity) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    if (req.out_src_ipv4_ptr != 0ULL &&
+        clks_syscall_user_ptr_writable(req.out_src_ipv4_ptr, (u64)sizeof(u64)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    if (req.out_src_port_ptr != 0ULL &&
+        clks_syscall_user_ptr_writable(req.out_src_port_ptr, (u64)sizeof(u64)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    if (req.out_dst_port_ptr != 0ULL &&
+        clks_syscall_user_ptr_writable(req.out_dst_port_ptr, (u64)sizeof(u64)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    got = clks_net_udp_recv(packet, capacity, &src_ipv4, &src_port, &dst_port);
+    if (got == 0ULL) {
+        return 0ULL;
+    }
+
+    clks_memcpy((void *)req.out_payload_ptr, packet, (usize)got);
+
+    if (req.out_src_ipv4_ptr != 0ULL) {
+        *((u64 *)(usize)req.out_src_ipv4_ptr) = (u64)src_ipv4;
+    }
+
+    if (req.out_src_port_ptr != 0ULL) {
+        *((u64 *)(usize)req.out_src_port_ptr) = (u64)src_port;
+    }
+
+    if (req.out_dst_port_ptr != 0ULL) {
+        *((u64 *)(usize)req.out_dst_port_ptr) = (u64)dst_port;
+    }
+
+    return got;
 }
 
 static u64 clks_syscall_fd_open(u64 arg0, u64 arg1, u64 arg2) {
@@ -2248,6 +2394,16 @@ static const char *clks_syscall_name(u64 id) {
         return "DISK_READ_SECTOR";
     case CLKS_SYSCALL_DISK_WRITE_SECTOR:
         return "DISK_WRITE_SECTOR";
+    case CLKS_SYSCALL_NET_AVAILABLE:
+        return "NET_AVAILABLE";
+    case CLKS_SYSCALL_NET_IPV4_ADDR:
+        return "NET_IPV4_ADDR";
+    case CLKS_SYSCALL_NET_PING:
+        return "NET_PING";
+    case CLKS_SYSCALL_NET_UDP_SEND:
+        return "NET_UDP_SEND";
+    case CLKS_SYSCALL_NET_UDP_RECV:
+        return "NET_UDP_RECV";
     default:
         return "UNKNOWN";
     }
@@ -3131,6 +3287,16 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_disk_read_sector(frame->rbx, frame->rcx));
     case CLKS_SYSCALL_DISK_WRITE_SECTOR:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_disk_write_sector(frame->rbx, frame->rcx));
+    case CLKS_SYSCALL_NET_AVAILABLE:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_available());
+    case CLKS_SYSCALL_NET_IPV4_ADDR:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_ipv4_addr());
+    case CLKS_SYSCALL_NET_PING:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_ping(frame->rbx, frame->rcx));
+    case CLKS_SYSCALL_NET_UDP_SEND:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_udp_send(frame->rbx));
+    case CLKS_SYSCALL_NET_UDP_RECV:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_udp_recv(frame->rbx));
     default:
         CLKS_SYSCALL_DISPATCH_RETURN((u64)-1);
     }

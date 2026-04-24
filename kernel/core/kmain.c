@@ -16,6 +16,7 @@
 #include <clks/kernel.h>
 #include <clks/log.h>
 #include <clks/mouse.h>
+#include <clks/net.h>
 #include <clks/pmm.h>
 #include <clks/scheduler.h>
 #include <clks/serial.h>
@@ -348,6 +349,9 @@ void clks_kernel_main(void) {
 #else
     clks_log(CLKS_LOG_WARN, "CFG", "DRIVER MANAGER DISABLED BY MENUCONFIG");
 #endif
+
+    clks_net_init();
+
 #if CLKS_CFG_KELF
     clks_kelf_init();
 #else
@@ -461,6 +465,7 @@ void clks_kernel_main(void) {
 
     /* Infinite idle loop: glamorous name for "wait forever and hope interrupts behave". */
     for (;;) {
+        clks_net_poll();
         u64 tick_now = clks_interrupts_timer_ticks();
         clks_scheduler_dispatch_current(tick_now);
 #if defined(CLKS_ARCH_X86_64)

@@ -27,6 +27,9 @@
 #define LIMINE_MODULE_REQUEST                                                                                          \
     { LIMINE_COMMON_MAGIC, LIMINE_REQUEST_MAGIC, 0x3e7e279702be32afULL, 0xca1c4f3bd1280ceeULL }
 
+#define LIMINE_HHDM_REQUEST                                                                                            \
+    { LIMINE_COMMON_MAGIC, LIMINE_REQUEST_MAGIC, 0x48dcf1cb8ad2b852ULL, 0x63984e959a98244bULL }
+
 #define LIMINE_MEMMAP_USABLE 0ULL
 #define LIMINE_MEMMAP_RESERVED 1ULL
 #define LIMINE_MEMMAP_ACPI_RECLAIMABLE 2ULL
@@ -130,6 +133,17 @@ struct limine_module_request {
     u64 id[4];
     u64 revision;
     struct limine_module_response *response;
+};
+
+struct limine_hhdm_response {
+    u64 revision;
+    u64 offset;
+};
+
+struct limine_hhdm_request {
+    u64 id[4];
+    u64 revision;
+    struct limine_hhdm_response *response;
 };
 
 #endif
