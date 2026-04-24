@@ -973,7 +973,8 @@ static clks_bool clks_disk_fat_write_entry(u32 cluster, u32 value) {
     }
 
     for (fat_index = 0U; fat_index < clks_disk_fat32.fat_count; fat_index++) {
-        u64 fat_lba = clks_disk_fat32.fat_lba + ((u64)fat_index * (u64)clks_disk_fat32.sectors_per_fat) + fat_sector_index;
+        u64 fat_lba =
+            clks_disk_fat32.fat_lba + ((u64)fat_index * (u64)clks_disk_fat32.sectors_per_fat) + fat_sector_index;
         u64 disk_offset = fat_lba * CLKS_DISK_SECTOR_SIZE + fat_sector_offset;
         u32 old_value;
         u32 new_value;
@@ -1663,7 +1664,8 @@ static clks_bool clks_disk_next_component(const char *path, usize *io_pos, char 
     usize end;
     usize len;
 
-    if (path == CLKS_NULL || io_pos == CLKS_NULL || out_component == CLKS_NULL || out_size == 0U || out_last == CLKS_NULL) {
+    if (path == CLKS_NULL || io_pos == CLKS_NULL || out_component == CLKS_NULL || out_size == 0U ||
+        out_last == CLKS_NULL) {
         return CLKS_FALSE;
     }
 
@@ -2467,7 +2469,8 @@ const void *clks_disk_read_all(const char *path, u64 *out_size) {
         return CLKS_NULL;
     }
 
-    if (clks_disk_read_file_chain(lookup.info.first_cluster, clks_disk_read_cache, (u64)lookup.info.size) == CLKS_FALSE) {
+    if (clks_disk_read_file_chain(lookup.info.first_cluster, clks_disk_read_cache, (u64)lookup.info.size) ==
+        CLKS_FALSE) {
         return CLKS_NULL;
     }
 
