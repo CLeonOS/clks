@@ -119,6 +119,7 @@ static void clks_log_journal_copy_line(char *dst, usize dst_size, const char *sr
     dst[i] = '\0';
 }
 
+#if CLKS_CFG_LOG_OUTPUT_JOURNAL != 0
 static void clks_log_journal_push(const char *line) {
     if (line == CLKS_NULL) {
         return;
@@ -131,7 +132,9 @@ static void clks_log_journal_push(const char *line) {
         clks_log_journal_count_live++;
     }
 }
+#endif
 
+#if CLKS_CFG_LOG_OUTPUT_TTY != 0
 static const char *clks_log_level_ansi(enum clks_log_level level) {
     switch (level) {
     case CLKS_LOG_DEBUG:
@@ -187,6 +190,7 @@ static void clks_log_emit_tty_colored(enum clks_log_level level, const char *tag
     clks_tty_write(safe_message);
     clks_tty_write("\n");
 }
+#endif
 
 static void clks_log_build_line(enum clks_log_level level, const char *tag, const char *message, char *line) {
     const char *safe_tag = (tag == CLKS_NULL) ? "LOG" : tag;
