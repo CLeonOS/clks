@@ -2412,10 +2412,10 @@ static clks_bool clks_syscall_usc_current_app_path(char *out_path, usize out_siz
     return CLKS_TRUE;
 }
 
-static i32 clks_syscall_usc_find_path_in_table(const clks_bool used[CLKS_SYSCALL_USC_MAX_ALLOWED_APPS],
-                                                const char table[CLKS_SYSCALL_USC_MAX_ALLOWED_APPS]
-                                                                [CLKS_EXEC_PROC_PATH_MAX],
-                                                const char *path) {
+static i32
+clks_syscall_usc_find_path_in_table(const clks_bool used[CLKS_SYSCALL_USC_MAX_ALLOWED_APPS],
+                                    const char table[CLKS_SYSCALL_USC_MAX_ALLOWED_APPS][CLKS_EXEC_PROC_PATH_MAX],
+                                    const char *path) {
     u32 i;
 
     if (path == CLKS_NULL || path[0] == '\0') {
@@ -2431,10 +2431,10 @@ static i32 clks_syscall_usc_find_path_in_table(const clks_bool used[CLKS_SYSCALL
     return -1;
 }
 
-static clks_bool clks_syscall_usc_add_path_to_table(clks_bool used[CLKS_SYSCALL_USC_MAX_ALLOWED_APPS],
-                                                     char table[CLKS_SYSCALL_USC_MAX_ALLOWED_APPS]
-                                                               [CLKS_EXEC_PROC_PATH_MAX],
-                                                     const char *path) {
+static clks_bool
+clks_syscall_usc_add_path_to_table(clks_bool used[CLKS_SYSCALL_USC_MAX_ALLOWED_APPS],
+                                   char table[CLKS_SYSCALL_USC_MAX_ALLOWED_APPS][CLKS_EXEC_PROC_PATH_MAX],
+                                   const char *path) {
     u32 i;
 
     if (path == CLKS_NULL || path[0] == '\0') {
@@ -2462,8 +2462,8 @@ static i32 clks_syscall_usc_find_session_allowed_path(const char *path) {
 }
 
 static clks_bool clks_syscall_usc_remember_session_path(const char *path) {
-    return clks_syscall_usc_add_path_to_table(clks_syscall_usc_session_allowed_used, clks_syscall_usc_session_allowed_path,
-                                              path);
+    return clks_syscall_usc_add_path_to_table(clks_syscall_usc_session_allowed_used,
+                                              clks_syscall_usc_session_allowed_path, path);
 }
 
 static i32 clks_syscall_usc_find_permanent_allowed_path(const char *path) {
@@ -2647,7 +2647,7 @@ static void clks_syscall_usc_emit_hex_line(const char *label, u64 value) {
 }
 
 static enum clks_syscall_usc_decision clks_syscall_usc_prompt_allow(const char *app_path, u64 id, u64 arg0, u64 arg1,
-                                                                     u64 arg2) {
+                                                                    u64 arg2) {
     const char *name = clks_syscall_usc_syscall_name(id);
     u32 tty_index = clks_exec_current_tty();
 
@@ -2904,10 +2904,10 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
     clks_bool user_trace_enabled = CLKS_FALSE;
     u64 user_pid = 0ULL;
 
-#define CLKS_SYSCALL_DISPATCH_RETURN(value) \
-    do {                                    \
-        ret = (value);                      \
-        goto clks_syscall_dispatch_done;    \
+#define CLKS_SYSCALL_DISPATCH_RETURN(value)                                                                            \
+    do {                                                                                                               \
+        ret = (value);                                                                                                 \
+        goto clks_syscall_dispatch_done;                                                                               \
     } while (0)
 
     if (clks_syscall_ready == CLKS_FALSE || frame == CLKS_NULL) {
