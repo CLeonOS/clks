@@ -41,6 +41,7 @@
 #define CLKS_SYSCALL_DISK_SECTOR_BYTES 512U
 #define CLKS_SYSCALL_STATS_RING_SIZE 256U
 #define CLKS_SYSCALL_USC_MAX_ALLOWED_APPS 64U
+#define CLKS_SYSCALL_USC_PERM_RULE_FILE ".usc_permanent_allowlist"
 
 #ifndef CLKS_CFG_PROCFS
 #define CLKS_CFG_PROCFS 1
@@ -177,8 +178,18 @@ static u16 clks_syscall_stats_recent_ring[CLKS_SYSCALL_STATS_RING_SIZE];
 static u32 clks_syscall_stats_recent_head = 0U;
 static u32 clks_syscall_stats_recent_size = 0U;
 #if CLKS_CFG_USC != 0
-static clks_bool clks_syscall_usc_allowed_used[CLKS_SYSCALL_USC_MAX_ALLOWED_APPS];
-static char clks_syscall_usc_allowed_path[CLKS_SYSCALL_USC_MAX_ALLOWED_APPS][CLKS_EXEC_PROC_PATH_MAX];
+static clks_bool clks_syscall_usc_session_allowed_used[CLKS_SYSCALL_USC_MAX_ALLOWED_APPS];
+static char clks_syscall_usc_session_allowed_path[CLKS_SYSCALL_USC_MAX_ALLOWED_APPS][CLKS_EXEC_PROC_PATH_MAX];
+static clks_bool clks_syscall_usc_permanent_allowed_used[CLKS_SYSCALL_USC_MAX_ALLOWED_APPS];
+static char clks_syscall_usc_permanent_allowed_path[CLKS_SYSCALL_USC_MAX_ALLOWED_APPS][CLKS_EXEC_PROC_PATH_MAX];
+static clks_bool clks_syscall_usc_permanent_loaded = CLKS_FALSE;
+
+enum clks_syscall_usc_decision {
+    CLKS_SYSCALL_USC_DECISION_DENY = 0,
+    CLKS_SYSCALL_USC_DECISION_ALLOW_ONCE = 1,
+    CLKS_SYSCALL_USC_DECISION_ALLOW_SESSION = 2,
+    CLKS_SYSCALL_USC_DECISION_ALLOW_PERMANENT = 3,
+};
 #endif
 
 #if defined(CLKS_ARCH_X86_64)
@@ -2401,7 +2412,10 @@ static clks_bool clks_syscall_usc_current_app_path(char *out_path, usize out_siz
     return CLKS_TRUE;
 }
 
-static i32 clks_syscall_usc_find_allowed_path(const char *path) {
+static i32 clks_syscall_usc_find_path_in_table(const clks_bool used[CLKS_SYSCALL_USC_MAX_ALLOWED_APPS],
+                                                const char table[CLKS_SYSCALL_USC_MAX_ALLOWED_APPS]
+                                                                [CLKS_EXEC_PROC_PATH_MAX],
+                                                const char *path) {
     u32 i;
 
     if (path == CLKS_NULL || path[0] == '\0') {
@@ -2409,7 +2423,7 @@ static i32 clks_syscall_usc_find_allowed_path(const char *path) {
     }
 
     for (i = 0U; i < CLKS_SYSCALL_USC_MAX_ALLOWED_APPS; i++) {
-        if (clks_syscall_usc_allowed_used[i] == CLKS_TRUE && clks_strcmp(clks_syscall_usc_allowed_path[i], path) == 0) {
+        if (used[i] == CLKS_TRUE && clks_strcmp(table[i], path) == 0) {
             return (i32)i;
         }
     }
@@ -2417,25 +2431,203 @@ static i32 clks_syscall_usc_find_allowed_path(const char *path) {
     return -1;
 }
 
-static void clks_syscall_usc_remember_path(const char *path) {
+static clks_bool clks_syscall_usc_add_path_to_table(clks_bool used[CLKS_SYSCALL_USC_MAX_ALLOWED_APPS],
+                                                     char table[CLKS_SYSCALL_USC_MAX_ALLOWED_APPS]
+                                                               [CLKS_EXEC_PROC_PATH_MAX],
+                                                     const char *path) {
     u32 i;
 
     if (path == CLKS_NULL || path[0] == '\0') {
-        return;
+        return CLKS_FALSE;
     }
 
-    if (clks_syscall_usc_find_allowed_path(path) >= 0) {
-        return;
+    if (clks_syscall_usc_find_path_in_table(used, table, path) >= 0) {
+        return CLKS_TRUE;
     }
 
     for (i = 0U; i < CLKS_SYSCALL_USC_MAX_ALLOWED_APPS; i++) {
-        if (clks_syscall_usc_allowed_used[i] == CLKS_FALSE) {
-            clks_syscall_usc_allowed_used[i] = CLKS_TRUE;
-            clks_syscall_usc_copy_path(clks_syscall_usc_allowed_path[i], sizeof(clks_syscall_usc_allowed_path[i]),
-                                       path);
-            return;
+        if (used[i] == CLKS_FALSE) {
+            used[i] = CLKS_TRUE;
+            clks_syscall_usc_copy_path(table[i], CLKS_EXEC_PROC_PATH_MAX, path);
+            return CLKS_TRUE;
         }
     }
+
+    return CLKS_FALSE;
+}
+
+static i32 clks_syscall_usc_find_session_allowed_path(const char *path) {
+    return clks_syscall_usc_find_path_in_table(clks_syscall_usc_session_allowed_used,
+                                               clks_syscall_usc_session_allowed_path, path);
+}
+
+static clks_bool clks_syscall_usc_remember_session_path(const char *path) {
+    return clks_syscall_usc_add_path_to_table(clks_syscall_usc_session_allowed_used, clks_syscall_usc_session_allowed_path,
+                                              path);
+}
+
+static i32 clks_syscall_usc_find_permanent_allowed_path(const char *path) {
+    return clks_syscall_usc_find_path_in_table(clks_syscall_usc_permanent_allowed_used,
+                                               clks_syscall_usc_permanent_allowed_path, path);
+}
+
+static clks_bool clks_syscall_usc_remember_permanent_in_memory(const char *path) {
+    return clks_syscall_usc_add_path_to_table(clks_syscall_usc_permanent_allowed_used,
+                                              clks_syscall_usc_permanent_allowed_path, path);
+}
+
+static clks_bool clks_syscall_usc_build_perm_rule_path(char *out_path, usize out_size) {
+    const char *mount_path;
+    const char *file_name = CLKS_SYSCALL_USC_PERM_RULE_FILE;
+    usize mount_len;
+    usize file_len;
+    usize pos = 0U;
+
+    if (out_path == CLKS_NULL || out_size == 0U) {
+        return CLKS_FALSE;
+    }
+
+    out_path[0] = '\0';
+
+    if (clks_disk_is_mounted() == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    mount_path = clks_disk_mount_path();
+    if (mount_path == CLKS_NULL || mount_path[0] == '\0') {
+        return CLKS_FALSE;
+    }
+
+    mount_len = clks_strlen(mount_path);
+    file_len = clks_strlen(file_name);
+
+    if (mount_len >= out_size) {
+        return CLKS_FALSE;
+    }
+
+    clks_memcpy(out_path, mount_path, mount_len);
+    pos = mount_len;
+
+    if (pos > 0U && out_path[pos - 1U] != '/') {
+        if (pos + 1U >= out_size) {
+            return CLKS_FALSE;
+        }
+        out_path[pos] = '/';
+        pos++;
+    }
+
+    if (pos + file_len + 1U > out_size) {
+        return CLKS_FALSE;
+    }
+
+    clks_memcpy(out_path + pos, file_name, file_len);
+    pos += file_len;
+    out_path[pos] = '\0';
+    return CLKS_TRUE;
+}
+
+static void clks_syscall_usc_load_permanent_rules_if_needed(void) {
+    char rules_path[CLKS_DISK_PATH_MAX];
+    const u8 *data;
+    u64 data_size = 0ULL;
+    u64 pos = 0ULL;
+
+    if (clks_syscall_usc_permanent_loaded == CLKS_TRUE) {
+        return;
+    }
+
+    if (clks_syscall_usc_build_perm_rule_path(rules_path, sizeof(rules_path)) == CLKS_FALSE) {
+        return;
+    }
+
+    clks_syscall_usc_permanent_loaded = CLKS_TRUE;
+    data = (const u8 *)clks_disk_read_all(rules_path, &data_size);
+
+    if (data == CLKS_NULL || data_size == 0ULL) {
+        return;
+    }
+
+    while (pos < data_size) {
+        u64 start = pos;
+        u64 end;
+        usize line_len;
+        char line[CLKS_EXEC_PROC_PATH_MAX];
+
+        while (pos < data_size && data[pos] != (u8)'\n' && data[pos] != (u8)'\r') {
+            pos++;
+        }
+
+        end = pos;
+        while (pos < data_size && (data[pos] == (u8)'\n' || data[pos] == (u8)'\r')) {
+            pos++;
+        }
+
+        if (end <= start) {
+            continue;
+        }
+
+        line_len = (usize)(end - start);
+        if (line_len >= sizeof(line)) {
+            line_len = sizeof(line) - 1U;
+        }
+
+        clks_memcpy(line, data + start, line_len);
+        line[line_len] = '\0';
+        (void)clks_syscall_usc_remember_permanent_in_memory(line);
+    }
+}
+
+static clks_bool clks_syscall_usc_append_permanent_rule(const char *path) {
+    char rules_path[CLKS_DISK_PATH_MAX];
+    char line[CLKS_EXEC_PROC_PATH_MAX + 2U];
+    usize len;
+
+    if (path == CLKS_NULL || path[0] == '\0') {
+        return CLKS_FALSE;
+    }
+
+    if (clks_syscall_usc_build_perm_rule_path(rules_path, sizeof(rules_path)) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    len = clks_strlen(path);
+    if (len == 0U) {
+        return CLKS_FALSE;
+    }
+
+    if (len + 1U >= sizeof(line)) {
+        return CLKS_FALSE;
+    }
+
+    clks_memcpy(line, path, len);
+    line[len] = '\n';
+    line[len + 1U] = '\0';
+    return clks_disk_append(rules_path, line, (u64)(len + 1U));
+}
+
+static clks_bool clks_syscall_usc_remember_permanent_path(const char *path) {
+    clks_bool added;
+
+    if (path == CLKS_NULL || path[0] == '\0') {
+        return CLKS_FALSE;
+    }
+
+    clks_syscall_usc_load_permanent_rules_if_needed();
+
+    if (clks_syscall_usc_find_permanent_allowed_path(path) >= 0) {
+        return CLKS_TRUE;
+    }
+
+    if (clks_syscall_usc_append_permanent_rule(path) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    added = clks_syscall_usc_remember_permanent_in_memory(path);
+    if (added == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    return CLKS_TRUE;
 }
 
 static void clks_syscall_usc_emit_text_line(const char *label, const char *value) {
@@ -2454,14 +2646,15 @@ static void clks_syscall_usc_emit_hex_line(const char *label, u64 value) {
     clks_log_hex(CLKS_LOG_WARN, "USC", label, value);
 }
 
-static clks_bool clks_syscall_usc_prompt_allow(const char *app_path, u64 id, u64 arg0, u64 arg1, u64 arg2) {
+static enum clks_syscall_usc_decision clks_syscall_usc_prompt_allow(const char *app_path, u64 id, u64 arg0, u64 arg1,
+                                                                     u64 arg2) {
     const char *name = clks_syscall_usc_syscall_name(id);
     u32 tty_index = clks_exec_current_tty();
 
 #if !defined(CLKS_CFG_KEYBOARD) || (CLKS_CFG_KEYBOARD == 0)
     (void)tty_index;
     clks_syscall_usc_emit_text_line("BLOCK", "keyboard disabled, cannot prompt");
-    return CLKS_FALSE;
+    return CLKS_SYSCALL_USC_DECISION_DENY;
 #else
     clks_syscall_usc_emit_text_line("DANGEROUS_SYSCALL", "REQUEST DETECTED");
     clks_syscall_usc_emit_text_line("APP", app_path);
@@ -2470,24 +2663,36 @@ static clks_bool clks_syscall_usc_prompt_allow(const char *app_path, u64 id, u64
     clks_syscall_usc_emit_hex_line("ARG0", arg0);
     clks_syscall_usc_emit_hex_line("ARG1", arg1);
     clks_syscall_usc_emit_hex_line("ARG2", arg2);
-    clks_log(CLKS_LOG_WARN, "USC", "CONFIRM: Allow this app permanently? [y/N]");
-    clks_tty_write("[WARN][USC] Allow this app permanently? [y/N]: ");
-    clks_serial_write("[WARN][USC] Allow this app permanently? [y/N]: ");
+    clks_log(CLKS_LOG_WARN, "USC", "CONFIRM: [1/o]=once [2/s]=session [3/p]=permanent [n]=deny");
+    clks_tty_write("[WARN][USC] Allow mode [1/o once, 2/s session, 3/p permanent, n deny]: ");
+    clks_serial_write("[WARN][USC] Allow mode [1/o once, 2/s session, 3/p permanent, n deny]: ");
 
     while (1) {
         char ch = '\0';
 
         if (clks_keyboard_pop_char_for_tty(tty_index, &ch) == CLKS_TRUE) {
-            if (ch == 'y' || ch == 'Y') {
-                clks_tty_write("y\n");
-                clks_serial_write("y\n");
-                return CLKS_TRUE;
+            if (ch == '1' || ch == 'o' || ch == 'O') {
+                clks_tty_write("1\n");
+                clks_serial_write("1\n");
+                return CLKS_SYSCALL_USC_DECISION_ALLOW_ONCE;
+            }
+
+            if (ch == '2' || ch == 's' || ch == 'S') {
+                clks_tty_write("2\n");
+                clks_serial_write("2\n");
+                return CLKS_SYSCALL_USC_DECISION_ALLOW_SESSION;
+            }
+
+            if (ch == '3' || ch == 'p' || ch == 'P') {
+                clks_tty_write("3\n");
+                clks_serial_write("3\n");
+                return CLKS_SYSCALL_USC_DECISION_ALLOW_PERMANENT;
             }
 
             if (ch == 'n' || ch == 'N' || ch == '\n' || ch == '\r' || ch == 27) {
                 clks_tty_write("n\n");
                 clks_serial_write("n\n");
-                return CLKS_FALSE;
+                return CLKS_SYSCALL_USC_DECISION_DENY;
             }
 
             continue;
@@ -2508,6 +2713,7 @@ static clks_bool clks_syscall_usc_check(u64 id, u64 arg0, u64 arg1, u64 arg2) {
     return CLKS_TRUE;
 #else
     char app_path[CLKS_EXEC_PROC_PATH_MAX];
+    enum clks_syscall_usc_decision decision;
 
     if (clks_syscall_usc_is_dangerous(id) == CLKS_FALSE) {
         return CLKS_TRUE;
@@ -2522,13 +2728,36 @@ static clks_bool clks_syscall_usc_check(u64 id, u64 arg0, u64 arg1, u64 arg2) {
         return CLKS_FALSE;
     }
 
-    if (clks_syscall_usc_find_allowed_path(app_path) >= 0) {
+    clks_syscall_usc_load_permanent_rules_if_needed();
+
+    if (clks_syscall_usc_find_permanent_allowed_path(app_path) >= 0) {
         return CLKS_TRUE;
     }
 
-    if (clks_syscall_usc_prompt_allow(app_path, id, arg0, arg1, arg2) == CLKS_TRUE) {
-        clks_syscall_usc_remember_path(app_path);
-        clks_syscall_usc_emit_text_line("ALLOW", app_path);
+    if (clks_syscall_usc_find_session_allowed_path(app_path) >= 0) {
+        return CLKS_TRUE;
+    }
+
+    decision = clks_syscall_usc_prompt_allow(app_path, id, arg0, arg1, arg2);
+    if (decision == CLKS_SYSCALL_USC_DECISION_ALLOW_ONCE) {
+        clks_syscall_usc_emit_text_line("ALLOW_ONCE", app_path);
+        return CLKS_TRUE;
+    }
+
+    if (decision == CLKS_SYSCALL_USC_DECISION_ALLOW_SESSION) {
+        (void)clks_syscall_usc_remember_session_path(app_path);
+        clks_syscall_usc_emit_text_line("ALLOW_SESSION", app_path);
+        return CLKS_TRUE;
+    }
+
+    if (decision == CLKS_SYSCALL_USC_DECISION_ALLOW_PERMANENT) {
+        if (clks_syscall_usc_remember_permanent_path(app_path) == CLKS_TRUE) {
+            (void)clks_syscall_usc_remember_session_path(app_path);
+            clks_syscall_usc_emit_text_line("ALLOW_PERMANENT", app_path);
+        } else {
+            (void)clks_syscall_usc_remember_session_path(app_path);
+            clks_syscall_usc_emit_text_line("ALLOW_SESSION_FALLBACK", app_path);
+        }
         return CLKS_TRUE;
     }
 
@@ -2658,8 +2887,11 @@ void clks_syscall_init(void) {
     clks_syscall_symbols_data = CLKS_NULL;
     clks_syscall_symbols_size = 0ULL;
 #if CLKS_CFG_USC != 0
-    clks_memset(clks_syscall_usc_allowed_used, 0, sizeof(clks_syscall_usc_allowed_used));
-    clks_memset(clks_syscall_usc_allowed_path, 0, sizeof(clks_syscall_usc_allowed_path));
+    clks_memset(clks_syscall_usc_session_allowed_used, 0, sizeof(clks_syscall_usc_session_allowed_used));
+    clks_memset(clks_syscall_usc_session_allowed_path, 0, sizeof(clks_syscall_usc_session_allowed_path));
+    clks_memset(clks_syscall_usc_permanent_allowed_used, 0, sizeof(clks_syscall_usc_permanent_allowed_used));
+    clks_memset(clks_syscall_usc_permanent_allowed_path, 0, sizeof(clks_syscall_usc_permanent_allowed_path));
+    clks_syscall_usc_permanent_loaded = CLKS_FALSE;
 #endif
     clks_syscall_stats_reset();
     clks_log(CLKS_LOG_INFO, "SYSCALL", "INT80 FRAMEWORK ONLINE");
