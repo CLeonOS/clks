@@ -1036,6 +1036,11 @@ static clks_bool clks_exec_fd_copy_from_parent(struct clks_exec_proc_record *chi
     }
 
     child->fds[(u32)child_fd] = *src;
+
+    if (child->fds[(u32)child_fd].kind == CLKS_EXEC_FD_KIND_TTY) {
+        child->fds[(u32)child_fd].tty_index = child->tty_index;
+    }
+
     return CLKS_TRUE;
 }
 
@@ -1981,7 +1986,7 @@ u64 clks_exec_fd_write(u64 fd, const void *buffer, u64 size) {
     }
 
     if (entry->kind == CLKS_EXEC_FD_KIND_TTY) {
-        clks_tty_write_n((const char *)buffer, (usize)size);
+        clks_tty_write_n_to(entry->tty_index, (const char *)buffer, (usize)size);
         return size;
     }
 

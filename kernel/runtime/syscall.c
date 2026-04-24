@@ -46,6 +46,14 @@
 #define CLKS_CFG_PROCFS 1
 #endif
 
+#ifndef CLKS_CFG_SYSCALL_SERIAL_LOG
+#define CLKS_CFG_SYSCALL_SERIAL_LOG 1
+#endif
+
+#ifndef CLKS_CFG_SYSCALL_USERID_SERIAL_LOG
+#define CLKS_CFG_SYSCALL_USERID_SERIAL_LOG 1
+#endif
+
 #ifndef CLKS_CFG_USC
 #define CLKS_CFG_USC 1
 #endif
@@ -2037,25 +2045,66 @@ static void clks_syscall_serial_write_hex64(u64 value) {
     }
 }
 
-#if CLKS_CFG_USC != 0
-static void clks_syscall_usc_sleep_until_input(void) {
-#if defined(CLKS_ARCH_X86_64)
-    u64 flags = 0ULL;
-
-    __asm__ volatile("pushfq; popq %0" : "=r"(flags) : : "memory");
-
-    if ((flags & (1ULL << 9)) != 0ULL) {
-        __asm__ volatile("hlt" : : : "memory");
-    } else {
-        __asm__ volatile("sti; hlt; cli" : : : "memory");
-    }
-#elif defined(CLKS_ARCH_AARCH64)
-    clks_cpu_pause();
-#endif
-}
-
-static const char *clks_syscall_usc_syscall_name(u64 id) {
+static const char *clks_syscall_name(u64 id) {
     switch (id) {
+    case CLKS_SYSCALL_LOG_WRITE:
+        return "LOG_WRITE";
+    case CLKS_SYSCALL_TIMER_TICKS:
+        return "TIMER_TICKS";
+    case CLKS_SYSCALL_TASK_COUNT:
+        return "TASK_COUNT";
+    case CLKS_SYSCALL_CURRENT_TASK_ID:
+        return "CURRENT_TASK_ID";
+    case CLKS_SYSCALL_SERVICE_COUNT:
+        return "SERVICE_COUNT";
+    case CLKS_SYSCALL_SERVICE_READY_COUNT:
+        return "SERVICE_READY_COUNT";
+    case CLKS_SYSCALL_CONTEXT_SWITCHES:
+        return "CONTEXT_SWITCHES";
+    case CLKS_SYSCALL_KELF_COUNT:
+        return "KELF_COUNT";
+    case CLKS_SYSCALL_KELF_RUNS:
+        return "KELF_RUNS";
+    case CLKS_SYSCALL_FS_NODE_COUNT:
+        return "FS_NODE_COUNT";
+    case CLKS_SYSCALL_FS_CHILD_COUNT:
+        return "FS_CHILD_COUNT";
+    case CLKS_SYSCALL_FS_GET_CHILD_NAME:
+        return "FS_GET_CHILD_NAME";
+    case CLKS_SYSCALL_FS_READ:
+        return "FS_READ";
+    case CLKS_SYSCALL_EXEC_PATH:
+        return "EXEC_PATH";
+    case CLKS_SYSCALL_EXEC_REQUESTS:
+        return "EXEC_REQUESTS";
+    case CLKS_SYSCALL_EXEC_SUCCESS:
+        return "EXEC_SUCCESS";
+    case CLKS_SYSCALL_USER_SHELL_READY:
+        return "USER_SHELL_READY";
+    case CLKS_SYSCALL_USER_EXEC_REQUESTED:
+        return "USER_EXEC_REQUESTED";
+    case CLKS_SYSCALL_USER_LAUNCH_TRIES:
+        return "USER_LAUNCH_TRIES";
+    case CLKS_SYSCALL_USER_LAUNCH_OK:
+        return "USER_LAUNCH_OK";
+    case CLKS_SYSCALL_USER_LAUNCH_FAIL:
+        return "USER_LAUNCH_FAIL";
+    case CLKS_SYSCALL_TTY_COUNT:
+        return "TTY_COUNT";
+    case CLKS_SYSCALL_TTY_ACTIVE:
+        return "TTY_ACTIVE";
+    case CLKS_SYSCALL_TTY_SWITCH:
+        return "TTY_SWITCH";
+    case CLKS_SYSCALL_TTY_WRITE:
+        return "TTY_WRITE";
+    case CLKS_SYSCALL_TTY_WRITE_CHAR:
+        return "TTY_WRITE_CHAR";
+    case CLKS_SYSCALL_KBD_GET_CHAR:
+        return "KBD_GET_CHAR";
+    case CLKS_SYSCALL_FS_STAT_TYPE:
+        return "FS_STAT_TYPE";
+    case CLKS_SYSCALL_FS_STAT_SIZE:
+        return "FS_STAT_SIZE";
     case CLKS_SYSCALL_FS_MKDIR:
         return "FS_MKDIR";
     case CLKS_SYSCALL_FS_WRITE:
@@ -2064,22 +2113,110 @@ static const char *clks_syscall_usc_syscall_name(u64 id) {
         return "FS_APPEND";
     case CLKS_SYSCALL_FS_REMOVE:
         return "FS_REMOVE";
-    case CLKS_SYSCALL_EXEC_PATH:
-        return "EXEC_PATH";
-    case CLKS_SYSCALL_EXEC_PATHV:
-        return "EXEC_PATHV";
-    case CLKS_SYSCALL_EXEC_PATHV_IO:
-        return "EXEC_PATHV_IO";
+    case CLKS_SYSCALL_LOG_JOURNAL_COUNT:
+        return "LOG_JOURNAL_COUNT";
+    case CLKS_SYSCALL_LOG_JOURNAL_READ:
+        return "LOG_JOURNAL_READ";
+    case CLKS_SYSCALL_KBD_BUFFERED:
+        return "KBD_BUFFERED";
+    case CLKS_SYSCALL_KBD_PUSHED:
+        return "KBD_PUSHED";
+    case CLKS_SYSCALL_KBD_POPPED:
+        return "KBD_POPPED";
+    case CLKS_SYSCALL_KBD_DROPPED:
+        return "KBD_DROPPED";
+    case CLKS_SYSCALL_KBD_HOTKEY_SWITCHES:
+        return "KBD_HOTKEY_SWITCHES";
+    case CLKS_SYSCALL_GETPID:
+        return "GETPID";
     case CLKS_SYSCALL_SPAWN_PATH:
         return "SPAWN_PATH";
-    case CLKS_SYSCALL_SPAWN_PATHV:
-        return "SPAWN_PATHV";
-    case CLKS_SYSCALL_PROC_KILL:
-        return "PROC_KILL";
+    case CLKS_SYSCALL_WAITPID:
+        return "WAITPID";
+    case CLKS_SYSCALL_EXIT:
+        return "EXIT";
+    case CLKS_SYSCALL_SLEEP_TICKS:
+        return "SLEEP_TICKS";
+    case CLKS_SYSCALL_YIELD:
+        return "YIELD";
     case CLKS_SYSCALL_SHUTDOWN:
         return "SHUTDOWN";
     case CLKS_SYSCALL_RESTART:
         return "RESTART";
+    case CLKS_SYSCALL_AUDIO_AVAILABLE:
+        return "AUDIO_AVAILABLE";
+    case CLKS_SYSCALL_AUDIO_PLAY_TONE:
+        return "AUDIO_PLAY_TONE";
+    case CLKS_SYSCALL_AUDIO_STOP:
+        return "AUDIO_STOP";
+    case CLKS_SYSCALL_EXEC_PATHV:
+        return "EXEC_PATHV";
+    case CLKS_SYSCALL_SPAWN_PATHV:
+        return "SPAWN_PATHV";
+    case CLKS_SYSCALL_PROC_ARGC:
+        return "PROC_ARGC";
+    case CLKS_SYSCALL_PROC_ARGV:
+        return "PROC_ARGV";
+    case CLKS_SYSCALL_PROC_ENVC:
+        return "PROC_ENVC";
+    case CLKS_SYSCALL_PROC_ENV:
+        return "PROC_ENV";
+    case CLKS_SYSCALL_PROC_LAST_SIGNAL:
+        return "PROC_LAST_SIGNAL";
+    case CLKS_SYSCALL_PROC_FAULT_VECTOR:
+        return "PROC_FAULT_VECTOR";
+    case CLKS_SYSCALL_PROC_FAULT_ERROR:
+        return "PROC_FAULT_ERROR";
+    case CLKS_SYSCALL_PROC_FAULT_RIP:
+        return "PROC_FAULT_RIP";
+    case CLKS_SYSCALL_PROC_COUNT:
+        return "PROC_COUNT";
+    case CLKS_SYSCALL_PROC_PID_AT:
+        return "PROC_PID_AT";
+    case CLKS_SYSCALL_PROC_SNAPSHOT:
+        return "PROC_SNAPSHOT";
+    case CLKS_SYSCALL_PROC_KILL:
+        return "PROC_KILL";
+    case CLKS_SYSCALL_KDBG_SYM:
+        return "KDBG_SYM";
+    case CLKS_SYSCALL_KDBG_BT:
+        return "KDBG_BT";
+    case CLKS_SYSCALL_KDBG_REGS:
+        return "KDBG_REGS";
+    case CLKS_SYSCALL_STATS_TOTAL:
+        return "STATS_TOTAL";
+    case CLKS_SYSCALL_STATS_ID_COUNT:
+        return "STATS_ID_COUNT";
+    case CLKS_SYSCALL_STATS_RECENT_WINDOW:
+        return "STATS_RECENT_WINDOW";
+    case CLKS_SYSCALL_STATS_RECENT_ID:
+        return "STATS_RECENT_ID";
+    case CLKS_SYSCALL_FD_OPEN:
+        return "FD_OPEN";
+    case CLKS_SYSCALL_FD_READ:
+        return "FD_READ";
+    case CLKS_SYSCALL_FD_WRITE:
+        return "FD_WRITE";
+    case CLKS_SYSCALL_FD_CLOSE:
+        return "FD_CLOSE";
+    case CLKS_SYSCALL_FD_DUP:
+        return "FD_DUP";
+    case CLKS_SYSCALL_DL_OPEN:
+        return "DL_OPEN";
+    case CLKS_SYSCALL_DL_CLOSE:
+        return "DL_CLOSE";
+    case CLKS_SYSCALL_DL_SYM:
+        return "DL_SYM";
+    case CLKS_SYSCALL_EXEC_PATHV_IO:
+        return "EXEC_PATHV_IO";
+    case CLKS_SYSCALL_FB_INFO:
+        return "FB_INFO";
+    case CLKS_SYSCALL_FB_BLIT:
+        return "FB_BLIT";
+    case CLKS_SYSCALL_FB_CLEAR:
+        return "FB_CLEAR";
+    case CLKS_SYSCALL_KERNEL_VERSION:
+        return "KERNEL_VERSION";
     case CLKS_SYSCALL_DISK_PRESENT:
         return "DISK_PRESENT";
     case CLKS_SYSCALL_DISK_SIZE_BYTES:
@@ -2103,6 +2240,87 @@ static const char *clks_syscall_usc_syscall_name(u64 id) {
     default:
         return "UNKNOWN";
     }
+}
+
+static void clks_syscall_trace_user_call(clks_bool trace_enabled, u64 pid, u64 id, u64 arg0, u64 arg1, u64 arg2) {
+    const char *name;
+
+    if (CLKS_CFG_SYSCALL_SERIAL_LOG == 0) {
+        return;
+    }
+
+    if (trace_enabled == CLKS_FALSE) {
+        return;
+    }
+
+    /* FD_READ is often polled in tight loops; log it on return path only. */
+    if (id == CLKS_SYSCALL_FD_READ) {
+        return;
+    }
+
+    name = clks_syscall_name(id);
+    clks_serial_write("[INFO][SYSCALL] CALL PID: 0X");
+    clks_syscall_serial_write_hex64(pid);
+    clks_serial_write(" ID: 0X");
+    clks_syscall_serial_write_hex64(id);
+    clks_serial_write(" NAME: ");
+    clks_serial_write(name);
+    clks_serial_write(" ARG0: 0X");
+    clks_syscall_serial_write_hex64(arg0);
+    clks_serial_write(" ARG1: 0X");
+    clks_syscall_serial_write_hex64(arg1);
+    clks_serial_write(" ARG2: 0X");
+    clks_syscall_serial_write_hex64(arg2);
+    clks_serial_write("\n");
+}
+
+static void clks_syscall_trace_user_return(clks_bool trace_enabled, u64 pid, u64 id, u64 ret) {
+    const char *name;
+
+    if (CLKS_CFG_SYSCALL_SERIAL_LOG == 0) {
+        return;
+    }
+
+    if (trace_enabled == CLKS_FALSE) {
+        return;
+    }
+
+    /* Suppress empty FD_READ polls, keep real data/error returns visible. */
+    if (id == CLKS_SYSCALL_FD_READ && ret == 0ULL) {
+        return;
+    }
+
+    name = clks_syscall_name(id);
+    clks_serial_write("[INFO][SYSCALL] RET  PID: 0X");
+    clks_syscall_serial_write_hex64(pid);
+    clks_serial_write(" ID: 0X");
+    clks_syscall_serial_write_hex64(id);
+    clks_serial_write(" NAME: ");
+    clks_serial_write(name);
+    clks_serial_write(" RET: 0X");
+    clks_syscall_serial_write_hex64(ret);
+    clks_serial_write("\n");
+}
+
+#if CLKS_CFG_USC != 0
+static void clks_syscall_usc_sleep_until_input(void) {
+#if defined(CLKS_ARCH_X86_64)
+    u64 flags = 0ULL;
+
+    __asm__ volatile("pushfq; popq %0" : "=r"(flags) : : "memory");
+
+    if ((flags & (1ULL << 9)) != 0ULL) {
+        __asm__ volatile("hlt" : : : "memory");
+    } else {
+        __asm__ volatile("sti; hlt; cli" : : : "memory");
+    }
+#elif defined(CLKS_ARCH_AARCH64)
+    clks_cpu_pause();
+#endif
+}
+
+static const char *clks_syscall_usc_syscall_name(u64 id) {
+    return clks_syscall_name(id);
 }
 
 static clks_bool clks_syscall_usc_is_dangerous(u64 id) {
@@ -2392,6 +2610,13 @@ static void clks_syscall_trace_user_program(u64 id) {
     clks_bool user_program_running =
         (clks_exec_is_running() == CLKS_TRUE && clks_exec_current_path_is_user() == CLKS_TRUE) ? CLKS_TRUE : CLKS_FALSE;
 
+    if (CLKS_CFG_SYSCALL_USERID_SERIAL_LOG == 0) {
+        (void)id;
+        clks_syscall_user_trace_active = CLKS_FALSE;
+        clks_syscall_user_trace_budget = 0ULL;
+        return;
+    }
+
     if (user_program_running == CLKS_FALSE) {
         if (clks_syscall_user_trace_active == CLKS_TRUE) {
             clks_serial_write("[DEBUG][SYSCALL] USER_TRACE_END\n");
@@ -2443,6 +2668,15 @@ void clks_syscall_init(void) {
 u64 clks_syscall_dispatch(void *frame_ptr) {
     struct clks_syscall_frame *frame = (struct clks_syscall_frame *)frame_ptr;
     u64 id;
+    u64 ret = (u64)-1;
+    clks_bool user_trace_enabled = CLKS_FALSE;
+    u64 user_pid = 0ULL;
+
+#define CLKS_SYSCALL_DISPATCH_RETURN(value) \
+    do {                                    \
+        ret = (value);                      \
+        goto clks_syscall_dispatch_done;    \
+    } while (0)
 
     if (clks_syscall_ready == CLKS_FALSE || frame == CLKS_NULL) {
         return (u64)-1;
@@ -2454,213 +2688,225 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
     id = frame->rax;
     clks_syscall_stats_record(id);
     clks_syscall_trace_user_program(id);
+    user_trace_enabled = clks_syscall_in_user_exec_context();
+
+    if (user_trace_enabled == CLKS_TRUE) {
+        user_pid = clks_exec_current_pid();
+    }
+
+    clks_syscall_trace_user_call(user_trace_enabled, user_pid, id, frame->rbx, frame->rcx, frame->rdx);
 
     if (clks_syscall_usc_check(id, frame->rbx, frame->rcx, frame->rdx) == CLKS_FALSE) {
-        return (u64)-1;
+        CLKS_SYSCALL_DISPATCH_RETURN((u64)-1);
     }
 
     /* Giant switch, yeah. Ugly, explicit, and easy to grep at 3 AM. */
     switch (id) {
     case CLKS_SYSCALL_LOG_WRITE:
-        return clks_syscall_log_write(frame->rbx, frame->rcx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_log_write(frame->rbx, frame->rcx));
     case CLKS_SYSCALL_TIMER_TICKS:
-        return clks_interrupts_timer_ticks();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_interrupts_timer_ticks());
     case CLKS_SYSCALL_TASK_COUNT: {
         struct clks_scheduler_stats stats = clks_scheduler_get_stats();
-        return stats.task_count;
+        CLKS_SYSCALL_DISPATCH_RETURN(stats.task_count);
     }
     case CLKS_SYSCALL_CURRENT_TASK_ID: {
         struct clks_scheduler_stats stats = clks_scheduler_get_stats();
-        return stats.current_task_id;
+        CLKS_SYSCALL_DISPATCH_RETURN(stats.current_task_id);
     }
     case CLKS_SYSCALL_SERVICE_COUNT:
-        return clks_service_count();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_service_count());
     case CLKS_SYSCALL_SERVICE_READY_COUNT:
-        return clks_service_ready_count();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_service_ready_count());
     case CLKS_SYSCALL_CONTEXT_SWITCHES: {
         struct clks_scheduler_stats stats = clks_scheduler_get_stats();
-        return stats.context_switch_count;
+        CLKS_SYSCALL_DISPATCH_RETURN(stats.context_switch_count);
     }
     case CLKS_SYSCALL_KELF_COUNT:
-        return clks_kelf_count();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_kelf_count());
     case CLKS_SYSCALL_KELF_RUNS:
-        return clks_kelf_total_runs();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_kelf_total_runs());
     case CLKS_SYSCALL_FS_NODE_COUNT:
-        return clks_fs_node_count();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_fs_node_count());
     case CLKS_SYSCALL_FS_CHILD_COUNT:
-        return clks_syscall_fs_child_count(frame->rbx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_fs_child_count(frame->rbx));
     case CLKS_SYSCALL_FS_GET_CHILD_NAME:
-        return clks_syscall_fs_get_child_name(frame->rbx, frame->rcx, frame->rdx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_fs_get_child_name(frame->rbx, frame->rcx, frame->rdx));
     case CLKS_SYSCALL_FS_READ:
-        return clks_syscall_fs_read(frame->rbx, frame->rcx, frame->rdx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_fs_read(frame->rbx, frame->rcx, frame->rdx));
     case CLKS_SYSCALL_EXEC_PATH:
-        return clks_syscall_exec_path(frame->rbx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_exec_path(frame->rbx));
     case CLKS_SYSCALL_EXEC_PATHV:
-        return clks_syscall_exec_pathv(frame->rbx, frame->rcx, frame->rdx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_exec_pathv(frame->rbx, frame->rcx, frame->rdx));
     case CLKS_SYSCALL_EXEC_PATHV_IO:
-        return clks_syscall_exec_pathv_io(frame->rbx, frame->rcx, frame->rdx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_exec_pathv_io(frame->rbx, frame->rcx, frame->rdx));
     case CLKS_SYSCALL_EXEC_REQUESTS:
-        return clks_exec_request_count();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_exec_request_count());
     case CLKS_SYSCALL_EXEC_SUCCESS:
-        return clks_exec_success_count();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_exec_success_count());
     case CLKS_SYSCALL_USER_SHELL_READY:
-        return (clks_userland_shell_ready() == CLKS_TRUE) ? 1ULL : 0ULL;
+        CLKS_SYSCALL_DISPATCH_RETURN((clks_userland_shell_ready() == CLKS_TRUE) ? 1ULL : 0ULL);
     case CLKS_SYSCALL_USER_EXEC_REQUESTED:
-        return (clks_userland_shell_exec_requested() == CLKS_TRUE) ? 1ULL : 0ULL;
+        CLKS_SYSCALL_DISPATCH_RETURN((clks_userland_shell_exec_requested() == CLKS_TRUE) ? 1ULL : 0ULL);
     case CLKS_SYSCALL_USER_LAUNCH_TRIES:
-        return clks_userland_launch_attempts();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_userland_launch_attempts());
     case CLKS_SYSCALL_USER_LAUNCH_OK:
-        return clks_userland_launch_success();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_userland_launch_success());
     case CLKS_SYSCALL_USER_LAUNCH_FAIL:
-        return clks_userland_launch_failures();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_userland_launch_failures());
     case CLKS_SYSCALL_TTY_COUNT:
-        return (u64)clks_tty_count();
+        CLKS_SYSCALL_DISPATCH_RETURN((u64)clks_tty_count());
     case CLKS_SYSCALL_TTY_ACTIVE:
-        return (u64)clks_tty_active();
+        CLKS_SYSCALL_DISPATCH_RETURN((u64)clks_tty_active());
     case CLKS_SYSCALL_TTY_SWITCH:
         clks_tty_switch((u32)frame->rbx);
-        return (u64)clks_tty_active();
+        CLKS_SYSCALL_DISPATCH_RETURN((u64)clks_tty_active());
     case CLKS_SYSCALL_TTY_WRITE:
-        return clks_syscall_tty_write(frame->rbx, frame->rcx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_tty_write(frame->rbx, frame->rcx));
     case CLKS_SYSCALL_TTY_WRITE_CHAR:
-        return clks_syscall_tty_write_char(frame->rbx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_tty_write_char(frame->rbx));
     case CLKS_SYSCALL_KBD_GET_CHAR:
-        return clks_syscall_kbd_get_char();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_kbd_get_char());
     case CLKS_SYSCALL_FS_STAT_TYPE:
-        return clks_syscall_fs_stat_type(frame->rbx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_fs_stat_type(frame->rbx));
     case CLKS_SYSCALL_FS_STAT_SIZE:
-        return clks_syscall_fs_stat_size(frame->rbx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_fs_stat_size(frame->rbx));
     case CLKS_SYSCALL_FS_MKDIR:
-        return clks_syscall_fs_mkdir(frame->rbx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_fs_mkdir(frame->rbx));
     case CLKS_SYSCALL_FS_WRITE:
-        return clks_syscall_fs_write(frame->rbx, frame->rcx, frame->rdx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_fs_write(frame->rbx, frame->rcx, frame->rdx));
     case CLKS_SYSCALL_FS_APPEND:
-        return clks_syscall_fs_append(frame->rbx, frame->rcx, frame->rdx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_fs_append(frame->rbx, frame->rcx, frame->rdx));
     case CLKS_SYSCALL_FS_REMOVE:
-        return clks_syscall_fs_remove(frame->rbx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_fs_remove(frame->rbx));
     case CLKS_SYSCALL_LOG_JOURNAL_COUNT:
-        return clks_syscall_log_journal_count();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_log_journal_count());
     case CLKS_SYSCALL_LOG_JOURNAL_READ:
-        return clks_syscall_log_journal_read(frame->rbx, frame->rcx, frame->rdx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_log_journal_read(frame->rbx, frame->rcx, frame->rdx));
     case CLKS_SYSCALL_KBD_BUFFERED:
-        return clks_keyboard_buffered_count();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_keyboard_buffered_count());
     case CLKS_SYSCALL_KBD_PUSHED:
-        return clks_keyboard_push_count();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_keyboard_push_count());
     case CLKS_SYSCALL_KBD_POPPED:
-        return clks_keyboard_pop_count();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_keyboard_pop_count());
     case CLKS_SYSCALL_KBD_DROPPED:
-        return clks_keyboard_drop_count();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_keyboard_drop_count());
     case CLKS_SYSCALL_KBD_HOTKEY_SWITCHES:
-        return clks_keyboard_hotkey_switch_count();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_keyboard_hotkey_switch_count());
     case CLKS_SYSCALL_GETPID:
-        return clks_syscall_getpid();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_getpid());
     case CLKS_SYSCALL_SPAWN_PATH:
-        return clks_syscall_spawn_path(frame->rbx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_spawn_path(frame->rbx));
     case CLKS_SYSCALL_SPAWN_PATHV:
-        return clks_syscall_spawn_pathv(frame->rbx, frame->rcx, frame->rdx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_spawn_pathv(frame->rbx, frame->rcx, frame->rdx));
     case CLKS_SYSCALL_WAITPID:
-        return clks_syscall_waitpid(frame->rbx, frame->rcx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_waitpid(frame->rbx, frame->rcx));
     case CLKS_SYSCALL_PROC_ARGC:
-        return clks_syscall_proc_argc();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_proc_argc());
     case CLKS_SYSCALL_PROC_ARGV:
-        return clks_syscall_proc_argv(frame->rbx, frame->rcx, frame->rdx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_proc_argv(frame->rbx, frame->rcx, frame->rdx));
     case CLKS_SYSCALL_PROC_ENVC:
-        return clks_syscall_proc_envc();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_proc_envc());
     case CLKS_SYSCALL_PROC_ENV:
-        return clks_syscall_proc_env(frame->rbx, frame->rcx, frame->rdx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_proc_env(frame->rbx, frame->rcx, frame->rdx));
     case CLKS_SYSCALL_PROC_LAST_SIGNAL:
-        return clks_syscall_proc_last_signal();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_proc_last_signal());
     case CLKS_SYSCALL_PROC_FAULT_VECTOR:
-        return clks_syscall_proc_fault_vector();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_proc_fault_vector());
     case CLKS_SYSCALL_PROC_FAULT_ERROR:
-        return clks_syscall_proc_fault_error();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_proc_fault_error());
     case CLKS_SYSCALL_PROC_FAULT_RIP:
-        return clks_syscall_proc_fault_rip();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_proc_fault_rip());
     case CLKS_SYSCALL_PROC_COUNT:
-        return clks_syscall_proc_count();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_proc_count());
     case CLKS_SYSCALL_PROC_PID_AT:
-        return clks_syscall_proc_pid_at(frame->rbx, frame->rcx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_proc_pid_at(frame->rbx, frame->rcx));
     case CLKS_SYSCALL_PROC_SNAPSHOT:
-        return clks_syscall_proc_snapshot(frame->rbx, frame->rcx, frame->rdx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_proc_snapshot(frame->rbx, frame->rcx, frame->rdx));
     case CLKS_SYSCALL_PROC_KILL:
-        return clks_syscall_proc_kill(frame->rbx, frame->rcx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_proc_kill(frame->rbx, frame->rcx));
     case CLKS_SYSCALL_EXIT:
-        return clks_syscall_exit(frame->rbx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_exit(frame->rbx));
     case CLKS_SYSCALL_SLEEP_TICKS:
-        return clks_syscall_sleep_ticks(frame->rbx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_sleep_ticks(frame->rbx));
     case CLKS_SYSCALL_YIELD:
-        return clks_syscall_yield();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_yield());
     case CLKS_SYSCALL_SHUTDOWN:
-        return clks_syscall_shutdown();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_shutdown());
     case CLKS_SYSCALL_RESTART:
-        return clks_syscall_restart();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_restart());
     case CLKS_SYSCALL_AUDIO_AVAILABLE:
-        return clks_syscall_audio_available();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_audio_available());
     case CLKS_SYSCALL_AUDIO_PLAY_TONE:
-        return clks_syscall_audio_play_tone(frame->rbx, frame->rcx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_audio_play_tone(frame->rbx, frame->rcx));
     case CLKS_SYSCALL_AUDIO_STOP:
-        return clks_syscall_audio_stop();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_audio_stop());
     case CLKS_SYSCALL_KDBG_SYM:
-        return clks_syscall_kdbg_sym(frame->rbx, frame->rcx, frame->rdx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_kdbg_sym(frame->rbx, frame->rcx, frame->rdx));
     case CLKS_SYSCALL_KDBG_BT:
-        return clks_syscall_kdbg_bt(frame->rbx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_kdbg_bt(frame->rbx));
     case CLKS_SYSCALL_KDBG_REGS:
-        return clks_syscall_kdbg_regs(frame->rbx, frame->rcx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_kdbg_regs(frame->rbx, frame->rcx));
     case CLKS_SYSCALL_STATS_TOTAL:
-        return clks_syscall_stats_total_count();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_stats_total_count());
     case CLKS_SYSCALL_STATS_ID_COUNT:
-        return clks_syscall_stats_id(frame->rbx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_stats_id(frame->rbx));
     case CLKS_SYSCALL_STATS_RECENT_WINDOW:
-        return clks_syscall_stats_recent_window();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_stats_recent_window());
     case CLKS_SYSCALL_STATS_RECENT_ID:
-        return clks_syscall_stats_recent_id(frame->rbx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_stats_recent_id(frame->rbx));
     case CLKS_SYSCALL_FD_OPEN:
-        return clks_syscall_fd_open(frame->rbx, frame->rcx, frame->rdx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_fd_open(frame->rbx, frame->rcx, frame->rdx));
     case CLKS_SYSCALL_FD_READ:
-        return clks_syscall_fd_read(frame->rbx, frame->rcx, frame->rdx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_fd_read(frame->rbx, frame->rcx, frame->rdx));
     case CLKS_SYSCALL_FD_WRITE:
-        return clks_syscall_fd_write(frame->rbx, frame->rcx, frame->rdx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_fd_write(frame->rbx, frame->rcx, frame->rdx));
     case CLKS_SYSCALL_FD_CLOSE:
-        return clks_syscall_fd_close(frame->rbx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_fd_close(frame->rbx));
     case CLKS_SYSCALL_FD_DUP:
-        return clks_syscall_fd_dup(frame->rbx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_fd_dup(frame->rbx));
     case CLKS_SYSCALL_DL_OPEN:
-        return clks_syscall_dl_open(frame->rbx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_dl_open(frame->rbx));
     case CLKS_SYSCALL_DL_CLOSE:
-        return clks_syscall_dl_close(frame->rbx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_dl_close(frame->rbx));
     case CLKS_SYSCALL_DL_SYM:
-        return clks_syscall_dl_sym(frame->rbx, frame->rcx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_dl_sym(frame->rbx, frame->rcx));
     case CLKS_SYSCALL_FB_INFO:
-        return clks_syscall_fb_info(frame->rbx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_fb_info(frame->rbx));
     case CLKS_SYSCALL_FB_BLIT:
-        return clks_syscall_fb_blit(frame->rbx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_fb_blit(frame->rbx));
     case CLKS_SYSCALL_FB_CLEAR:
-        return clks_syscall_fb_clear(frame->rbx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_fb_clear(frame->rbx));
     case CLKS_SYSCALL_KERNEL_VERSION:
-        return clks_syscall_kernel_version(frame->rbx, frame->rcx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_kernel_version(frame->rbx, frame->rcx));
     case CLKS_SYSCALL_DISK_PRESENT:
-        return clks_syscall_disk_present();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_disk_present());
     case CLKS_SYSCALL_DISK_SIZE_BYTES:
-        return clks_syscall_disk_size_bytes();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_disk_size_bytes());
     case CLKS_SYSCALL_DISK_SECTOR_COUNT:
-        return clks_syscall_disk_sector_count();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_disk_sector_count());
     case CLKS_SYSCALL_DISK_FORMATTED:
-        return clks_syscall_disk_formatted();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_disk_formatted());
     case CLKS_SYSCALL_DISK_FORMAT_FAT32:
-        return clks_syscall_disk_format_fat32(frame->rbx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_disk_format_fat32(frame->rbx));
     case CLKS_SYSCALL_DISK_MOUNT:
-        return clks_syscall_disk_mount(frame->rbx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_disk_mount(frame->rbx));
     case CLKS_SYSCALL_DISK_MOUNTED:
-        return clks_syscall_disk_mounted();
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_disk_mounted());
     case CLKS_SYSCALL_DISK_MOUNT_PATH:
-        return clks_syscall_disk_mount_path(frame->rbx, frame->rcx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_disk_mount_path(frame->rbx, frame->rcx));
     case CLKS_SYSCALL_DISK_READ_SECTOR:
-        return clks_syscall_disk_read_sector(frame->rbx, frame->rcx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_disk_read_sector(frame->rbx, frame->rcx));
     case CLKS_SYSCALL_DISK_WRITE_SECTOR:
-        return clks_syscall_disk_write_sector(frame->rbx, frame->rcx);
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_disk_write_sector(frame->rbx, frame->rcx));
     default:
-        return (u64)-1;
+        CLKS_SYSCALL_DISPATCH_RETURN((u64)-1);
     }
+
+clks_syscall_dispatch_done:
+    clks_syscall_trace_user_return(user_trace_enabled, user_pid, id, ret);
+#undef CLKS_SYSCALL_DISPATCH_RETURN
+    return ret;
 }
 
 u64 clks_syscall_invoke_kernel(u64 id, u64 arg0, u64 arg1, u64 arg2) {
