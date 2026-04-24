@@ -35,8 +35,8 @@ CLKS_USED static volatile struct limine_module_request limine_module_request
         .response = CLKS_NULL,
 };
 
-CLKS_USED static volatile struct limine_hhdm_request limine_hhdm_request __attribute__((section(".limine_requests"))) =
-    {
+CLKS_USED static volatile struct limine_hhdm_request limine_hhdm_request
+    __attribute__((section(".limine_requests"))) = {
         .id = LIMINE_HHDM_REQUEST,
         .revision = 0,
         .response = CLKS_NULL,
