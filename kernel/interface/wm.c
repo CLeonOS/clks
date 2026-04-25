@@ -1161,8 +1161,8 @@ static void clks_wm_dispatch_mouse(void) {
 
         if (mouse.buttons != clks_wm_last_mouse_buttons) {
             u64 changed = (u64)(mouse.buttons ^ clks_wm_last_mouse_buttons);
-            clks_wm_event_push((u32)focused_slot, CLKS_WM_EVENT_MOUSE_BUTTON, (u64)mouse.buttons, changed,
-                               (u64)local_x, (u64)local_y);
+            clks_wm_event_push((u32)focused_slot, CLKS_WM_EVENT_MOUSE_BUTTON, (u64)mouse.buttons, changed, (u64)local_x,
+                               (u64)local_y);
         }
     }
 
@@ -1175,14 +1175,13 @@ static void clks_wm_dispatch_mouse(void) {
     }
 
     if (clks_wm_last_mouse_ready == CLKS_TRUE &&
-        (mouse.ready != clks_wm_last_mouse_ready || mouse.x != clks_wm_last_mouse_x || mouse.y != clks_wm_last_mouse_y ||
-         mouse.buttons != clks_wm_last_mouse_buttons)) {
+        (mouse.ready != clks_wm_last_mouse_ready || mouse.x != clks_wm_last_mouse_x ||
+         mouse.y != clks_wm_last_mouse_y || mouse.buttons != clks_wm_last_mouse_buttons)) {
         clks_wm_mark_dirty_cursor(clks_wm_last_mouse_x, clks_wm_last_mouse_y);
     }
 
-    if (mouse.ready == CLKS_TRUE &&
-        (mouse.ready != clks_wm_last_mouse_ready || mouse.x != clks_wm_last_mouse_x || mouse.y != clks_wm_last_mouse_y ||
-         mouse.buttons != clks_wm_last_mouse_buttons)) {
+    if (mouse.ready == CLKS_TRUE && (mouse.ready != clks_wm_last_mouse_ready || mouse.x != clks_wm_last_mouse_x ||
+                                     mouse.y != clks_wm_last_mouse_y || mouse.buttons != clks_wm_last_mouse_buttons)) {
         clks_wm_mark_dirty_cursor(mouse.x, mouse.y);
     }
 
