@@ -1330,12 +1330,8 @@ static clks_bool clks_exec_invoke_entry(void *entry_ptr, u32 depth_index, u64 *o
 #if defined(CLKS_ARCH_X86_64)
     {
         static const u64 clks_exec_stack_candidates[] = {
-            CLKS_EXEC_RUN_STACK_BYTES,
-            CLKS_EXEC_RUN_STACK_TIER_1,
-            CLKS_EXEC_RUN_STACK_TIER_2,
-            CLKS_EXEC_RUN_STACK_TIER_3,
-            CLKS_EXEC_RUN_STACK_TIER_4,
-            CLKS_EXEC_RUN_STACK_TIER_5,
+            CLKS_EXEC_RUN_STACK_BYTES,  CLKS_EXEC_RUN_STACK_TIER_1, CLKS_EXEC_RUN_STACK_TIER_2,
+            CLKS_EXEC_RUN_STACK_TIER_3, CLKS_EXEC_RUN_STACK_TIER_4, CLKS_EXEC_RUN_STACK_TIER_5,
         };
         void *stack_base = CLKS_NULL;
         void *stack_top;
@@ -1345,7 +1341,9 @@ static clks_bool clks_exec_invoke_entry(void *entry_ptr, u32 depth_index, u64 *o
         clks_bool restore_irq_disable = CLKS_FALSE;
         u32 candidate_index;
 
-        for (candidate_index = 0U; candidate_index < (u32)(sizeof(clks_exec_stack_candidates) / sizeof(clks_exec_stack_candidates[0])); candidate_index++) {
+        for (candidate_index = 0U;
+             candidate_index < (u32)(sizeof(clks_exec_stack_candidates) / sizeof(clks_exec_stack_candidates[0]));
+             candidate_index++) {
             stack_bytes = clks_exec_stack_candidates[candidate_index];
             stack_base = clks_kmalloc((usize)stack_bytes);
             if (stack_base != CLKS_NULL) {
