@@ -167,15 +167,13 @@ static void clks_mouse_tune_device(void) {
     }
 
     if (clks_mouse_send_device_cmd(CLKS_PS2_MOUSE_CMD_SET_RESOLUTION, &ack) == CLKS_FALSE ||
-        ack != CLKS_PS2_MOUSE_ACK ||
-        clks_mouse_send_device_data((u8)CLKS_PS2_MOUSE_RESOLUTION, &ack) == CLKS_FALSE ||
+        ack != CLKS_PS2_MOUSE_ACK || clks_mouse_send_device_data((u8)CLKS_PS2_MOUSE_RESOLUTION, &ack) == CLKS_FALSE ||
         ack != CLKS_PS2_MOUSE_ACK) {
         clks_log(CLKS_LOG_WARN, "MOUSE", "PS2 SET RESOLUTION FAILED");
     }
 
     if (clks_mouse_send_device_cmd(CLKS_PS2_MOUSE_CMD_SET_SAMPLE_RATE, &ack) == CLKS_FALSE ||
-        ack != CLKS_PS2_MOUSE_ACK ||
-        clks_mouse_send_device_data((u8)CLKS_PS2_MOUSE_SAMPLE_RATE, &ack) == CLKS_FALSE ||
+        ack != CLKS_PS2_MOUSE_ACK || clks_mouse_send_device_data((u8)CLKS_PS2_MOUSE_SAMPLE_RATE, &ack) == CLKS_FALSE ||
         ack != CLKS_PS2_MOUSE_ACK) {
         clks_log(CLKS_LOG_WARN, "MOUSE", "PS2 SET SAMPLE RATE FAILED");
     }

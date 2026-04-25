@@ -311,7 +311,7 @@ void clks_fb_fill_rect(u32 x, u32 y, u32 width, u32 height, u32 rgb) {
 }
 
 static void clks_fb_blit_rgba_internal(i32 dst_x, i32 dst_y, const void *src_pixels, u32 src_width, u32 src_height,
-                                        u32 src_pitch_bytes, clks_bool update_shadow) {
+                                       u32 src_pitch_bytes, clks_bool update_shadow) {
     i32 blit_x = dst_x;
     i32 blit_y = dst_y;
     i32 src_start_x = 0;
@@ -394,7 +394,7 @@ void clks_fb_blit_rgba(i32 dst_x, i32 dst_y, const void *src_pixels, u32 src_wid
 }
 
 void clks_fb_blit_rgba_no_shadow(i32 dst_x, i32 dst_y, const void *src_pixels, u32 src_width, u32 src_height,
-                                  u32 src_pitch_bytes) {
+                                 u32 src_pitch_bytes) {
     clks_fb_blit_rgba_internal(dst_x, dst_y, src_pixels, src_width, src_height, src_pitch_bytes, CLKS_FALSE);
 }
 
