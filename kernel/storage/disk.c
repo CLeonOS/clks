@@ -52,6 +52,7 @@
 #define CLKS_DISK_ATA_CMD_WRITE_SECTORS 0x30U
 #define CLKS_DISK_ATA_CMD_CACHE_FLUSH 0xE7U
 #define CLKS_DISK_ATA_CMD_IDENTIFY 0xECU
+#define CLKS_DISK_ATA_BATCH_SECTORS 128U
 #endif
 
 struct clks_disk_fat32_layout {
@@ -92,6 +93,8 @@ struct clks_disk_path_lookup {
 static u8 *clks_disk_bytes = CLKS_NULL;
 static u64 clks_disk_bytes_len = 0ULL;
 static u64 clks_disk_sector_total = 0ULL;
+static u8 *clks_disk_loaded_bitmap = CLKS_NULL;
+static u64 clks_disk_loaded_bitmap_bytes = 0ULL;
 static clks_bool clks_disk_ready = CLKS_FALSE;
 static clks_bool clks_disk_formatted = CLKS_FALSE;
 static clks_bool clks_disk_mounted = CLKS_FALSE;
@@ -364,12 +367,17 @@ static clks_bool clks_disk_ata_probe(u64 *out_sector_total) {
     return CLKS_FALSE;
 }
 
-static clks_bool clks_disk_ata_read_sector_hw(u64 lba, void *out_sector) {
-    u8 *out = (u8 *)out_sector;
+static clks_bool clks_disk_ata_read_sectors_hw(u64 lba, u16 sector_count, void *out_buffer) {
+    u8 *out = (u8 *)out_buffer;
+    u32 sector_index;
     u32 i;
     u8 status;
 
-    if (out_sector == CLKS_NULL || lba > 0x0FFFFFFFULL) {
+    if (out_buffer == CLKS_NULL || sector_count == 0U || sector_count > 255U || lba > 0x0FFFFFFFULL) {
+        return CLKS_FALSE;
+    }
+
+    if (lba + (u64)sector_count - 1ULL > 0x0FFFFFFFULL) {
         return CLKS_FALSE;
     }
 
@@ -378,20 +386,23 @@ static clks_bool clks_disk_ata_read_sector_hw(u64 lba, void *out_sector) {
     }
 
     clks_disk_ata_outb(clks_disk_ata_reg_drive(), (u8)(clks_disk_ata_drive_lba | ((u8)((lba >> 24U) & 0x0FU))));
-    clks_disk_ata_outb(clks_disk_ata_reg_sector_count(), 1U);
+    clks_disk_ata_outb(clks_disk_ata_reg_sector_count(), (u8)sector_count);
     clks_disk_ata_outb(clks_disk_ata_reg_lba_low(), (u8)(lba & 0xFFULL));
     clks_disk_ata_outb(clks_disk_ata_reg_lba_mid(), (u8)((lba >> 8U) & 0xFFULL));
     clks_disk_ata_outb(clks_disk_ata_reg_lba_high(), (u8)((lba >> 16U) & 0xFFULL));
     clks_disk_ata_outb(clks_disk_ata_reg_command(), CLKS_DISK_ATA_CMD_READ_SECTORS);
 
-    if (clks_disk_ata_wait_drq_ready() == CLKS_FALSE) {
-        return CLKS_FALSE;
-    }
+    for (sector_index = 0U; sector_index < (u32)sector_count; sector_index++) {
+        if (clks_disk_ata_wait_drq_ready() == CLKS_FALSE) {
+            return CLKS_FALSE;
+        }
 
-    for (i = 0U; i < 256U; i++) {
-        u16 word = clks_disk_ata_inw(clks_disk_ata_reg_data());
-        out[i * 2U] = (u8)(word & 0x00FFU);
-        out[i * 2U + 1U] = (u8)((word >> 8U) & 0x00FFU);
+        for (i = 0U; i < 256U; i++) {
+            u16 word = clks_disk_ata_inw(clks_disk_ata_reg_data());
+            usize offset = ((usize)sector_index * (usize)CLKS_DISK_SECTOR_SIZE) + ((usize)i * 2U);
+            out[offset + 0U] = (u8)(word & 0x00FFU);
+            out[offset + 1U] = (u8)((word >> 8U) & 0x00FFU);
+        }
     }
 
     clks_disk_ata_delay_400ns();
@@ -403,11 +414,20 @@ static clks_bool clks_disk_ata_read_sector_hw(u64 lba, void *out_sector) {
     return CLKS_TRUE;
 }
 
-static clks_bool clks_disk_ata_write_sector_hw(u64 lba, const void *sector_data) {
-    const u8 *src = (const u8 *)sector_data;
+static clks_bool clks_disk_ata_read_sector_hw(u64 lba, void *out_sector) {
+    return clks_disk_ata_read_sectors_hw(lba, 1U, out_sector);
+}
+
+static clks_bool clks_disk_ata_write_sectors_hw(u64 lba, u16 sector_count, const void *buffer) {
+    const u8 *src = (const u8 *)buffer;
+    u32 sector_index;
     u32 i;
 
-    if (sector_data == CLKS_NULL || lba > 0x0FFFFFFFULL) {
+    if (buffer == CLKS_NULL || sector_count == 0U || sector_count > 255U || lba > 0x0FFFFFFFULL) {
+        return CLKS_FALSE;
+    }
+
+    if (lba + (u64)sector_count - 1ULL > 0x0FFFFFFFULL) {
         return CLKS_FALSE;
     }
 
@@ -416,19 +436,22 @@ static clks_bool clks_disk_ata_write_sector_hw(u64 lba, const void *sector_data)
     }
 
     clks_disk_ata_outb(clks_disk_ata_reg_drive(), (u8)(clks_disk_ata_drive_lba | ((u8)((lba >> 24U) & 0x0FU))));
-    clks_disk_ata_outb(clks_disk_ata_reg_sector_count(), 1U);
+    clks_disk_ata_outb(clks_disk_ata_reg_sector_count(), (u8)sector_count);
     clks_disk_ata_outb(clks_disk_ata_reg_lba_low(), (u8)(lba & 0xFFULL));
     clks_disk_ata_outb(clks_disk_ata_reg_lba_mid(), (u8)((lba >> 8U) & 0xFFULL));
     clks_disk_ata_outb(clks_disk_ata_reg_lba_high(), (u8)((lba >> 16U) & 0xFFULL));
     clks_disk_ata_outb(clks_disk_ata_reg_command(), CLKS_DISK_ATA_CMD_WRITE_SECTORS);
 
-    if (clks_disk_ata_wait_drq_ready() == CLKS_FALSE) {
-        return CLKS_FALSE;
-    }
+    for (sector_index = 0U; sector_index < (u32)sector_count; sector_index++) {
+        if (clks_disk_ata_wait_drq_ready() == CLKS_FALSE) {
+            return CLKS_FALSE;
+        }
 
-    for (i = 0U; i < 256U; i++) {
-        u16 word = (u16)src[i * 2U] | ((u16)src[i * 2U + 1U] << 8U);
-        clks_disk_ata_outw(clks_disk_ata_reg_data(), word);
+        for (i = 0U; i < 256U; i++) {
+            usize offset = ((usize)sector_index * (usize)CLKS_DISK_SECTOR_SIZE) + ((usize)i * 2U);
+            u16 word = (u16)src[offset + 0U] | ((u16)src[offset + 1U] << 8U);
+            clks_disk_ata_outw(clks_disk_ata_reg_data(), word);
+        }
     }
 
     clks_disk_ata_delay_400ns();
@@ -437,6 +460,10 @@ static clks_bool clks_disk_ata_write_sector_hw(u64 lba, const void *sector_data)
     }
 
     return CLKS_TRUE;
+}
+
+static clks_bool clks_disk_ata_write_sector_hw(u64 lba, const void *sector_data) {
+    return clks_disk_ata_write_sectors_hw(lba, 1U, sector_data);
 }
 
 static clks_bool clks_disk_ata_cache_flush_hw(void) {
@@ -463,9 +490,23 @@ static clks_bool clks_disk_ata_read_sector_hw(u64 lba, void *out_sector) {
     return CLKS_FALSE;
 }
 
+static clks_bool clks_disk_ata_read_sectors_hw(u64 lba, u16 sector_count, void *out_buffer) {
+    (void)lba;
+    (void)sector_count;
+    (void)out_buffer;
+    return CLKS_FALSE;
+}
+
 static clks_bool clks_disk_ata_write_sector_hw(u64 lba, const void *sector_data) {
     (void)lba;
     (void)sector_data;
+    return CLKS_FALSE;
+}
+
+static clks_bool clks_disk_ata_write_sectors_hw(u64 lba, u16 sector_count, const void *buffer) {
+    (void)lba;
+    (void)sector_count;
+    (void)buffer;
     return CLKS_FALSE;
 }
 
@@ -490,8 +531,106 @@ static clks_bool clks_disk_bytes_range_valid(u64 offset, u64 size) {
     return CLKS_TRUE;
 }
 
-static clks_bool clks_disk_sync_sector_range(u64 start_lba, u64 sector_count) {
+static u64 clks_disk_loaded_bitmap_required_bytes(u64 sector_count) {
+    return (sector_count + 7ULL) / 8ULL;
+}
+
+static clks_bool clks_disk_loaded_test(u64 lba) {
+    u64 byte_index;
+    u8 bit_mask;
+
+    if (clks_disk_loaded_bitmap == CLKS_NULL || clks_disk_loaded_bitmap_bytes == 0ULL) {
+        return CLKS_FALSE;
+    }
+
+    byte_index = lba >> 3U;
+    if (byte_index >= clks_disk_loaded_bitmap_bytes) {
+        return CLKS_FALSE;
+    }
+
+    bit_mask = (u8)(1U << (u8)(lba & 7ULL));
+    return ((clks_disk_loaded_bitmap[byte_index] & bit_mask) != 0U) ? CLKS_TRUE : CLKS_FALSE;
+}
+
+static void clks_disk_loaded_mark_range(u64 start_lba, u64 sector_count) {
+    u64 lba;
+
+    if (clks_disk_loaded_bitmap == CLKS_NULL || clks_disk_loaded_bitmap_bytes == 0ULL || sector_count == 0ULL) {
+        return;
+    }
+
+    for (lba = start_lba; lba < start_lba + sector_count; lba++) {
+        u64 byte_index = lba >> 3U;
+        u8 bit_mask;
+
+        if (byte_index >= clks_disk_loaded_bitmap_bytes) {
+            break;
+        }
+
+        bit_mask = (u8)(1U << (u8)(lba & 7ULL));
+        clks_disk_loaded_bitmap[byte_index] |= bit_mask;
+    }
+}
+
+static clks_bool clks_disk_ensure_loaded_range(u64 offset, u64 size) {
+    u64 start_lba;
     u64 end_lba;
+    u64 lba;
+
+    if (size == 0ULL) {
+        return CLKS_TRUE;
+    }
+
+    if (clks_disk_bytes_range_valid(offset, size) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_disk_hw_backed == CLKS_FALSE) {
+        return CLKS_TRUE;
+    }
+
+    if (clks_disk_loaded_bitmap == CLKS_NULL || clks_disk_loaded_bitmap_bytes == 0ULL) {
+        return CLKS_FALSE;
+    }
+
+    start_lba = offset / CLKS_DISK_SECTOR_SIZE;
+    end_lba = (offset + size + (CLKS_DISK_SECTOR_SIZE - 1ULL)) / CLKS_DISK_SECTOR_SIZE;
+
+    lba = start_lba;
+    while (lba < end_lba) {
+        if (clks_disk_loaded_test(lba) == CLKS_TRUE) {
+            lba++;
+            continue;
+        }
+
+        {
+            u64 batch_start = lba;
+            u16 batch_count;
+            u8 *batch_ptr;
+
+            while (lba < end_lba && clks_disk_loaded_test(lba) == CLKS_FALSE &&
+                   (lba - batch_start) < (u64)CLKS_DISK_ATA_BATCH_SECTORS) {
+                lba++;
+            }
+
+            batch_count = (u16)(lba - batch_start);
+            if (batch_count == 0U) {
+                continue;
+            }
+
+            batch_ptr = clks_disk_bytes + (usize)(batch_start * CLKS_DISK_SECTOR_SIZE);
+            if (clks_disk_ata_read_sectors_hw(batch_start, batch_count, batch_ptr) == CLKS_FALSE) {
+                return CLKS_FALSE;
+            }
+            clks_disk_loaded_mark_range(batch_start, (u64)batch_count);
+        }
+    }
+
+    return CLKS_TRUE;
+}
+
+static clks_bool clks_disk_sync_sector_range(u64 start_lba, u64 sector_count) {
+    u64 remaining;
     u64 lba;
 
     if (sector_count == 0ULL) {
@@ -510,13 +649,17 @@ static clks_bool clks_disk_sync_sector_range(u64 start_lba, u64 sector_count) {
         return CLKS_FALSE;
     }
 
-    end_lba = start_lba + sector_count;
-    for (lba = start_lba; lba < end_lba; lba++) {
-        const u8 *sector_ptr = clks_disk_bytes + (usize)(lba * CLKS_DISK_SECTOR_SIZE);
-
-        if (clks_disk_ata_write_sector_hw(lba, sector_ptr) == CLKS_FALSE) {
+    remaining = sector_count;
+    lba = start_lba;
+    while (remaining > 0ULL) {
+        u16 batch = (remaining > (u64)CLKS_DISK_ATA_BATCH_SECTORS) ? (u16)CLKS_DISK_ATA_BATCH_SECTORS : (u16)remaining;
+        const u8 *batch_ptr = clks_disk_bytes + (usize)(lba * CLKS_DISK_SECTOR_SIZE);
+        if (clks_disk_ata_write_sectors_hw(lba, batch, batch_ptr) == CLKS_FALSE) {
             return CLKS_FALSE;
         }
+        clks_disk_loaded_mark_range(lba, (u64)batch);
+        lba += (u64)batch;
+        remaining -= (u64)batch;
     }
 
     return clks_disk_ata_cache_flush_hw();
@@ -524,6 +667,7 @@ static clks_bool clks_disk_sync_sector_range(u64 start_lba, u64 sector_count) {
 
 static clks_bool clks_disk_sync_bytes_to_hw(u64 used_bytes) {
     u64 sectors_to_sync;
+    u64 remaining;
     u64 lba;
 
     if (clks_disk_hw_backed == CLKS_FALSE) {
@@ -547,11 +691,17 @@ static clks_bool clks_disk_sync_bytes_to_hw(u64 used_bytes) {
         sectors_to_sync = clks_disk_sector_total;
     }
 
-    for (lba = 0ULL; lba < sectors_to_sync; lba++) {
-        const u8 *sector_ptr = clks_disk_bytes + (usize)(lba * CLKS_DISK_SECTOR_SIZE);
-        if (clks_disk_ata_write_sector_hw(lba, sector_ptr) == CLKS_FALSE) {
+    remaining = sectors_to_sync;
+    lba = 0ULL;
+    while (remaining > 0ULL) {
+        u16 batch = (remaining > (u64)CLKS_DISK_ATA_BATCH_SECTORS) ? (u16)CLKS_DISK_ATA_BATCH_SECTORS : (u16)remaining;
+        const u8 *batch_ptr = clks_disk_bytes + (usize)(lba * CLKS_DISK_SECTOR_SIZE);
+        if (clks_disk_ata_write_sectors_hw(lba, batch, batch_ptr) == CLKS_FALSE) {
             return CLKS_FALSE;
         }
+        clks_disk_loaded_mark_range(lba, (u64)batch);
+        lba += (u64)batch;
+        remaining -= (u64)batch;
     }
 
     if (clks_disk_ata_cache_flush_hw() == CLKS_FALSE) {
@@ -809,6 +959,10 @@ static clks_bool clks_disk_parse_fat32_layout(void) {
         return CLKS_FALSE;
     }
 
+    if (clks_disk_ensure_loaded_range(0ULL, CLKS_DISK_SECTOR_SIZE) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
     boot = clks_disk_bytes;
 
     if (boot[CLKS_DISK_FAT32_BOOT_SIG_OFFSET] != 0x55U || boot[CLKS_DISK_FAT32_BOOT_SIG_OFFSET + 1U] != 0xAAU) {
@@ -944,6 +1098,9 @@ static clks_bool clks_disk_fat_read_entry(u32 cluster, u32 *out_value) {
     if (clks_disk_bytes_range_valid(disk_offset, 4ULL) == CLKS_FALSE) {
         return CLKS_FALSE;
     }
+    if (clks_disk_ensure_loaded_range(disk_offset, 4ULL) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
 
     value = clks_disk_read_u32(clks_disk_bytes + (usize)disk_offset);
     *out_value = value & 0x0FFFFFFFU;
@@ -980,6 +1137,9 @@ static clks_bool clks_disk_fat_write_entry(u32 cluster, u32 value) {
         u32 new_value;
 
         if (clks_disk_bytes_range_valid(disk_offset, 4ULL) == CLKS_FALSE) {
+            return CLKS_FALSE;
+        }
+        if (clks_disk_ensure_loaded_range(disk_offset, 4ULL) == CLKS_FALSE) {
             return CLKS_FALSE;
         }
 
@@ -1435,6 +1595,9 @@ static u8 *clks_disk_dir_entry_ptr(u32 cluster, u32 entry_index, u64 *out_lba) {
     if (clks_disk_bytes_range_valid(disk_offset, CLKS_DISK_DIRENT_SIZE) == CLKS_FALSE) {
         return CLKS_NULL;
     }
+    if (clks_disk_ensure_loaded_range(disk_offset, CLKS_DISK_DIRENT_SIZE) == CLKS_FALSE) {
+        return CLKS_NULL;
+    }
 
     if (out_lba != CLKS_NULL) {
         *out_lba = lba;
@@ -1880,6 +2043,9 @@ static clks_bool clks_disk_read_file_chain(u32 first_cluster, void *out_data, u6
         if (clks_disk_bytes_range_valid(cluster_offset, to_copy) == CLKS_FALSE) {
             return CLKS_FALSE;
         }
+        if (clks_disk_ensure_loaded_range(cluster_offset, to_copy) == CLKS_FALSE) {
+            return CLKS_FALSE;
+        }
 
         clks_memcpy((u8 *)out_data + (usize)copied, clks_disk_bytes + (usize)cluster_offset, (usize)to_copy);
         copied += to_copy;
@@ -2151,14 +2317,23 @@ void clks_disk_init(void) {
     u64 alloc_bytes;
     u64 heap_usable_bytes = 0ULL;
     u64 retry_step;
-    u64 lba;
     struct clks_heap_stats heap_stats;
+
+    if (clks_disk_bytes != CLKS_NULL) {
+        clks_kfree(clks_disk_bytes);
+        clks_disk_bytes = CLKS_NULL;
+    }
+
+    if (clks_disk_loaded_bitmap != CLKS_NULL) {
+        clks_kfree(clks_disk_loaded_bitmap);
+        clks_disk_loaded_bitmap = CLKS_NULL;
+        clks_disk_loaded_bitmap_bytes = 0ULL;
+    }
 
     clks_disk_ready = CLKS_FALSE;
     clks_disk_formatted = CLKS_FALSE;
     clks_disk_mounted = CLKS_FALSE;
     clks_disk_hw_backed = CLKS_FALSE;
-    clks_disk_bytes = CLKS_NULL;
     clks_disk_bytes_len = 0ULL;
     clks_disk_sector_total = 0ULL;
     clks_disk_mount_path_buf[0] = '\0';
@@ -2256,22 +2431,46 @@ void clks_disk_init(void) {
     }
 
     detected_sectors = cache_bytes / CLKS_DISK_SECTOR_SIZE;
+    clks_memset(clks_disk_bytes, 0, (usize)cache_bytes);
 
-    for (lba = 0ULL; lba < detected_sectors; lba++) {
-        u8 *sector_ptr = clks_disk_bytes + (usize)(lba * CLKS_DISK_SECTOR_SIZE);
-        if (clks_disk_ata_read_sector_hw(lba, sector_ptr) == CLKS_FALSE) {
-            clks_log(CLKS_LOG_WARN, "DISK", "ATA READ FAILED DURING CACHE LOAD");
-            clks_log_hex(CLKS_LOG_WARN, "DISK", "LBA", lba);
-            clks_kfree(clks_disk_bytes);
-            clks_disk_bytes = CLKS_NULL;
-            return;
-        }
+    clks_disk_loaded_bitmap_bytes = clks_disk_loaded_bitmap_required_bytes(detected_sectors);
+    if (clks_disk_loaded_bitmap_bytes == 0ULL) {
+        clks_log(CLKS_LOG_WARN, "DISK", "DISK LOADED BITMAP SIZE INVALID");
+        clks_kfree(clks_disk_bytes);
+        clks_disk_bytes = CLKS_NULL;
+        clks_disk_bytes_len = 0ULL;
+        clks_disk_sector_total = 0ULL;
+        return;
     }
+    clks_disk_loaded_bitmap = (u8 *)clks_kmalloc((usize)clks_disk_loaded_bitmap_bytes);
+    if (clks_disk_loaded_bitmap == CLKS_NULL) {
+        clks_log(CLKS_LOG_WARN, "DISK", "DISK LOADED BITMAP ALLOCATION FAILED");
+        clks_log_hex(CLKS_LOG_WARN, "DISK", "BITMAP_BYTES", clks_disk_loaded_bitmap_bytes);
+        clks_kfree(clks_disk_bytes);
+        clks_disk_bytes = CLKS_NULL;
+        clks_disk_bytes_len = 0ULL;
+        clks_disk_sector_total = 0ULL;
+        return;
+    }
+    clks_memset(clks_disk_loaded_bitmap, 0, (usize)clks_disk_loaded_bitmap_bytes);
 
     clks_disk_bytes_len = cache_bytes;
     clks_disk_sector_total = detected_sectors;
     clks_disk_hw_backed = CLKS_TRUE;
     clks_disk_ready = CLKS_TRUE;
+    if (clks_disk_ensure_loaded_range(0ULL, CLKS_DISK_SECTOR_SIZE) == CLKS_FALSE) {
+        clks_log(CLKS_LOG_WARN, "DISK", "ATA BOOT SECTOR READ FAILED");
+        clks_kfree(clks_disk_loaded_bitmap);
+        clks_disk_loaded_bitmap = CLKS_NULL;
+        clks_disk_loaded_bitmap_bytes = 0ULL;
+        clks_kfree(clks_disk_bytes);
+        clks_disk_bytes = CLKS_NULL;
+        clks_disk_bytes_len = 0ULL;
+        clks_disk_sector_total = 0ULL;
+        clks_disk_ready = CLKS_FALSE;
+        clks_disk_hw_backed = CLKS_FALSE;
+        return;
+    }
     clks_disk_formatted = clks_disk_parse_fat32_layout();
 
     if (clks_disk_formatted == CLKS_TRUE) {
@@ -2279,6 +2478,7 @@ void clks_disk_init(void) {
     }
 
     clks_log(CLKS_LOG_INFO, "DISK", "DISK BACKEND ONLINE");
+    clks_log(CLKS_LOG_INFO, "DISK", "CACHE MODE: LAZY LOAD");
     clks_log_hex(CLKS_LOG_INFO, "DISK", "BYTES", clks_disk_bytes_len);
     clks_log_hex(CLKS_LOG_INFO, "DISK", "SECTORS", clks_disk_sector_total);
     clks_log_hex(CLKS_LOG_INFO, "DISK", "FAT32", (clks_disk_formatted == CLKS_TRUE) ? 1ULL : 0ULL);
@@ -2311,6 +2511,7 @@ clks_bool clks_disk_read_sector(u64 lba, void *out_sector) {
             return CLKS_FALSE;
         }
         clks_memcpy(clks_disk_bytes + (usize)(lba * CLKS_DISK_SECTOR_SIZE), out_sector, (usize)CLKS_DISK_SECTOR_SIZE);
+        clks_disk_loaded_mark_range(lba, 1ULL);
         return CLKS_TRUE;
     }
 
@@ -2328,6 +2529,7 @@ clks_bool clks_disk_write_sector(u64 lba, const void *sector_data) {
     }
 
     clks_memcpy(clks_disk_bytes + (usize)(lba * CLKS_DISK_SECTOR_SIZE), sector_data, (usize)CLKS_DISK_SECTOR_SIZE);
+    clks_disk_loaded_mark_range(lba, 1ULL);
 
     if (clks_disk_hw_backed == CLKS_TRUE) {
         if (clks_disk_ata_write_sector_hw(lba, sector_data) == CLKS_FALSE) {

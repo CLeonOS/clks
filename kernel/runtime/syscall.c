@@ -38,7 +38,7 @@
 #define CLKS_SYSCALL_KDBG_STACK_WINDOW_BYTES (128ULL * 1024ULL)
 #define CLKS_SYSCALL_KERNEL_SYMBOL_FILE "/system/kernel.sym"
 #define CLKS_SYSCALL_KERNEL_ADDR_BASE 0xFFFF800000000000ULL
-#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_NET_UDP_RECV
+#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_NET_DNS_SERVER
 #define CLKS_SYSCALL_DISK_SECTOR_BYTES 512U
 #define CLKS_SYSCALL_NET_UDP_PAYLOAD_MAX 1472U
 #define CLKS_SYSCALL_STATS_RING_SIZE 256U
@@ -608,6 +608,18 @@ static u64 clks_syscall_net_available(void) {
 
 static u64 clks_syscall_net_ipv4_addr(void) {
     return (u64)clks_net_ipv4_addr_be();
+}
+
+static u64 clks_syscall_net_netmask(void) {
+    return (u64)clks_net_ipv4_netmask_be();
+}
+
+static u64 clks_syscall_net_gateway(void) {
+    return (u64)clks_net_ipv4_gateway_be();
+}
+
+static u64 clks_syscall_net_dns_server(void) {
+    return (u64)clks_net_ipv4_dns_be();
 }
 
 static u64 clks_syscall_net_ping(u64 arg0, u64 arg1) {
@@ -2404,6 +2416,12 @@ static const char *clks_syscall_name(u64 id) {
         return "NET_UDP_SEND";
     case CLKS_SYSCALL_NET_UDP_RECV:
         return "NET_UDP_RECV";
+    case CLKS_SYSCALL_NET_NETMASK:
+        return "NET_NETMASK";
+    case CLKS_SYSCALL_NET_GATEWAY:
+        return "NET_GATEWAY";
+    case CLKS_SYSCALL_NET_DNS_SERVER:
+        return "NET_DNS_SERVER";
     default:
         return "UNKNOWN";
     }
@@ -3297,6 +3315,12 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_udp_send(frame->rbx));
     case CLKS_SYSCALL_NET_UDP_RECV:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_udp_recv(frame->rbx));
+    case CLKS_SYSCALL_NET_NETMASK:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_netmask());
+    case CLKS_SYSCALL_NET_GATEWAY:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_gateway());
+    case CLKS_SYSCALL_NET_DNS_SERVER:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_dns_server());
     default:
         CLKS_SYSCALL_DISPATCH_RETURN((u64)-1);
     }

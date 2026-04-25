@@ -8,6 +8,9 @@ void clks_net_poll(void);
 
 clks_bool clks_net_available(void);
 u32 clks_net_ipv4_addr_be(void);
+u32 clks_net_ipv4_netmask_be(void);
+u32 clks_net_ipv4_gateway_be(void);
+u32 clks_net_ipv4_dns_be(void);
 
 clks_bool clks_net_ping_ipv4(u32 dst_ipv4_be, u64 poll_budget);
 u64 clks_net_udp_send(u32 dst_ipv4_be, u16 dst_port, u16 src_port, const void *payload, u64 payload_len);

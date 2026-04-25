@@ -33,6 +33,66 @@ static struct clks_fb_state clks_fb = {
     .ready = CLKS_FALSE,
 };
 
+static void clks_fb_copy_forward_bytes(void *dst, const void *src, usize bytes) {
+    u8 *d = (u8 *)dst;
+    const u8 *s = (const u8 *)src;
+
+    if (dst == CLKS_NULL || src == CLKS_NULL || bytes == 0U || dst == src) {
+        return;
+    }
+
+    while (bytes > 0U && ((((usize)d) | ((usize)s)) & (sizeof(usize) - 1U)) != 0U) {
+        *d++ = *s++;
+        bytes--;
+    }
+
+    while (bytes >= sizeof(usize)) {
+        *(usize *)(void *)d = *(const usize *)(const void *)s;
+        d += sizeof(usize);
+        s += sizeof(usize);
+        bytes -= sizeof(usize);
+    }
+
+    while (bytes > 0U) {
+        *d++ = *s++;
+        bytes--;
+    }
+}
+
+static void clks_fb_fill_rows_color32(u8 *base, usize row_bytes, u32 row_count, u32 fill_rgb) {
+    u32 row;
+    usize words_per_row;
+    usize rem_bytes;
+    u8 fill_bytes[4];
+
+    if (base == CLKS_NULL || row_bytes == 0U || row_count == 0U) {
+        return;
+    }
+
+    words_per_row = row_bytes / 4U;
+    rem_bytes = row_bytes % 4U;
+    fill_bytes[0] = (u8)(fill_rgb & 0xFFU);
+    fill_bytes[1] = (u8)((fill_rgb >> 8U) & 0xFFU);
+    fill_bytes[2] = (u8)((fill_rgb >> 16U) & 0xFFU);
+    fill_bytes[3] = (u8)((fill_rgb >> 24U) & 0xFFU);
+
+    for (row = 0U; row < row_count; row++) {
+        u8 *row_ptr = base + ((usize)row * row_bytes);
+        usize i;
+
+        for (i = 0U; i < words_per_row; i++) {
+            ((u32 *)(void *)row_ptr)[i] = fill_rgb;
+        }
+
+        if (rem_bytes > 0U) {
+            u8 *rem_ptr = row_ptr + (words_per_row * 4U);
+            for (i = 0U; i < rem_bytes; i++) {
+                rem_ptr[i] = fill_bytes[i];
+            }
+        }
+    }
+}
+
 static void clks_fb_apply_font(const struct clks_psf_font *font) {
     clks_fb.font = font;
     clks_fb.glyph_width = 8U;
@@ -211,9 +271,10 @@ void clks_fb_clear(u32 rgb) {
 
 void clks_fb_scroll_up(u32 pixel_rows, u32 fill_rgb) {
     usize row_bytes;
-    u32 y;
     u32 move_rows;
-    u32 x;
+    usize move_bytes;
+    usize tail_offset;
+    u8 *fb_base;
 
     if (clks_fb.ready == CLKS_FALSE) {
         return;
@@ -234,53 +295,20 @@ void clks_fb_scroll_up(u32 pixel_rows, u32 fill_rgb) {
 
     row_bytes = (usize)clks_fb.info.pitch;
     move_rows = clks_fb.info.height - pixel_rows;
+    move_bytes = (usize)move_rows * row_bytes;
+    tail_offset = (usize)(clks_fb.info.height - pixel_rows) * row_bytes;
+    fb_base = (u8 *)(void *)clks_fb.address;
 
     if (clks_fb.shadow_ready == CLKS_TRUE) {
-        clks_memmove(clks_fb.shadow, clks_fb.shadow + ((usize)pixel_rows * row_bytes), (usize)move_rows * row_bytes);
-
-        for (y = clks_fb.info.height - pixel_rows; y < clks_fb.info.height; y++) {
-            u32 *shadow_row = (u32 *)(void *)(clks_fb.shadow + ((usize)y * row_bytes));
-
-            for (x = 0U; x < clks_fb.info.width; x++) {
-                shadow_row[x] = fill_rgb;
-            }
-        }
-
-        for (y = 0U; y < move_rows; y++) {
-            u32 *dst_row = (u32 *)(void *)(clks_fb.address + ((usize)y * row_bytes));
-            u32 *src_shadow = (u32 *)(void *)(clks_fb.shadow + ((usize)y * row_bytes));
-
-            for (x = 0U; x < clks_fb.info.width; x++) {
-                dst_row[x] = src_shadow[x];
-            }
-        }
-
-        for (y = clks_fb.info.height - pixel_rows; y < clks_fb.info.height; y++) {
-            u32 *row_ptr = (u32 *)(void *)(clks_fb.address + ((usize)y * row_bytes));
-
-            for (x = 0U; x < clks_fb.info.width; x++) {
-                row_ptr[x] = fill_rgb;
-            }
-        }
+        clks_fb_copy_forward_bytes(clks_fb.shadow, clks_fb.shadow + ((usize)pixel_rows * row_bytes), move_bytes);
+        clks_fb_fill_rows_color32(clks_fb.shadow + tail_offset, row_bytes, pixel_rows, fill_rgb);
+        clks_fb_copy_forward_bytes(fb_base, clks_fb.shadow, move_bytes);
+        clks_fb_fill_rows_color32(fb_base + tail_offset, row_bytes, pixel_rows, fill_rgb);
         return;
     }
 
-    for (y = 0U; y < move_rows; y++) {
-        u32 *dst_row = (u32 *)(void *)(clks_fb.address + ((usize)y * row_bytes));
-        u32 *src_row = (u32 *)(void *)(clks_fb.address + ((usize)(y + pixel_rows) * row_bytes));
-
-        for (x = 0U; x < clks_fb.info.width; x++) {
-            dst_row[x] = src_row[x];
-        }
-    }
-
-    for (y = clks_fb.info.height - pixel_rows; y < clks_fb.info.height; y++) {
-        u32 *row_ptr = (u32 *)(void *)(clks_fb.address + ((usize)y * row_bytes));
-
-        for (x = 0U; x < clks_fb.info.width; x++) {
-            row_ptr[x] = fill_rgb;
-        }
-    }
+    clks_fb_copy_forward_bytes(fb_base, fb_base + ((usize)pixel_rows * row_bytes), move_bytes);
+    clks_fb_fill_rows_color32(fb_base + tail_offset, row_bytes, pixel_rows, fill_rgb);
 }
 
 void clks_fb_draw_char_styled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32 style_flags) {
@@ -353,12 +381,10 @@ void clks_fb_draw_char_styled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32
         const u8 *row_bits = glyph + ((usize)row * (usize)row_stride);
         u32 *dst_row =
             (u32 *)(void *)(clks_fb.address + ((usize)(y + row) * (usize)clks_fb.info.pitch) + ((usize)x * 4U));
-        u32 *shadow_row = CLKS_NULL;
-
-        if (clks_fb.shadow_ready == CLKS_TRUE) {
-            shadow_row =
-                (u32 *)(void *)(clks_fb.shadow + ((usize)(y + row) * (usize)clks_fb.info.pitch) + ((usize)x * 4U));
-        }
+        u32 *shadow_row =
+            (clks_fb.shadow_ready == CLKS_TRUE)
+                ? (u32 *)(void *)(clks_fb.shadow + ((usize)(y + row) * (usize)clks_fb.info.pitch) + ((usize)x * 4U))
+                : CLKS_NULL;
 
         for (col = 0U; col < draw_cols; col++) {
             u8 bits = row_bits[col >> 3U];
@@ -381,10 +407,15 @@ void clks_fb_draw_char_styled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32
             }
 
             color = (pixel_on == CLKS_TRUE) ? fg_rgb : bg_rgb;
-            dst_row[col] = color;
             if (shadow_row != CLKS_NULL) {
                 shadow_row[col] = color;
+            } else {
+                dst_row[col] = color;
             }
+        }
+
+        if (shadow_row != CLKS_NULL) {
+            clks_fb_copy_forward_bytes(dst_row, shadow_row, (usize)draw_cols * 4U);
         }
     }
 }

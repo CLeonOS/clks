@@ -59,9 +59,39 @@
 #define CLKS_NET_IPV4_PROTO_ICMP 1U
 #define CLKS_NET_IPV4_PROTO_UDP 17U
 
-#define CLKS_NET_DEFAULT_IP_BE 0x0A00020FU
-#define CLKS_NET_DEFAULT_NETMASK_BE 0xFFFFFF00U
-#define CLKS_NET_DEFAULT_GATEWAY_BE 0x0A000202U
+#define CLKS_NET_DEFAULT_IP_BE 0U
+#define CLKS_NET_DEFAULT_NETMASK_BE 0U
+#define CLKS_NET_DEFAULT_GATEWAY_BE 0U
+#define CLKS_NET_DEFAULT_DNS_BE 0U
+
+#define CLKS_NET_FALLBACK_IP_BE 0x0A00020FU
+#define CLKS_NET_FALLBACK_NETMASK_BE 0xFFFFFF00U
+#define CLKS_NET_FALLBACK_GATEWAY_BE 0x0A000202U
+#define CLKS_NET_CLOUDFLARE_DNS_PRIMARY_BE 0x01010101U
+#define CLKS_NET_CLOUDFLARE_DNS_SECONDARY_BE 0x01000001U
+#define CLKS_NET_FALLBACK_DNS_BE CLKS_NET_CLOUDFLARE_DNS_PRIMARY_BE
+
+#define CLKS_NET_DHCP_SERVER_PORT 67U
+#define CLKS_NET_DHCP_CLIENT_PORT 68U
+#define CLKS_NET_DHCP_MAGIC 0x63825363U
+#define CLKS_NET_DHCP_MSG_DISCOVER 1U
+#define CLKS_NET_DHCP_MSG_OFFER 2U
+#define CLKS_NET_DHCP_MSG_REQUEST 3U
+#define CLKS_NET_DHCP_MSG_ACK 5U
+#define CLKS_NET_DHCP_MSG_NAK 6U
+#define CLKS_NET_DHCP_OPT_SUBNET_MASK 1U
+#define CLKS_NET_DHCP_OPT_ROUTER 3U
+#define CLKS_NET_DHCP_OPT_DNS 6U
+#define CLKS_NET_DHCP_OPT_HOSTNAME 12U
+#define CLKS_NET_DHCP_OPT_REQ_IP 50U
+#define CLKS_NET_DHCP_OPT_MSG_TYPE 53U
+#define CLKS_NET_DHCP_OPT_SERVER_ID 54U
+#define CLKS_NET_DHCP_OPT_PARAM_REQ 55U
+#define CLKS_NET_DHCP_OPT_CLIENT_ID 61U
+#define CLKS_NET_DHCP_OPT_END 255U
+#define CLKS_NET_DHCP_FLAG_BROADCAST 0x8000U
+#define CLKS_NET_DHCP_DISCOVER_POLL_LOOPS 300000ULL
+#define CLKS_NET_DHCP_ACK_POLL_LOOPS 300000ULL
 
 #define CLKS_NET_ARP_TABLE_CAP 16U
 #define CLKS_NET_UDP_QUEUE_CAP 16U
@@ -154,6 +184,7 @@ static clks_bool clks_net_hw_ready = CLKS_FALSE;
 static u32 clks_net_ipv4_be = CLKS_NET_DEFAULT_IP_BE;
 static u32 clks_net_netmask_be = CLKS_NET_DEFAULT_NETMASK_BE;
 static u32 clks_net_gateway_be = CLKS_NET_DEFAULT_GATEWAY_BE;
+static u32 clks_net_dns_be = CLKS_NET_DEFAULT_DNS_BE;
 
 static u8 clks_net_mac[CLKS_NET_ETH_ADDR_LEN];
 static const u8 clks_net_mac_fallback[CLKS_NET_ETH_ADDR_LEN] = {0x02U, 0x43U, 0x4CU, 0x4BU, 0x53U, 0x01U};
@@ -190,10 +221,24 @@ static clks_bool clks_net_ping_reply_ok = CLKS_FALSE;
 static u32 clks_net_ping_wait_dst_be = 0U;
 static u16 clks_net_ping_wait_seq = 0U;
 
+static u32 clks_net_dhcp_xid_seed = 0x434C4B53U;
+static clks_bool clks_net_dhcp_active = CLKS_FALSE;
+static clks_bool clks_net_dhcp_offer_ready = CLKS_FALSE;
+static clks_bool clks_net_dhcp_ack_ready = CLKS_FALSE;
+static clks_bool clks_net_dhcp_failed = CLKS_FALSE;
+static u32 clks_net_dhcp_xid = 0U;
+static u32 clks_net_dhcp_offer_ip_be = 0U;
+static u32 clks_net_dhcp_server_id_be = 0U;
+static u32 clks_net_dhcp_offer_netmask_be = 0U;
+static u32 clks_net_dhcp_offer_gateway_be = 0U;
+static u32 clks_net_dhcp_offer_dns_be = 0U;
+
 static const u16 clks_net_e1000_dev_ids[] = {
     0x1000U, 0x1001U, 0x1004U, 0x100EU, 0x100FU, 0x1010U, 0x1011U, 0x1012U, 0x1013U, 0x1015U, 0x1016U, 0x1017U,
     0x1018U, 0x101DU, 0x101EU, 0x1026U, 0x1027U, 0x1028U, 0x1075U, 0x1076U, 0x1077U, 0x10B5U, 0x10D3U, 0x10F5U,
 };
+
+static void clks_net_poll_internal(void);
 
 static inline void clks_net_outl(u16 port, u32 value) {
     __asm__ volatile("outl %0, %1" : : "a"(value), "Nd"(port));
@@ -347,6 +392,26 @@ static u16 clks_net_udp_checksum(u32 src_ip_be, u32 dst_ip_be, const u8 *udp, u1
         }
         return out;
     }
+}
+
+static void clks_net_apply_fallback_config(void) {
+    clks_net_ipv4_be = CLKS_NET_FALLBACK_IP_BE;
+    clks_net_netmask_be = CLKS_NET_FALLBACK_NETMASK_BE;
+    clks_net_gateway_be = CLKS_NET_FALLBACK_GATEWAY_BE;
+    clks_net_dns_be = CLKS_NET_FALLBACK_DNS_BE;
+}
+
+static void clks_net_dhcp_state_reset(void) {
+    clks_net_dhcp_active = CLKS_FALSE;
+    clks_net_dhcp_offer_ready = CLKS_FALSE;
+    clks_net_dhcp_ack_ready = CLKS_FALSE;
+    clks_net_dhcp_failed = CLKS_FALSE;
+    clks_net_dhcp_xid = 0U;
+    clks_net_dhcp_offer_ip_be = 0U;
+    clks_net_dhcp_server_id_be = 0U;
+    clks_net_dhcp_offer_netmask_be = 0U;
+    clks_net_dhcp_offer_gateway_be = 0U;
+    clks_net_dhcp_offer_dns_be = 0U;
 }
 
 static clks_bool clks_net_pt_next_level(u64 *entry, u64 **out_table) {
@@ -970,7 +1035,6 @@ static clks_bool clks_net_hw_init(void) {
     clks_log(CLKS_LOG_INFO, "NET", "E1000 ONLINE");
     clks_net_format_mac(clks_net_mac, mac_text);
     clks_log(CLKS_LOG_INFO, "NET", mac_text);
-    clks_log_hex(CLKS_LOG_INFO, "NET", "IPV4_BE", clks_net_ipv4_be);
     clks_log_hex(CLKS_LOG_INFO, "NET", "STATUS", status);
 
     if ((status & CLKS_NET_STATUS_LINK_UP) == 0U) {
@@ -1123,13 +1187,24 @@ static void clks_net_udp_queue_push(u32 src_ipv4_be, u16 src_port, u16 dst_port,
 }
 
 static u32 clks_net_next_hop_for(u32 dst_ipv4_be) {
-    u32 local_net = clks_net_ipv4_be & clks_net_netmask_be;
-    u32 dst_net = dst_ipv4_be & clks_net_netmask_be;
+    u32 local_net;
+    u32 dst_net;
+
+    if (dst_ipv4_be == 0U || dst_ipv4_be == 0xFFFFFFFFU) {
+        return dst_ipv4_be;
+    }
+
+    if (clks_net_netmask_be == 0U) {
+        return (clks_net_gateway_be != 0U) ? clks_net_gateway_be : dst_ipv4_be;
+    }
+
+    local_net = clks_net_ipv4_be & clks_net_netmask_be;
+    dst_net = dst_ipv4_be & clks_net_netmask_be;
 
     if (dst_net == local_net) {
         return dst_ipv4_be;
     }
-    return clks_net_gateway_be;
+    return (clks_net_gateway_be != 0U) ? clks_net_gateway_be : dst_ipv4_be;
 }
 
 static clks_bool clks_net_send_arp_packet(u16 op, const u8 *dst_mac, u32 target_ip_be) {
@@ -1163,8 +1238,8 @@ static clks_bool clks_net_send_arp_packet(u16 op, const u8 *dst_mac, u32 target_
     return clks_net_tx_frame(frame, (u16)sizeof(frame));
 }
 
-static clks_bool clks_net_send_ipv4_packet(u32 dst_ipv4_be, const u8 *dst_mac, u8 proto, const u8 *payload,
-                                           u16 payload_len) {
+static clks_bool clks_net_send_ipv4_packet_from(u32 src_ipv4_be, u32 dst_ipv4_be, const u8 *dst_mac, u8 proto,
+                                                const u8 *payload, u16 payload_len) {
     u8 frame[CLKS_NET_MAX_FRAME_NO_FCS];
     struct clks_net_eth_hdr *eth = (struct clks_net_eth_hdr *)(void *)frame;
     struct clks_net_ipv4_hdr *ip = (struct clks_net_ipv4_hdr *)(void *)(frame + CLKS_NET_ETH_HEADER_LEN);
@@ -1197,7 +1272,7 @@ static clks_bool clks_net_send_ipv4_packet(u32 dst_ipv4_be, const u8 *dst_mac, u
     ip->ttl = 64U;
     ip->proto = proto;
     clks_net_write_be16(ip->checksum, 0U);
-    clks_net_write_be32(ip->src, clks_net_ipv4_be);
+    clks_net_write_be32(ip->src, src_ipv4_be);
     clks_net_write_be32(ip->dst, dst_ipv4_be);
 
     payload_out = frame + CLKS_NET_ETH_HEADER_LEN + CLKS_NET_IP_HEADER_MIN_LEN;
@@ -1209,6 +1284,45 @@ static clks_bool clks_net_send_ipv4_packet(u32 dst_ipv4_be, const u8 *dst_mac, u
     clks_net_write_be16(ip->checksum, csum);
 
     return clks_net_tx_frame(frame, frame_len);
+}
+
+static clks_bool clks_net_send_ipv4_packet(u32 dst_ipv4_be, const u8 *dst_mac, u8 proto, const u8 *payload,
+                                           u16 payload_len) {
+    return clks_net_send_ipv4_packet_from(clks_net_ipv4_be, dst_ipv4_be, dst_mac, proto, payload, payload_len);
+}
+
+static clks_bool clks_net_send_udp_datagram(u32 src_ipv4_be, u32 dst_ipv4_be, const u8 *dst_mac, u16 src_port,
+                                            u16 dst_port, const void *payload, u16 payload_len) {
+    u8 udp[CLKS_NET_UDP_HEADER_LEN + CLKS_NET_UDP_PAYLOAD_MAX];
+    struct clks_net_udp_hdr *hdr = (struct clks_net_udp_hdr *)(void *)udp;
+    u16 udp_len = (u16)(CLKS_NET_UDP_HEADER_LEN + payload_len);
+    u16 checksum;
+
+    if (dst_mac == CLKS_NULL || src_port == 0U || dst_port == 0U) {
+        return CLKS_FALSE;
+    }
+
+    if (payload_len > CLKS_NET_UDP_PAYLOAD_MAX) {
+        return CLKS_FALSE;
+    }
+
+    if (payload_len > 0U && payload == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    clks_net_write_be16(hdr->src_port, src_port);
+    clks_net_write_be16(hdr->dst_port, dst_port);
+    clks_net_write_be16(hdr->len, udp_len);
+    clks_net_write_be16(hdr->checksum, 0U);
+
+    if (payload_len > 0U) {
+        clks_memcpy(udp + CLKS_NET_UDP_HEADER_LEN, payload, payload_len);
+    }
+
+    checksum = clks_net_udp_checksum(src_ipv4_be, dst_ipv4_be, udp, udp_len);
+    clks_net_write_be16(hdr->checksum, checksum);
+
+    return clks_net_send_ipv4_packet_from(src_ipv4_be, dst_ipv4_be, dst_mac, CLKS_NET_IPV4_PROTO_UDP, udp, udp_len);
 }
 
 static clks_bool clks_net_send_icmp_echo(u32 dst_ipv4_be, const u8 *dst_mac, u8 type, u16 seq, const u8 *payload,
@@ -1256,6 +1370,305 @@ static clks_bool clks_net_send_icmp_echo_request(u32 dst_ipv4_be, const u8 *dst_
     }
 
     return clks_net_send_icmp_echo(dst_ipv4_be, dst_mac, 8U, seq, payload, (u16)sizeof(payload));
+}
+
+static clks_bool clks_net_dhcp_append_opt(u8 *packet, u16 capacity, u16 *io_at, u8 code, const void *data, u8 len) {
+    if (packet == CLKS_NULL || io_at == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    if ((u32)(*io_at) + 2U + (u32)len > (u32)capacity) {
+        return CLKS_FALSE;
+    }
+
+    packet[*io_at] = code;
+    packet[*io_at + 1U] = len;
+    if (len > 0U && data != CLKS_NULL) {
+        clks_memcpy(packet + *io_at + 2U, data, len);
+    }
+    *io_at = (u16)(*io_at + 2U + (u16)len);
+    return CLKS_TRUE;
+}
+
+static clks_bool clks_net_dhcp_send_discover(void) {
+    u8 packet[300];
+    u8 param_req[4] = {CLKS_NET_DHCP_OPT_SUBNET_MASK, CLKS_NET_DHCP_OPT_ROUTER, CLKS_NET_DHCP_OPT_DNS, 15U};
+    u8 client_id[7];
+    static const char hostname[] = "cleonos";
+    u16 at = 240U;
+
+    clks_memset(packet, 0, sizeof(packet));
+    packet[0] = 1U;
+    packet[1] = 1U;
+    packet[2] = 6U;
+    clks_net_write_be32(&packet[4], clks_net_dhcp_xid);
+    clks_net_write_be16(&packet[10], CLKS_NET_DHCP_FLAG_BROADCAST);
+    clks_memcpy(&packet[28], clks_net_mac, CLKS_NET_ETH_ADDR_LEN);
+    clks_net_write_be32(&packet[236], CLKS_NET_DHCP_MAGIC);
+
+    client_id[0] = 1U;
+    clks_memcpy(&client_id[1], clks_net_mac, CLKS_NET_ETH_ADDR_LEN);
+
+    if (clks_net_dhcp_append_opt(packet, (u16)sizeof(packet), &at, CLKS_NET_DHCP_OPT_MSG_TYPE,
+                                 (const void *)&(u8){CLKS_NET_DHCP_MSG_DISCOVER}, 1U) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+    if (clks_net_dhcp_append_opt(packet, (u16)sizeof(packet), &at, CLKS_NET_DHCP_OPT_PARAM_REQ, param_req,
+                                 (u8)sizeof(param_req)) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+    if (clks_net_dhcp_append_opt(packet, (u16)sizeof(packet), &at, CLKS_NET_DHCP_OPT_CLIENT_ID, client_id,
+                                 (u8)sizeof(client_id)) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+    if (clks_net_dhcp_append_opt(packet, (u16)sizeof(packet), &at, CLKS_NET_DHCP_OPT_HOSTNAME, hostname,
+                                 (u8)(sizeof(hostname) - 1U)) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+    if (at >= (u16)sizeof(packet)) {
+        return CLKS_FALSE;
+    }
+    packet[at++] = CLKS_NET_DHCP_OPT_END;
+
+    return clks_net_send_udp_datagram(0U, 0xFFFFFFFFU, clks_net_mac_broadcast, CLKS_NET_DHCP_CLIENT_PORT,
+                                      CLKS_NET_DHCP_SERVER_PORT, packet, (u16)at);
+}
+
+static clks_bool clks_net_dhcp_send_request(void) {
+    u8 packet[300];
+    u8 param_req[4] = {CLKS_NET_DHCP_OPT_SUBNET_MASK, CLKS_NET_DHCP_OPT_ROUTER, CLKS_NET_DHCP_OPT_DNS, 15U};
+    u8 client_id[7];
+    u8 req_ip_raw[4];
+    u8 server_id_raw[4];
+    u32 req_ip = clks_net_dhcp_offer_ip_be;
+    u32 server_id = clks_net_dhcp_server_id_be;
+    u16 at = 240U;
+
+    if (req_ip == 0U || server_id == 0U) {
+        return CLKS_FALSE;
+    }
+
+    clks_memset(packet, 0, sizeof(packet));
+    packet[0] = 1U;
+    packet[1] = 1U;
+    packet[2] = 6U;
+    clks_net_write_be32(&packet[4], clks_net_dhcp_xid);
+    clks_net_write_be16(&packet[10], CLKS_NET_DHCP_FLAG_BROADCAST);
+    clks_memcpy(&packet[28], clks_net_mac, CLKS_NET_ETH_ADDR_LEN);
+    clks_net_write_be32(&packet[236], CLKS_NET_DHCP_MAGIC);
+
+    client_id[0] = 1U;
+    clks_memcpy(&client_id[1], clks_net_mac, CLKS_NET_ETH_ADDR_LEN);
+    clks_net_write_be32(req_ip_raw, req_ip);
+    clks_net_write_be32(server_id_raw, server_id);
+
+    if (clks_net_dhcp_append_opt(packet, (u16)sizeof(packet), &at, CLKS_NET_DHCP_OPT_MSG_TYPE,
+                                 (const void *)&(u8){CLKS_NET_DHCP_MSG_REQUEST}, 1U) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+    if (clks_net_dhcp_append_opt(packet, (u16)sizeof(packet), &at, CLKS_NET_DHCP_OPT_REQ_IP, req_ip_raw, 4U) ==
+        CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+    if (clks_net_dhcp_append_opt(packet, (u16)sizeof(packet), &at, CLKS_NET_DHCP_OPT_SERVER_ID, server_id_raw, 4U) ==
+        CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+    if (clks_net_dhcp_append_opt(packet, (u16)sizeof(packet), &at, CLKS_NET_DHCP_OPT_PARAM_REQ, param_req,
+                                 (u8)sizeof(param_req)) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+    if (clks_net_dhcp_append_opt(packet, (u16)sizeof(packet), &at, CLKS_NET_DHCP_OPT_CLIENT_ID, client_id,
+                                 (u8)sizeof(client_id)) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+    if (at >= (u16)sizeof(packet)) {
+        return CLKS_FALSE;
+    }
+    packet[at++] = CLKS_NET_DHCP_OPT_END;
+
+    return clks_net_send_udp_datagram(0U, 0xFFFFFFFFU, clks_net_mac_broadcast, CLKS_NET_DHCP_CLIENT_PORT,
+                                      CLKS_NET_DHCP_SERVER_PORT, packet, (u16)at);
+}
+
+static void clks_net_dhcp_process_payload(u32 src_ipv4_be, const u8 *payload, u16 payload_len) {
+    u8 msg_type = 0U;
+    u32 yiaddr_be;
+    u32 server_id_be = 0U;
+    u32 subnet_be = 0U;
+    u32 router_be = 0U;
+    u32 dns_be = 0U;
+    u16 at = 240U;
+    u32 xid;
+
+    if (payload == CLKS_NULL || payload_len < 240U || clks_net_dhcp_active == CLKS_FALSE) {
+        return;
+    }
+
+    if (payload[0] != 2U || payload[1] != 1U || payload[2] != 6U) {
+        return;
+    }
+
+    xid = clks_net_read_be32(&payload[4]);
+    if (xid != clks_net_dhcp_xid) {
+        return;
+    }
+
+    if (clks_net_mac_equal(&payload[28], clks_net_mac) == CLKS_FALSE) {
+        return;
+    }
+
+    if (clks_net_read_be32(&payload[236]) != CLKS_NET_DHCP_MAGIC) {
+        return;
+    }
+
+    yiaddr_be = clks_net_read_be32(&payload[16]);
+
+    while (at < payload_len) {
+        u8 code = payload[at++];
+        u8 len;
+
+        if (code == 0U) {
+            continue;
+        }
+        if (code == CLKS_NET_DHCP_OPT_END) {
+            break;
+        }
+        if (at >= payload_len) {
+            break;
+        }
+
+        len = payload[at++];
+        if ((u32)at + (u32)len > (u32)payload_len) {
+            break;
+        }
+
+        if (code == CLKS_NET_DHCP_OPT_MSG_TYPE && len >= 1U) {
+            msg_type = payload[at];
+        } else if (code == CLKS_NET_DHCP_OPT_SUBNET_MASK && len >= 4U) {
+            subnet_be = clks_net_read_be32(&payload[at]);
+        } else if (code == CLKS_NET_DHCP_OPT_ROUTER && len >= 4U) {
+            router_be = clks_net_read_be32(&payload[at]);
+        } else if (code == CLKS_NET_DHCP_OPT_DNS && len >= 4U) {
+            dns_be = clks_net_read_be32(&payload[at]);
+        } else if (code == CLKS_NET_DHCP_OPT_SERVER_ID && len >= 4U) {
+            server_id_be = clks_net_read_be32(&payload[at]);
+        }
+
+        at = (u16)(at + len);
+    }
+
+    if (msg_type == CLKS_NET_DHCP_MSG_OFFER) {
+        if (server_id_be == 0U) {
+            server_id_be = src_ipv4_be;
+        }
+        clks_net_dhcp_offer_ip_be = yiaddr_be;
+        clks_net_dhcp_server_id_be = server_id_be;
+        clks_net_dhcp_offer_netmask_be = subnet_be;
+        clks_net_dhcp_offer_gateway_be = router_be;
+        clks_net_dhcp_offer_dns_be = dns_be;
+        clks_net_dhcp_offer_ready = CLKS_TRUE;
+        return;
+    }
+
+    if (msg_type == CLKS_NET_DHCP_MSG_ACK) {
+        if (server_id_be == 0U) {
+            server_id_be = src_ipv4_be;
+        }
+        if (yiaddr_be != 0U) {
+            clks_net_dhcp_offer_ip_be = yiaddr_be;
+        }
+        if (server_id_be != 0U) {
+            clks_net_dhcp_server_id_be = server_id_be;
+        }
+        if (subnet_be != 0U) {
+            clks_net_dhcp_offer_netmask_be = subnet_be;
+        }
+        if (router_be != 0U) {
+            clks_net_dhcp_offer_gateway_be = router_be;
+        }
+        if (dns_be != 0U) {
+            clks_net_dhcp_offer_dns_be = dns_be;
+        }
+        clks_net_dhcp_ack_ready = CLKS_TRUE;
+        return;
+    }
+
+    if (msg_type == CLKS_NET_DHCP_MSG_NAK) {
+        clks_net_dhcp_failed = CLKS_TRUE;
+    }
+}
+
+static clks_bool clks_net_dhcp_autoconfigure(void) {
+    u64 i;
+
+    clks_net_dhcp_state_reset();
+    clks_net_dhcp_active = CLKS_TRUE;
+    clks_net_dhcp_xid_seed++;
+    if (clks_net_dhcp_xid_seed == 0U) {
+        clks_net_dhcp_xid_seed = 1U;
+    }
+    clks_net_dhcp_xid = clks_net_dhcp_xid_seed;
+
+    if (clks_net_dhcp_send_discover() == CLKS_FALSE) {
+        clks_net_dhcp_active = CLKS_FALSE;
+        return CLKS_FALSE;
+    }
+
+    for (i = 0ULL; i < CLKS_NET_DHCP_DISCOVER_POLL_LOOPS; i++) {
+        clks_net_poll_internal();
+        if (clks_net_dhcp_failed == CLKS_TRUE) {
+            clks_net_dhcp_active = CLKS_FALSE;
+            return CLKS_FALSE;
+        }
+        if (clks_net_dhcp_offer_ready == CLKS_TRUE) {
+            break;
+        }
+        if ((i & CLKS_NET_POLL_SPIN_PAUSE_MASK) == 0ULL) {
+            clks_cpu_pause();
+        }
+    }
+
+    if (clks_net_dhcp_offer_ready == CLKS_FALSE || clks_net_dhcp_offer_ip_be == 0U || clks_net_dhcp_server_id_be == 0U) {
+        clks_net_dhcp_active = CLKS_FALSE;
+        return CLKS_FALSE;
+    }
+
+    if (clks_net_dhcp_send_request() == CLKS_FALSE) {
+        clks_net_dhcp_active = CLKS_FALSE;
+        return CLKS_FALSE;
+    }
+
+    for (i = 0ULL; i < CLKS_NET_DHCP_ACK_POLL_LOOPS; i++) {
+        clks_net_poll_internal();
+        if (clks_net_dhcp_failed == CLKS_TRUE) {
+            clks_net_dhcp_active = CLKS_FALSE;
+            return CLKS_FALSE;
+        }
+        if (clks_net_dhcp_ack_ready == CLKS_TRUE) {
+            break;
+        }
+        if ((i & CLKS_NET_POLL_SPIN_PAUSE_MASK) == 0ULL) {
+            clks_cpu_pause();
+        }
+    }
+
+    clks_net_dhcp_active = CLKS_FALSE;
+    if (clks_net_dhcp_ack_ready == CLKS_FALSE || clks_net_dhcp_offer_ip_be == 0U) {
+        return CLKS_FALSE;
+    }
+
+    clks_net_ipv4_be = clks_net_dhcp_offer_ip_be;
+    clks_net_netmask_be =
+        (clks_net_dhcp_offer_netmask_be != 0U) ? clks_net_dhcp_offer_netmask_be : CLKS_NET_FALLBACK_NETMASK_BE;
+    clks_net_gateway_be = (clks_net_dhcp_offer_gateway_be != 0U)
+                              ? clks_net_dhcp_offer_gateway_be
+                              : ((clks_net_dhcp_server_id_be != 0U) ? clks_net_dhcp_server_id_be
+                                                                     : CLKS_NET_FALLBACK_GATEWAY_BE);
+    (void)clks_net_dhcp_offer_dns_be;
+    clks_net_dns_be = CLKS_NET_CLOUDFLARE_DNS_PRIMARY_BE;
+
+    return CLKS_TRUE;
 }
 
 static clks_bool clks_net_resolve_ipv4(u32 dst_ipv4_be, u8 *out_mac, u64 poll_budget) {
@@ -1358,6 +1771,12 @@ static void clks_net_process_udp(u32 src_ipv4_be, const u8 *udp, u16 udp_len) {
 
     payload = udp + CLKS_NET_UDP_HEADER_LEN;
     payload_len = (u16)(wire_len - CLKS_NET_UDP_HEADER_LEN);
+
+    if (dst_port == CLKS_NET_DHCP_CLIENT_PORT && src_port == CLKS_NET_DHCP_SERVER_PORT) {
+        clks_net_dhcp_process_payload(src_ipv4_be, payload, payload_len);
+        return;
+    }
+
     clks_net_udp_queue_push(src_ipv4_be, src_port, dst_port, payload, payload_len);
 }
 
@@ -1541,7 +1960,12 @@ void clks_net_init(void) {
 
     clks_net_arp_table_reset();
     clks_net_udp_queue_reset();
+    clks_net_dhcp_state_reset();
 
+    clks_net_ipv4_be = CLKS_NET_DEFAULT_IP_BE;
+    clks_net_netmask_be = CLKS_NET_DEFAULT_NETMASK_BE;
+    clks_net_gateway_be = CLKS_NET_DEFAULT_GATEWAY_BE;
+    clks_net_dns_be = CLKS_NET_DEFAULT_DNS_BE;
     clks_net_ipv4_ident = 1U;
     clks_net_ping_seq = 0U;
     clks_net_ping_waiting = CLKS_FALSE;
@@ -1555,6 +1979,16 @@ void clks_net_init(void) {
     clks_log(CLKS_LOG_INFO, "NET", "INIT START");
     if (clks_net_hw_init() == CLKS_TRUE) {
         clks_net_hw_ready = CLKS_TRUE;
+        if (clks_net_dhcp_autoconfigure() == CLKS_TRUE) {
+            clks_log(CLKS_LOG_INFO, "NET", "DHCP CONFIG APPLIED");
+        } else {
+            clks_log(CLKS_LOG_WARN, "NET", "DHCP FAILED, USING FALLBACK");
+            clks_net_apply_fallback_config();
+        }
+        clks_log_hex(CLKS_LOG_INFO, "NET", "IPV4_BE", clks_net_ipv4_be);
+        clks_log_hex(CLKS_LOG_INFO, "NET", "NETMASK_BE", clks_net_netmask_be);
+        clks_log_hex(CLKS_LOG_INFO, "NET", "GATEWAY_BE", clks_net_gateway_be);
+        clks_log_hex(CLKS_LOG_INFO, "NET", "DNS_BE", clks_net_dns_be);
         clks_net_ready = CLKS_TRUE;
     }
 }
@@ -1572,6 +2006,27 @@ u32 clks_net_ipv4_addr_be(void) {
         return 0U;
     }
     return clks_net_ipv4_be;
+}
+
+u32 clks_net_ipv4_netmask_be(void) {
+    if (clks_net_available() == CLKS_FALSE) {
+        return 0U;
+    }
+    return clks_net_netmask_be;
+}
+
+u32 clks_net_ipv4_gateway_be(void) {
+    if (clks_net_available() == CLKS_FALSE) {
+        return 0U;
+    }
+    return clks_net_gateway_be;
+}
+
+u32 clks_net_ipv4_dns_be(void) {
+    if (clks_net_available() == CLKS_FALSE) {
+        return 0U;
+    }
+    return clks_net_dns_be;
 }
 
 clks_bool clks_net_ping_ipv4(u32 dst_ipv4_be, u64 poll_budget) {
@@ -1636,10 +2091,6 @@ clks_bool clks_net_ping_ipv4(u32 dst_ipv4_be, u64 poll_budget) {
 
 u64 clks_net_udp_send(u32 dst_ipv4_be, u16 dst_port, u16 src_port, const void *payload, u64 payload_len) {
     u8 dst_mac[CLKS_NET_ETH_ADDR_LEN];
-    u8 udp[CLKS_NET_UDP_HEADER_LEN + CLKS_NET_UDP_PAYLOAD_MAX];
-    struct clks_net_udp_hdr *hdr = (struct clks_net_udp_hdr *)(void *)udp;
-    u16 udp_len;
-    u16 checksum;
 
     if (clks_net_available() == CLKS_FALSE) {
         return 0ULL;
@@ -1657,23 +2108,16 @@ u64 clks_net_udp_send(u32 dst_ipv4_be, u16 dst_port, u16 src_port, const void *p
         return 0ULL;
     }
 
-    if (clks_net_resolve_ipv4(dst_ipv4_be, dst_mac, 120000ULL) == CLKS_FALSE) {
-        return 0ULL;
+    if (dst_ipv4_be == 0xFFFFFFFFU) {
+        clks_memcpy(dst_mac, clks_net_mac_broadcast, CLKS_NET_ETH_ADDR_LEN);
+    } else {
+        if (clks_net_resolve_ipv4(dst_ipv4_be, dst_mac, 120000ULL) == CLKS_FALSE) {
+            return 0ULL;
+        }
     }
 
-    udp_len = (u16)(CLKS_NET_UDP_HEADER_LEN + payload_len);
-    clks_net_write_be16(hdr->src_port, src_port);
-    clks_net_write_be16(hdr->dst_port, dst_port);
-    clks_net_write_be16(hdr->len, udp_len);
-    clks_net_write_be16(hdr->checksum, 0U);
-    if (payload_len > 0ULL) {
-        clks_memcpy(udp + CLKS_NET_UDP_HEADER_LEN, payload, (usize)payload_len);
-    }
-
-    checksum = clks_net_udp_checksum(clks_net_ipv4_be, dst_ipv4_be, udp, udp_len);
-    clks_net_write_be16(hdr->checksum, checksum);
-
-    if (clks_net_send_ipv4_packet(dst_ipv4_be, dst_mac, CLKS_NET_IPV4_PROTO_UDP, udp, udp_len) == CLKS_FALSE) {
+    if (clks_net_send_udp_datagram(clks_net_ipv4_be, dst_ipv4_be, dst_mac, src_port, dst_port, payload,
+                                   (u16)payload_len) == CLKS_FALSE) {
         return 0ULL;
     }
 
@@ -1743,6 +2187,18 @@ clks_bool clks_net_available(void) {
 }
 
 u32 clks_net_ipv4_addr_be(void) {
+    return 0U;
+}
+
+u32 clks_net_ipv4_netmask_be(void) {
+    return 0U;
+}
+
+u32 clks_net_ipv4_gateway_be(void) {
+    return 0U;
+}
+
+u32 clks_net_ipv4_dns_be(void) {
     return 0U;
 }
 

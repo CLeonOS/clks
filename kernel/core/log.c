@@ -135,6 +135,32 @@ static void clks_log_journal_push(const char *line) {
 #endif
 
 #if CLKS_CFG_LOG_OUTPUT_TTY != 0
+static void clks_log_append_char_cap(char *buffer, usize cap, usize *cursor, char ch) {
+    if (buffer == CLKS_NULL || cursor == CLKS_NULL || cap == 0U) {
+        return;
+    }
+
+    if (*cursor >= (cap - 1U)) {
+        return;
+    }
+
+    buffer[*cursor] = ch;
+    (*cursor)++;
+}
+
+static void clks_log_append_text_cap(char *buffer, usize cap, usize *cursor, const char *text) {
+    usize i = 0U;
+
+    if (text == CLKS_NULL) {
+        return;
+    }
+
+    while (text[i] != '\0') {
+        clks_log_append_char_cap(buffer, cap, cursor, text[i]);
+        i++;
+    }
+}
+
 static const char *clks_log_level_ansi(enum clks_log_level level) {
     switch (level) {
     case CLKS_LOG_DEBUG:
@@ -174,21 +200,28 @@ static const char *clks_log_tag_ansi(const char *tag) {
 static void clks_log_emit_tty_colored(enum clks_log_level level, const char *tag, const char *message) {
     const char *safe_tag = (tag == CLKS_NULL) ? "LOG" : tag;
     const char *safe_message = (message == CLKS_NULL) ? "" : message;
+    char tty_line[CLKS_LOG_LINE_MAX + 128];
+    usize cursor = 0U;
 
-    clks_tty_write(clks_log_level_ansi(level));
-    clks_tty_write("[");
-    clks_tty_write(clks_log_level_name(level));
-    clks_tty_write("]");
+    clks_log_append_text_cap(tty_line, sizeof(tty_line), &cursor, clks_log_level_ansi(level));
+    clks_log_append_char_cap(tty_line, sizeof(tty_line), &cursor, '[');
+    clks_log_append_text_cap(tty_line, sizeof(tty_line), &cursor, clks_log_level_name(level));
+    clks_log_append_char_cap(tty_line, sizeof(tty_line), &cursor, ']');
 
-    clks_tty_write(clks_log_tag_ansi(safe_tag));
-    clks_tty_write("[");
-    clks_tty_write(safe_tag);
-    clks_tty_write("]");
+    clks_log_append_text_cap(tty_line, sizeof(tty_line), &cursor, clks_log_tag_ansi(safe_tag));
+    clks_log_append_char_cap(tty_line, sizeof(tty_line), &cursor, '[');
+    clks_log_append_text_cap(tty_line, sizeof(tty_line), &cursor, safe_tag);
+    clks_log_append_char_cap(tty_line, sizeof(tty_line), &cursor, ']');
 
-    clks_tty_write(CLKS_LOG_ANSI_RESET);
-    clks_tty_write(" ");
-    clks_tty_write(safe_message);
-    clks_tty_write("\n");
+    clks_log_append_text_cap(tty_line, sizeof(tty_line), &cursor, CLKS_LOG_ANSI_RESET);
+    clks_log_append_char_cap(tty_line, sizeof(tty_line), &cursor, ' ');
+    clks_log_append_text_cap(tty_line, sizeof(tty_line), &cursor, safe_message);
+    clks_log_append_char_cap(tty_line, sizeof(tty_line), &cursor, '\n');
+    clks_log_append_char_cap(tty_line, sizeof(tty_line), &cursor, '\0');
+
+    if (cursor > 0U) {
+        clks_tty_write_n(tty_line, cursor - 1U);
+    }
 }
 #endif
 

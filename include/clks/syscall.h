@@ -103,6 +103,9 @@
 #define CLKS_SYSCALL_NET_PING 97ULL
 #define CLKS_SYSCALL_NET_UDP_SEND 98ULL
 #define CLKS_SYSCALL_NET_UDP_RECV 99ULL
+#define CLKS_SYSCALL_NET_NETMASK 100ULL
+#define CLKS_SYSCALL_NET_GATEWAY 101ULL
+#define CLKS_SYSCALL_NET_DNS_SERVER 102ULL
 
 void clks_syscall_init(void);
 u64 clks_syscall_dispatch(void *frame_ptr);
