@@ -269,10 +269,14 @@ clks_bool clks_elf64_load(const void *image, u64 size, struct clks_elf64_loaded_
 
     image_base = clks_kmalloc((usize)span);
     if (image_base == CLKS_NULL) {
+        struct clks_heap_stats heap_stats = clks_heap_get_stats();
         clks_log(CLKS_LOG_WARN, "ELF", "LOAD ALLOC FAILED");
         clks_log_hex(CLKS_LOG_WARN, "ELF", "SPAN", span);
         clks_log_hex(CLKS_LOG_WARN, "ELF", "MIN_VADDR", min_vaddr);
         clks_log_hex(CLKS_LOG_WARN, "ELF", "MAX_VADDR_END", max_vaddr_end);
+        clks_log_hex(CLKS_LOG_WARN, "ELF", "HEAP_TOTAL", (u64)heap_stats.total_bytes);
+        clks_log_hex(CLKS_LOG_WARN, "ELF", "HEAP_USED", (u64)heap_stats.used_bytes);
+        clks_log_hex(CLKS_LOG_WARN, "ELF", "HEAP_FREE", (u64)heap_stats.free_bytes);
         return CLKS_FALSE;
     }
 
