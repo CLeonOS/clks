@@ -1502,6 +1502,14 @@ clks_bool clks_wm_ready(void) {
     return clks_wm_ready_flag;
 }
 
+clks_bool clks_wm_is_foreground(void) {
+    if (clks_wm_ready_flag == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    return (clks_tty_active() == CLKS_WM_TTY_INDEX) ? CLKS_TRUE : CLKS_FALSE;
+}
+
 u64 clks_wm_create(u64 owner_pid, i32 x, i32 y, u32 width, u32 height, u64 flags) {
     struct clks_framebuffer_info fb_info;
     i32 slot;

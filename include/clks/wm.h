@@ -22,6 +22,7 @@ struct clks_wm_event {
 void clks_wm_init(void);
 void clks_wm_tick(u64 tick);
 clks_bool clks_wm_ready(void);
+clks_bool clks_wm_is_foreground(void);
 
 u64 clks_wm_create(u64 owner_pid, i32 x, i32 y, u32 width, u32 height, u64 flags);
 clks_bool clks_wm_destroy(u64 owner_pid, u64 window_id);
