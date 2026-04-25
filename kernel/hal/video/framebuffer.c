@@ -351,7 +351,8 @@ void clks_fb_draw_char_styled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32
 
     for (row = 0U; row < draw_rows; row++) {
         const u8 *row_bits = glyph + ((usize)row * (usize)row_stride);
-        u32 *dst_row = (u32 *)(void *)(clks_fb.address + ((usize)(y + row) * (usize)clks_fb.info.pitch) + ((usize)x * 4U));
+        u32 *dst_row =
+            (u32 *)(void *)(clks_fb.address + ((usize)(y + row) * (usize)clks_fb.info.pitch) + ((usize)x * 4U));
         u32 *shadow_row = CLKS_NULL;
 
         if (clks_fb.shadow_ready == CLKS_TRUE) {

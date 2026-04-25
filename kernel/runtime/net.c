@@ -191,9 +191,8 @@ static u32 clks_net_ping_wait_dst_be = 0U;
 static u16 clks_net_ping_wait_seq = 0U;
 
 static const u16 clks_net_e1000_dev_ids[] = {
-    0x1000U, 0x1001U, 0x1004U, 0x100EU, 0x100FU, 0x1010U, 0x1011U, 0x1012U, 0x1013U,
-    0x1015U, 0x1016U, 0x1017U, 0x1018U, 0x101DU, 0x101EU, 0x1026U, 0x1027U, 0x1028U,
-    0x1075U, 0x1076U, 0x1077U, 0x10B5U, 0x10D3U, 0x10F5U,
+    0x1000U, 0x1001U, 0x1004U, 0x100EU, 0x100FU, 0x1010U, 0x1011U, 0x1012U, 0x1013U, 0x1015U, 0x1016U, 0x1017U,
+    0x1018U, 0x101DU, 0x101EU, 0x1026U, 0x1027U, 0x1028U, 0x1075U, 0x1076U, 0x1077U, 0x10B5U, 0x10D3U, 0x10F5U,
 };
 
 static inline void clks_net_outl(u16 port, u32 value) {
@@ -1136,8 +1135,7 @@ static u32 clks_net_next_hop_for(u32 dst_ipv4_be) {
 static clks_bool clks_net_send_arp_packet(u16 op, const u8 *dst_mac, u32 target_ip_be) {
     u8 frame[CLKS_NET_ETH_HEADER_LEN + sizeof(struct clks_net_arp_packet)];
     struct clks_net_eth_hdr *eth = (struct clks_net_eth_hdr *)(void *)frame;
-    struct clks_net_arp_packet *arp =
-        (struct clks_net_arp_packet *)(void *)(frame + CLKS_NET_ETH_HEADER_LEN);
+    struct clks_net_arp_packet *arp = (struct clks_net_arp_packet *)(void *)(frame + CLKS_NET_ETH_HEADER_LEN);
 
     if (dst_mac == CLKS_NULL) {
         return CLKS_FALSE;
@@ -1736,11 +1734,9 @@ u64 clks_net_udp_recv(void *out_payload, u64 payload_capacity, u32 *out_src_ipv4
 
 #else
 
-void clks_net_init(void) {
-}
+void clks_net_init(void) {}
 
-void clks_net_poll(void) {
-}
+void clks_net_poll(void) {}
 
 clks_bool clks_net_available(void) {
     return CLKS_FALSE;
