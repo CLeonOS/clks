@@ -26,6 +26,7 @@
 #include <clks/tty.h>
 #include <clks/types.h>
 #include <clks/userland.h>
+#include <clks/wm.h>
 
 /* Boot orchestration file: one wrong init order and the whole damn thing faceplants. */
 
@@ -176,7 +177,11 @@ static void clks_task_usrd(u64 tick) {
     clks_exec_tick(tick);
     clks_userland_tick(tick);
 #if CLKS_CFG_DESKTOP
-    clks_desktop_tick(tick);
+    if (clks_wm_ready() == CLKS_TRUE) {
+        clks_wm_tick(tick);
+    } else {
+        clks_desktop_tick(tick);
+    }
 #endif
     clks_tty_tick(tick);
     clks_shell_tick(tick);
@@ -335,6 +340,7 @@ void clks_kernel_main(void) {
 #endif
 #if CLKS_CFG_DESKTOP
     clks_desktop_init();
+    clks_wm_init();
 #else
     clks_log(CLKS_LOG_WARN, "CFG", "DESKTOP DISABLED BY MENUCONFIG");
 #endif

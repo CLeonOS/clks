@@ -119,6 +119,26 @@ static void clks_fb_fill_rows_color32(u8 *base, usize row_bytes, u32 row_count, 
     }
 }
 
+static void clks_fb_fill_span_color32(u32 *dst, u32 pixel_count, u32 fill_rgb) {
+    if (dst == CLKS_NULL || pixel_count == 0U) {
+        return;
+    }
+
+#if defined(CLKS_ARCH_X86_64)
+    {
+        usize n = (usize)pixel_count;
+        __asm__ volatile("rep stosl" : "+D"(dst), "+c"(n) : "a"(fill_rgb) : "memory");
+    }
+#else
+    {
+        u32 i;
+        for (i = 0U; i < pixel_count; i++) {
+            dst[i] = fill_rgb;
+        }
+    }
+#endif
+}
+
 static void clks_fb_apply_font(const struct clks_psf_font *font) {
     clks_fb.font = font;
     clks_fb.glyph_width = 8U;
@@ -246,9 +266,9 @@ clks_bool clks_fb_read_pixel(u32 x, u32 y, u32 *out_rgb) {
 
 void clks_fb_fill_rect(u32 x, u32 y, u32 width, u32 height, u32 rgb) {
     u32 py;
-    u32 px;
     u32 end_x;
     u32 end_y;
+    u32 span_pixels;
     u64 end_x64;
     u64 end_y64;
 
@@ -270,24 +290,100 @@ void clks_fb_fill_rect(u32 x, u32 y, u32 width, u32 height, u32 rgb) {
     end_x = (end_x64 > (u64)clks_fb.info.width) ? clks_fb.info.width : (u32)end_x64;
     end_y = (end_y64 > (u64)clks_fb.info.height) ? clks_fb.info.height : (u32)end_y64;
 
+    span_pixels = end_x - x;
+
     if (clks_fb.shadow_ready == CLKS_TRUE) {
         for (py = y; py < end_y; py++) {
-            u32 *row_ptr = (u32 *)(void *)(clks_fb.address + ((usize)py * (usize)clks_fb.info.pitch));
-            u32 *shadow_row = (u32 *)(void *)(clks_fb.shadow + ((usize)py * (usize)clks_fb.info.pitch));
+            u32 *row_ptr = (u32 *)(void *)(clks_fb.address + ((usize)py * (usize)clks_fb.info.pitch) + ((usize)x * 4U));
+            u32 *shadow_row =
+                (u32 *)(void *)(clks_fb.shadow + ((usize)py * (usize)clks_fb.info.pitch) + ((usize)x * 4U));
 
-            for (px = x; px < end_x; px++) {
-                shadow_row[px] = rgb;
-                row_ptr[px] = rgb;
-            }
+            clks_fb_fill_span_color32(shadow_row, span_pixels, rgb);
+            clks_fb_fill_span_color32(row_ptr, span_pixels, rgb);
         }
-    } else {
-        for (py = y; py < end_y; py++) {
-            u32 *row_ptr = (u32 *)(void *)(clks_fb.address + ((usize)py * (usize)clks_fb.info.pitch));
+        return;
+    }
 
-            for (px = x; px < end_x; px++) {
-                row_ptr[px] = rgb;
-            }
+    for (py = y; py < end_y; py++) {
+        u32 *row_ptr = (u32 *)(void *)(clks_fb.address + ((usize)py * (usize)clks_fb.info.pitch) + ((usize)x * 4U));
+        clks_fb_fill_span_color32(row_ptr, span_pixels, rgb);
+    }
+}
+
+void clks_fb_blit_rgba(i32 dst_x, i32 dst_y, const void *src_pixels, u32 src_width, u32 src_height,
+                       u32 src_pitch_bytes) {
+    i32 blit_x = dst_x;
+    i32 blit_y = dst_y;
+    i32 src_start_x = 0;
+    i32 src_start_y = 0;
+    i32 blit_w;
+    i32 blit_h;
+    u32 row;
+    usize row_bytes;
+    const u8 *src_base;
+
+    if (clks_fb.ready == CLKS_FALSE || clks_fb.info.bpp != 32) {
+        return;
+    }
+
+    if (src_pixels == CLKS_NULL || src_width == 0U || src_height == 0U) {
+        return;
+    }
+
+    if (src_pitch_bytes < (src_width * 4U)) {
+        return;
+    }
+
+    blit_w = (i32)src_width;
+    blit_h = (i32)src_height;
+
+    if (blit_x < 0) {
+        src_start_x = -blit_x;
+        blit_w -= src_start_x;
+        blit_x = 0;
+    }
+
+    if (blit_y < 0) {
+        src_start_y = -blit_y;
+        blit_h -= src_start_y;
+        blit_y = 0;
+    }
+
+    if (blit_w <= 0 || blit_h <= 0) {
+        return;
+    }
+
+    if (blit_x >= (i32)clks_fb.info.width || blit_y >= (i32)clks_fb.info.height) {
+        return;
+    }
+
+    if (blit_x + blit_w > (i32)clks_fb.info.width) {
+        blit_w = (i32)clks_fb.info.width - blit_x;
+    }
+
+    if (blit_y + blit_h > (i32)clks_fb.info.height) {
+        blit_h = (i32)clks_fb.info.height - blit_y;
+    }
+
+    if (blit_w <= 0 || blit_h <= 0) {
+        return;
+    }
+
+    row_bytes = (usize)(u32)blit_w * 4U;
+    src_base = (const u8 *)src_pixels + ((usize)(u32)src_start_y * (usize)src_pitch_bytes) + ((usize)(u32)src_start_x * 4U);
+
+    for (row = 0U; row < (u32)blit_h; row++) {
+        const u8 *src_row = src_base + ((usize)row * (usize)src_pitch_bytes);
+        u8 *dst_row = (u8 *)(void *)(clks_fb.address + ((usize)((u32)blit_y + row) * (usize)clks_fb.info.pitch) +
+                                     ((usize)(u32)blit_x * 4U));
+
+        if (clks_fb.shadow_ready == CLKS_TRUE) {
+            u8 *shadow_row = clks_fb.shadow + ((usize)((u32)blit_y + row) * (usize)clks_fb.info.pitch) +
+                             ((usize)(u32)blit_x * 4U);
+            clks_fb_copy_forward_bytes(shadow_row, src_row, row_bytes);
         }
+
+        clks_fb_copy_forward_bytes(dst_row, src_row, row_bytes);
     }
 }
 
