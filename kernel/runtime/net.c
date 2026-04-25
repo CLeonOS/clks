@@ -1629,7 +1629,8 @@ static clks_bool clks_net_dhcp_autoconfigure(void) {
         }
     }
 
-    if (clks_net_dhcp_offer_ready == CLKS_FALSE || clks_net_dhcp_offer_ip_be == 0U || clks_net_dhcp_server_id_be == 0U) {
+    if (clks_net_dhcp_offer_ready == CLKS_FALSE || clks_net_dhcp_offer_ip_be == 0U ||
+        clks_net_dhcp_server_id_be == 0U) {
         clks_net_dhcp_active = CLKS_FALSE;
         return CLKS_FALSE;
     }
@@ -1661,10 +1662,10 @@ static clks_bool clks_net_dhcp_autoconfigure(void) {
     clks_net_ipv4_be = clks_net_dhcp_offer_ip_be;
     clks_net_netmask_be =
         (clks_net_dhcp_offer_netmask_be != 0U) ? clks_net_dhcp_offer_netmask_be : CLKS_NET_FALLBACK_NETMASK_BE;
-    clks_net_gateway_be = (clks_net_dhcp_offer_gateway_be != 0U)
-                              ? clks_net_dhcp_offer_gateway_be
-                              : ((clks_net_dhcp_server_id_be != 0U) ? clks_net_dhcp_server_id_be
-                                                                     : CLKS_NET_FALLBACK_GATEWAY_BE);
+    clks_net_gateway_be =
+        (clks_net_dhcp_offer_gateway_be != 0U)
+            ? clks_net_dhcp_offer_gateway_be
+            : ((clks_net_dhcp_server_id_be != 0U) ? clks_net_dhcp_server_id_be : CLKS_NET_FALLBACK_GATEWAY_BE);
     (void)clks_net_dhcp_offer_dns_be;
     clks_net_dns_be = CLKS_NET_CLOUDFLARE_DNS_PRIMARY_BE;
 
