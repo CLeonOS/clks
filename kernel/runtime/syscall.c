@@ -9,6 +9,7 @@
 #include <clks/kelf.h>
 #include <clks/keyboard.h>
 #include <clks/log.h>
+#include <clks/mouse.h>
 #include <clks/net.h>
 #include <clks/serial.h>
 #include <clks/scheduler.h>
@@ -38,7 +39,7 @@
 #define CLKS_SYSCALL_KDBG_STACK_WINDOW_BYTES (128ULL * 1024ULL)
 #define CLKS_SYSCALL_KERNEL_SYMBOL_FILE "/system/kernel.sym"
 #define CLKS_SYSCALL_KERNEL_ADDR_BASE 0xFFFF800000000000ULL
-#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_NET_TCP_CLOSE
+#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_MOUSE_STATE
 #define CLKS_SYSCALL_DISK_SECTOR_BYTES 512U
 #define CLKS_SYSCALL_NET_UDP_PAYLOAD_MAX 1472U
 #define CLKS_SYSCALL_NET_TCP_IO_MAX 65536U
@@ -199,6 +200,14 @@ struct clks_syscall_net_tcp_recv_req {
     u64 out_payload_ptr;
     u64 payload_capacity;
     u64 poll_budget;
+};
+
+struct clks_syscall_mouse_state_user {
+    u64 x;
+    u64 y;
+    u64 buttons;
+    u64 packet_count;
+    u64 ready;
 };
 
 static clks_bool clks_syscall_ready = CLKS_FALSE;
@@ -854,6 +863,27 @@ static u64 clks_syscall_net_tcp_recv(u64 arg0) {
 
 static u64 clks_syscall_net_tcp_close(u64 arg0) {
     return (clks_net_tcp_close(arg0) == CLKS_TRUE) ? 1ULL : 0ULL;
+}
+
+static u64 clks_syscall_mouse_state(u64 arg0) {
+    struct clks_mouse_state state;
+    struct clks_syscall_mouse_state_user *out_state = (struct clks_syscall_mouse_state_user *)(usize)arg0;
+
+    if (arg0 == 0ULL) {
+        return 0ULL;
+    }
+
+    if (clks_syscall_user_ptr_writable(arg0, (u64)sizeof(*out_state)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    clks_mouse_snapshot(&state);
+    out_state->x = (u64)state.x;
+    out_state->y = (u64)state.y;
+    out_state->buttons = (u64)state.buttons;
+    out_state->packet_count = state.packet_count;
+    out_state->ready = (state.ready == CLKS_TRUE) ? 1ULL : 0ULL;
+    return 1ULL;
 }
 
 static u64 clks_syscall_fd_open(u64 arg0, u64 arg1, u64 arg2) {
@@ -2544,6 +2574,8 @@ static const char *clks_syscall_name(u64 id) {
         return "NET_TCP_RECV";
     case CLKS_SYSCALL_NET_TCP_CLOSE:
         return "NET_TCP_CLOSE";
+    case CLKS_SYSCALL_MOUSE_STATE:
+        return "MOUSE_STATE";
     default:
         return "UNKNOWN";
     }
@@ -3451,6 +3483,8 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_tcp_recv(frame->rbx));
     case CLKS_SYSCALL_NET_TCP_CLOSE:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_tcp_close(frame->rbx));
+    case CLKS_SYSCALL_MOUSE_STATE:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_mouse_state(frame->rbx));
     default:
         CLKS_SYSCALL_DISPATCH_RETURN((u64)-1);
     }

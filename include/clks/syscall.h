@@ -110,6 +110,7 @@
 #define CLKS_SYSCALL_NET_TCP_SEND 104ULL
 #define CLKS_SYSCALL_NET_TCP_RECV 105ULL
 #define CLKS_SYSCALL_NET_TCP_CLOSE 106ULL
+#define CLKS_SYSCALL_MOUSE_STATE 107ULL
 
 void clks_syscall_init(void);
 u64 clks_syscall_dispatch(void *frame_ptr);
