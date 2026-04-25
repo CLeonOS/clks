@@ -370,7 +370,8 @@ void clks_fb_blit_rgba(i32 dst_x, i32 dst_y, const void *src_pixels, u32 src_wid
     }
 
     row_bytes = (usize)(u32)blit_w * 4U;
-    src_base = (const u8 *)src_pixels + ((usize)(u32)src_start_y * (usize)src_pitch_bytes) + ((usize)(u32)src_start_x * 4U);
+    src_base =
+        (const u8 *)src_pixels + ((usize)(u32)src_start_y * (usize)src_pitch_bytes) + ((usize)(u32)src_start_x * 4U);
 
     for (row = 0U; row < (u32)blit_h; row++) {
         const u8 *src_row = src_base + ((usize)row * (usize)src_pitch_bytes);
@@ -378,8 +379,8 @@ void clks_fb_blit_rgba(i32 dst_x, i32 dst_y, const void *src_pixels, u32 src_wid
                                      ((usize)(u32)blit_x * 4U));
 
         if (clks_fb.shadow_ready == CLKS_TRUE) {
-            u8 *shadow_row = clks_fb.shadow + ((usize)((u32)blit_y + row) * (usize)clks_fb.info.pitch) +
-                             ((usize)(u32)blit_x * 4U);
+            u8 *shadow_row =
+                clks_fb.shadow + ((usize)((u32)blit_y + row) * (usize)clks_fb.info.pitch) + ((usize)(u32)blit_x * 4U);
             clks_fb_copy_forward_bytes(shadow_row, src_row, row_bytes);
         }
 
