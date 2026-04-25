@@ -188,8 +188,7 @@ static void clks_wm_z_insert_for_flags(u32 slot) {
     if ((clks_wm_windows[slot].flags & CLKS_WM_FLAG_TOPMOST) == 0ULL) {
         for (i = 0U; i < clks_wm_z_count; i++) {
             u32 existing = clks_wm_z_order[i];
-            if (existing < CLKS_WM_MAX_WINDOWS &&
-                (clks_wm_windows[existing].flags & CLKS_WM_FLAG_TOPMOST) != 0ULL) {
+            if (existing < CLKS_WM_MAX_WINDOWS && (clks_wm_windows[existing].flags & CLKS_WM_FLAG_TOPMOST) != 0ULL) {
                 pos = i;
                 break;
             }
@@ -410,8 +409,7 @@ static void clks_wm_stats_on_present(u64 now_tick, u64 now_tsc) {
         u64 timer_hz = (u64)clks_interrupts_timer_hz();
 
         if (elapsed_ticks != 0ULL && timer_hz != 0ULL) {
-            u64 fps =
-                ((u64)clks_wm_timing.stats_frames * timer_hz + (elapsed_ticks / 2ULL)) / elapsed_ticks;
+            u64 fps = ((u64)clks_wm_timing.stats_frames * timer_hz + (elapsed_ticks / 2ULL)) / elapsed_ticks;
             clks_wm_timing.fps = (fps > 9999ULL) ? 9999U : (u32)fps;
         }
 
@@ -1784,8 +1782,7 @@ clks_bool clks_wm_resize(u64 owner_pid, u64 window_id, u32 width, u32 height) {
     copy_w = (win->width < width) ? win->width : width;
     copy_h = (win->height < height) ? win->height : height;
     for (y = 0U; y < copy_h; y++) {
-        clks_memcpy(pixels + ((u64)y * (u64)width), win->pixels + ((u64)y * (u64)win->width),
-                    (usize)(copy_w * 4U));
+        clks_memcpy(pixels + ((u64)y * (u64)width), win->pixels + ((u64)y * (u64)win->width), (usize)(copy_w * 4U));
     }
 
     clks_wm_mark_dirty_window(win);
