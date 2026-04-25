@@ -38,9 +38,10 @@
 #define CLKS_SYSCALL_KDBG_STACK_WINDOW_BYTES (128ULL * 1024ULL)
 #define CLKS_SYSCALL_KERNEL_SYMBOL_FILE "/system/kernel.sym"
 #define CLKS_SYSCALL_KERNEL_ADDR_BASE 0xFFFF800000000000ULL
-#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_NET_DNS_SERVER
+#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_NET_TCP_CLOSE
 #define CLKS_SYSCALL_DISK_SECTOR_BYTES 512U
 #define CLKS_SYSCALL_NET_UDP_PAYLOAD_MAX 1472U
+#define CLKS_SYSCALL_NET_TCP_IO_MAX 65536U
 #define CLKS_SYSCALL_STATS_RING_SIZE 256U
 #define CLKS_SYSCALL_USC_MAX_ALLOWED_APPS 64U
 #define CLKS_SYSCALL_USC_PERM_RULE_FILE ".usc_permanent_allowlist"
@@ -179,6 +180,25 @@ struct clks_syscall_net_udp_recv_req {
     u64 out_src_ipv4_ptr;
     u64 out_src_port_ptr;
     u64 out_dst_port_ptr;
+};
+
+struct clks_syscall_net_tcp_connect_req {
+    u64 dst_ipv4_be;
+    u64 dst_port;
+    u64 src_port;
+    u64 poll_budget;
+};
+
+struct clks_syscall_net_tcp_send_req {
+    u64 payload_ptr;
+    u64 payload_len;
+    u64 poll_budget;
+};
+
+struct clks_syscall_net_tcp_recv_req {
+    u64 out_payload_ptr;
+    u64 payload_capacity;
+    u64 poll_budget;
 };
 
 static clks_bool clks_syscall_ready = CLKS_FALSE;
@@ -740,6 +760,100 @@ static u64 clks_syscall_net_udp_recv(u64 arg0) {
     }
 
     return got;
+}
+
+static u64 clks_syscall_net_tcp_connect(u64 arg0) {
+    struct clks_syscall_net_tcp_connect_req req;
+
+    if (arg0 == 0ULL) {
+        return 0ULL;
+    }
+
+    if (clks_syscall_user_ptr_readable(arg0, (u64)sizeof(req)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    clks_memcpy(&req, (const void *)arg0, sizeof(req));
+    return (clks_net_tcp_connect((u32)req.dst_ipv4_be, (u16)req.dst_port, (u16)req.src_port, req.poll_budget) ==
+            CLKS_TRUE)
+               ? 1ULL
+               : 0ULL;
+}
+
+static u64 clks_syscall_net_tcp_send(u64 arg0) {
+    struct clks_syscall_net_tcp_send_req req;
+    void *payload_copy = CLKS_NULL;
+    u64 payload_len;
+    u64 sent = 0ULL;
+
+    if (arg0 == 0ULL) {
+        return 0ULL;
+    }
+
+    if (clks_syscall_user_ptr_readable(arg0, (u64)sizeof(req)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    clks_memcpy(&req, (const void *)arg0, sizeof(req));
+    payload_len = req.payload_len;
+    if (payload_len == 0ULL || payload_len > CLKS_SYSCALL_NET_TCP_IO_MAX) {
+        return 0ULL;
+    }
+
+    if (req.payload_ptr == 0ULL || clks_syscall_user_ptr_readable(req.payload_ptr, payload_len) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    payload_copy = clks_kmalloc((usize)payload_len);
+    if (payload_copy == CLKS_NULL) {
+        return 0ULL;
+    }
+
+    clks_memcpy(payload_copy, (const void *)req.payload_ptr, (usize)payload_len);
+    sent = clks_net_tcp_send(payload_copy, payload_len, req.poll_budget);
+    clks_kfree(payload_copy);
+    return sent;
+}
+
+static u64 clks_syscall_net_tcp_recv(u64 arg0) {
+    struct clks_syscall_net_tcp_recv_req req;
+    u8 packet[CLKS_SYSCALL_NET_TCP_IO_MAX];
+    u64 capacity;
+    u64 got;
+
+    if (arg0 == 0ULL) {
+        return 0ULL;
+    }
+
+    if (clks_syscall_user_ptr_readable(arg0, (u64)sizeof(req)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    clks_memcpy(&req, (const void *)arg0, sizeof(req));
+    if (req.out_payload_ptr == 0ULL || req.payload_capacity == 0ULL) {
+        return 0ULL;
+    }
+
+    capacity = req.payload_capacity;
+    if (capacity > (u64)sizeof(packet)) {
+        capacity = (u64)sizeof(packet);
+    }
+
+    if (clks_syscall_user_ptr_writable(req.out_payload_ptr, capacity) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    got = clks_net_tcp_recv(packet, capacity, req.poll_budget);
+    if (got == 0ULL) {
+        return 0ULL;
+    }
+
+    clks_memcpy((void *)req.out_payload_ptr, packet, (usize)got);
+    return got;
+}
+
+static u64 clks_syscall_net_tcp_close(u64 arg0) {
+    return (clks_net_tcp_close(arg0) == CLKS_TRUE) ? 1ULL : 0ULL;
 }
 
 static u64 clks_syscall_fd_open(u64 arg0, u64 arg1, u64 arg2) {
@@ -2422,6 +2536,14 @@ static const char *clks_syscall_name(u64 id) {
         return "NET_GATEWAY";
     case CLKS_SYSCALL_NET_DNS_SERVER:
         return "NET_DNS_SERVER";
+    case CLKS_SYSCALL_NET_TCP_CONNECT:
+        return "NET_TCP_CONNECT";
+    case CLKS_SYSCALL_NET_TCP_SEND:
+        return "NET_TCP_SEND";
+    case CLKS_SYSCALL_NET_TCP_RECV:
+        return "NET_TCP_RECV";
+    case CLKS_SYSCALL_NET_TCP_CLOSE:
+        return "NET_TCP_CLOSE";
     default:
         return "UNKNOWN";
     }
@@ -3321,6 +3443,14 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_gateway());
     case CLKS_SYSCALL_NET_DNS_SERVER:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_dns_server());
+    case CLKS_SYSCALL_NET_TCP_CONNECT:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_tcp_connect(frame->rbx));
+    case CLKS_SYSCALL_NET_TCP_SEND:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_tcp_send(frame->rbx));
+    case CLKS_SYSCALL_NET_TCP_RECV:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_tcp_recv(frame->rbx));
+    case CLKS_SYSCALL_NET_TCP_CLOSE:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_tcp_close(frame->rbx));
     default:
         CLKS_SYSCALL_DISPATCH_RETURN((u64)-1);
     }
