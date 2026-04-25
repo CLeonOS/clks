@@ -1591,11 +1591,15 @@ static clks_bool clks_net_send_icmp_echo_request(u32 dst_ipv4_be, const u8 *dst_
 
 static clks_bool clks_net_dhcp_send_discover(void) {
     u8 packet[300];
-    static const u8 opts[] = {
-        CLKS_NET_DHCP_OPT_MSG_TYPE, 1U, CLKS_NET_DHCP_MSG_DISCOVER,
-        CLKS_NET_DHCP_OPT_PARAM_REQ, 2U, CLKS_NET_DHCP_OPT_ROUTER, CLKS_NET_DHCP_OPT_DNS,
-        CLKS_NET_DHCP_OPT_END, 0U
-    };
+    static const u8 opts[] = {CLKS_NET_DHCP_OPT_MSG_TYPE,
+                              1U,
+                              CLKS_NET_DHCP_MSG_DISCOVER,
+                              CLKS_NET_DHCP_OPT_PARAM_REQ,
+                              2U,
+                              CLKS_NET_DHCP_OPT_ROUTER,
+                              CLKS_NET_DHCP_OPT_DNS,
+                              CLKS_NET_DHCP_OPT_END,
+                              0U};
     u16 at = 240U;
     u16 send_len;
 
@@ -2576,8 +2580,8 @@ clks_bool clks_net_tcp_connect(u32 dst_ipv4_be, u16 dst_port, u16 src_port, u64 
     clks_net_tcp.remote_port = dst_port;
     clks_net_tcp.local_port = (src_port != 0U) ? src_port : clks_net_tcp_next_ephemeral_port();
     clks_memcpy(clks_net_tcp.remote_mac, dst_mac, CLKS_NET_ETH_ADDR_LEN);
-    clks_net_tcp.snd_iss = ((u32)clks_net_ipv4_ident << 16U) ^ ((u32)clks_net_tcp.local_port << 1U) ^
-                           dst_ipv4_be ^ ((u32)dst_port << 8U);
+    clks_net_tcp.snd_iss =
+        ((u32)clks_net_ipv4_ident << 16U) ^ ((u32)clks_net_tcp.local_port << 1U) ^ dst_ipv4_be ^ ((u32)dst_port << 8U);
     if (clks_net_tcp.snd_iss == 0U) {
         clks_net_tcp.snd_iss = 1U;
     }
@@ -2593,9 +2597,9 @@ clks_bool clks_net_tcp_connect(u32 dst_ipv4_be, u16 dst_port, u16 src_port, u64 
     for (try_index = 0U; try_index < CLKS_NET_TCP_RETRY_COUNT; try_index++) {
         u64 i;
 
-        if (clks_net_send_tcp_segment_raw(clks_net_ipv4_be, dst_ipv4_be, clks_net_tcp.remote_mac, clks_net_tcp.local_port,
-                                          clks_net_tcp.remote_port, clks_net_tcp.snd_iss, 0U, CLKS_NET_TCP_FLAG_SYN,
-                                          CLKS_NULL, 0U) == CLKS_FALSE) {
+        if (clks_net_send_tcp_segment_raw(clks_net_ipv4_be, dst_ipv4_be, clks_net_tcp.remote_mac,
+                                          clks_net_tcp.local_port, clks_net_tcp.remote_port, clks_net_tcp.snd_iss, 0U,
+                                          CLKS_NET_TCP_FLAG_SYN, CLKS_NULL, 0U) == CLKS_FALSE) {
             continue;
         }
 
@@ -2625,8 +2629,8 @@ u64 clks_net_tcp_send(const void *payload, u64 payload_len, u64 poll_budget) {
     const u8 *src = (const u8 *)payload;
     u64 sent_total = 0ULL;
 
-    if (clks_net_tcp.active == CLKS_FALSE || clks_net_tcp.state == CLKS_NET_TCP_STATE_SYN_SENT || payload == CLKS_NULL ||
-        payload_len == 0ULL) {
+    if (clks_net_tcp.active == CLKS_FALSE || clks_net_tcp.state == CLKS_NET_TCP_STATE_SYN_SENT ||
+        payload == CLKS_NULL || payload_len == 0ULL) {
         return 0ULL;
     }
 
@@ -2658,10 +2662,10 @@ u64 clks_net_tcp_send(const void *payload, u64 payload_len, u64 poll_budget) {
         for (try_index = 0U; try_index < CLKS_NET_TCP_RETRY_COUNT; try_index++) {
             u64 i;
 
-            if (clks_net_send_tcp_segment_raw(clks_net_ipv4_be, clks_net_tcp.remote_ipv4_be, clks_net_tcp.remote_mac,
-                                              clks_net_tcp.local_port, clks_net_tcp.remote_port, seq_start,
-                                              clks_net_tcp.rcv_nxt, (u16)(CLKS_NET_TCP_FLAG_ACK | CLKS_NET_TCP_FLAG_PSH),
-                                              src + sent_total, chunk_len) == CLKS_FALSE) {
+            if (clks_net_send_tcp_segment_raw(
+                    clks_net_ipv4_be, clks_net_tcp.remote_ipv4_be, clks_net_tcp.remote_mac, clks_net_tcp.local_port,
+                    clks_net_tcp.remote_port, seq_start, clks_net_tcp.rcv_nxt,
+                    (u16)(CLKS_NET_TCP_FLAG_ACK | CLKS_NET_TCP_FLAG_PSH), src + sent_total, chunk_len) == CLKS_FALSE) {
                 continue;
             }
 
@@ -2768,8 +2772,8 @@ clks_bool clks_net_tcp_close(u64 poll_budget) {
 
             (void)clks_net_send_tcp_segment_raw(clks_net_ipv4_be, clks_net_tcp.remote_ipv4_be, clks_net_tcp.remote_mac,
                                                 clks_net_tcp.local_port, clks_net_tcp.remote_port, fin_seq,
-                                                clks_net_tcp.rcv_nxt, (u16)(CLKS_NET_TCP_FLAG_FIN | CLKS_NET_TCP_FLAG_ACK),
-                                                CLKS_NULL, 0U);
+                                                clks_net_tcp.rcv_nxt,
+                                                (u16)(CLKS_NET_TCP_FLAG_FIN | CLKS_NET_TCP_FLAG_ACK), CLKS_NULL, 0U);
 
             for (i = 0ULL; i < per_try_budget; i++) {
                 clks_net_poll_internal();
