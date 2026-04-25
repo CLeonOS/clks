@@ -3390,8 +3390,8 @@ static void clks_syscall_usc_popup_draw(u32 *pixels, u32 width, u32 height, cons
     clks_syscall_usc_popup_draw_border(pixels, width, height, 0U, 0U, width, height, 0x00005A9EUL);
     clks_syscall_usc_popup_draw_text(pixels, width, height, 16U, 10U, width - 16U, "USERSAFECONTROLLER", 0x00FFFFFFUL,
                                      1U);
-    clks_syscall_usc_popup_draw_text(pixels, width, height, 18U, 50U, width - 18U, "A USER APP REQUESTS A DANGEROUS ACTION",
-                                     0x00202020UL, 1U);
+    clks_syscall_usc_popup_draw_text(pixels, width, height, 18U, 50U, width - 18U,
+                                     "A USER APP REQUESTS A DANGEROUS ACTION", 0x00202020UL, 1U);
     clks_syscall_usc_popup_draw_text(pixels, width, height, 18U, 76U, width - 18U, "APP:", 0x00404040UL, 1U);
     clks_syscall_usc_popup_draw_text(pixels, width, height, 58U, 76U, width - 18U, app_path, 0x00000000UL, 1U);
     clks_syscall_usc_popup_draw_text(pixels, width, height, 18U, 100U, width - 18U, syscall_line, 0x00000000UL, 1U);
@@ -3491,7 +3491,8 @@ static clks_bool clks_syscall_usc_prompt_popup(const char *app_path, const char 
 
     x = (i32)((fb.width - CLKS_SYSCALL_USC_POPUP_WIDTH) / 2U);
     y = (i32)((fb.height - CLKS_SYSCALL_USC_POPUP_HEIGHT) / 2U);
-    clks_syscall_usc_popup_draw(pixels, CLKS_SYSCALL_USC_POPUP_WIDTH, CLKS_SYSCALL_USC_POPUP_HEIGHT, app_path, name, id);
+    clks_syscall_usc_popup_draw(pixels, CLKS_SYSCALL_USC_POPUP_WIDTH, CLKS_SYSCALL_USC_POPUP_HEIGHT, app_path, name,
+                                id);
 
     window_id = clks_wm_create(CLKS_SYSCALL_USC_POPUP_OWNER, x, y, CLKS_SYSCALL_USC_POPUP_WIDTH,
                                CLKS_SYSCALL_USC_POPUP_HEIGHT, CLKS_WM_FLAG_TOPMOST);
