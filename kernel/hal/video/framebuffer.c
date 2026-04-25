@@ -41,6 +41,13 @@ static void clks_fb_copy_forward_bytes(void *dst, const void *src, usize bytes) 
         return;
     }
 
+#if defined(CLKS_ARCH_X86_64)
+    {
+        usize n = bytes;
+        __asm__ volatile("rep movsb" : "+D"(d), "+S"(s), "+c"(n) : : "memory");
+    }
+    return;
+#else
     while (bytes > 0U && ((((usize)d) | ((usize)s)) & (sizeof(usize) - 1U)) != 0U) {
         *d++ = *s++;
         bytes--;
@@ -57,20 +64,23 @@ static void clks_fb_copy_forward_bytes(void *dst, const void *src, usize bytes) 
         *d++ = *s++;
         bytes--;
     }
+#endif
 }
 
 static void clks_fb_fill_rows_color32(u8 *base, usize row_bytes, u32 row_count, u32 fill_rgb) {
     u32 row;
-    usize words_per_row;
+    usize qwords_per_row;
     usize rem_bytes;
+    u64 fill_qword;
     u8 fill_bytes[4];
 
     if (base == CLKS_NULL || row_bytes == 0U || row_count == 0U) {
         return;
     }
 
-    words_per_row = row_bytes / 4U;
-    rem_bytes = row_bytes % 4U;
+    qwords_per_row = row_bytes / 8U;
+    rem_bytes = row_bytes % 8U;
+    fill_qword = ((u64)fill_rgb << 32U) | (u64)fill_rgb;
     fill_bytes[0] = (u8)(fill_rgb & 0xFFU);
     fill_bytes[1] = (u8)((fill_rgb >> 8U) & 0xFFU);
     fill_bytes[2] = (u8)((fill_rgb >> 16U) & 0xFFU);
@@ -78,16 +88,32 @@ static void clks_fb_fill_rows_color32(u8 *base, usize row_bytes, u32 row_count, 
 
     for (row = 0U; row < row_count; row++) {
         u8 *row_ptr = base + ((usize)row * row_bytes);
-        usize i;
-
-        for (i = 0U; i < words_per_row; i++) {
-            ((u32 *)(void *)row_ptr)[i] = fill_rgb;
+        usize i = 0U;
+#if defined(CLKS_ARCH_X86_64)
+        if (qwords_per_row > 0U) {
+            u64 *dst_q = (u64 *)(void *)row_ptr;
+            usize n = qwords_per_row;
+            __asm__ volatile("rep stosq" : "+D"(dst_q), "+c"(n) : "a"(fill_qword) : "memory");
+            row_ptr = (u8 *)(void *)dst_q;
+            i = 0U;
         }
+#else
+        for (i = 0U; i < qwords_per_row; i++) {
+            ((u64 *)(void *)row_ptr)[i] = fill_qword;
+        }
+        row_ptr += qwords_per_row * 8U;
+#endif
 
         if (rem_bytes > 0U) {
-            u8 *rem_ptr = row_ptr + (words_per_row * 4U);
-            for (i = 0U; i < rem_bytes; i++) {
-                rem_ptr[i] = fill_bytes[i];
+            usize rem = rem_bytes;
+            if (rem >= 4U) {
+                ((u32 *)(void *)row_ptr)[0] = fill_rgb;
+                row_ptr += 4U;
+                rem -= 4U;
+            }
+
+            for (i = 0U; i < rem; i++) {
+                row_ptr[i] = fill_bytes[i];
             }
         }
     }
@@ -302,7 +328,7 @@ void clks_fb_scroll_up(u32 pixel_rows, u32 fill_rgb) {
     if (clks_fb.shadow_ready == CLKS_TRUE) {
         clks_fb_copy_forward_bytes(clks_fb.shadow, clks_fb.shadow + ((usize)pixel_rows * row_bytes), move_bytes);
         clks_fb_fill_rows_color32(clks_fb.shadow + tail_offset, row_bytes, pixel_rows, fill_rgb);
-        clks_fb_copy_forward_bytes(fb_base, clks_fb.shadow, move_bytes);
+        clks_fb_copy_forward_bytes(fb_base, fb_base + ((usize)pixel_rows * row_bytes), move_bytes);
         clks_fb_fill_rows_color32(fb_base + tail_offset, row_bytes, pixel_rows, fill_rgb);
         return;
     }
@@ -409,13 +435,10 @@ void clks_fb_draw_char_styled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32
             color = (pixel_on == CLKS_TRUE) ? fg_rgb : bg_rgb;
             if (shadow_row != CLKS_NULL) {
                 shadow_row[col] = color;
+                dst_row[col] = color;
             } else {
                 dst_row[col] = color;
             }
-        }
-
-        if (shadow_row != CLKS_NULL) {
-            clks_fb_copy_forward_bytes(dst_row, shadow_row, (usize)draw_cols * 4U);
         }
     }
 }
