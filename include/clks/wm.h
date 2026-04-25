@@ -9,6 +9,8 @@
 #define CLKS_WM_EVENT_MOUSE_MOVE 4ULL
 #define CLKS_WM_EVENT_MOUSE_BUTTON 5ULL
 
+#define CLKS_WM_FLAG_TOPMOST 0x1ULL
+
 struct clks_wm_event {
     u64 type;
     u64 arg0;
@@ -28,5 +30,7 @@ clks_bool clks_wm_present(u64 owner_pid, u64 window_id, const void *pixels, u32 
 clks_bool clks_wm_poll_event(u64 owner_pid, u64 window_id, struct clks_wm_event *out_event);
 clks_bool clks_wm_move(u64 owner_pid, u64 window_id, i32 x, i32 y);
 clks_bool clks_wm_set_focus(u64 owner_pid, u64 window_id);
+clks_bool clks_wm_set_flags(u64 owner_pid, u64 window_id, u64 flags);
+clks_bool clks_wm_resize(u64 owner_pid, u64 window_id, u32 width, u32 height);
 
 #endif

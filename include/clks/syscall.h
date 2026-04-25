@@ -117,6 +117,8 @@
 #define CLKS_SYSCALL_WM_POLL_EVENT 111ULL
 #define CLKS_SYSCALL_WM_MOVE 112ULL
 #define CLKS_SYSCALL_WM_SET_FOCUS 113ULL
+#define CLKS_SYSCALL_WM_SET_FLAGS 114ULL
+#define CLKS_SYSCALL_WM_RESIZE 115ULL
 
 void clks_syscall_init(void);
 u64 clks_syscall_dispatch(void *frame_ptr);

@@ -40,7 +40,7 @@
 #define CLKS_SYSCALL_KDBG_STACK_WINDOW_BYTES (128ULL * 1024ULL)
 #define CLKS_SYSCALL_KERNEL_SYMBOL_FILE "/system/kernel.sym"
 #define CLKS_SYSCALL_KERNEL_ADDR_BASE 0xFFFF800000000000ULL
-#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_WM_SET_FOCUS
+#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_WM_RESIZE
 #define CLKS_SYSCALL_DISK_SECTOR_BYTES 512U
 #define CLKS_SYSCALL_NET_UDP_PAYLOAD_MAX 1472U
 #define CLKS_SYSCALL_NET_TCP_IO_MAX 65536U
@@ -231,6 +231,12 @@ struct clks_syscall_wm_move_req {
     u64 window_id;
     u64 x;
     u64 y;
+};
+
+struct clks_syscall_wm_resize_req {
+    u64 window_id;
+    u64 width;
+    u64 height;
 };
 
 static clks_bool clks_syscall_ready = CLKS_FALSE;
@@ -1058,6 +1064,36 @@ static u64 clks_syscall_wm_set_focus(u64 arg0) {
     }
 
     return (clks_wm_set_focus(clks_syscall_wm_owner_pid(), arg0) == CLKS_TRUE) ? 1ULL : 0ULL;
+}
+
+static u64 clks_syscall_wm_set_flags(u64 arg0, u64 arg1) {
+    if (arg0 == 0ULL || clks_wm_ready() == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    return (clks_wm_set_flags(clks_syscall_wm_owner_pid(), arg0, arg1) == CLKS_TRUE) ? 1ULL : 0ULL;
+}
+
+static u64 clks_syscall_wm_resize(u64 arg0) {
+    struct clks_syscall_wm_resize_req req;
+
+    if (arg0 == 0ULL || clks_wm_ready() == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    if (clks_syscall_user_ptr_readable(arg0, (u64)sizeof(req)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    clks_memcpy(&req, (const void *)(usize)arg0, sizeof(req));
+
+    if (req.window_id == 0ULL || req.width > 0xFFFFFFFFULL || req.height > 0xFFFFFFFFULL) {
+        return 0ULL;
+    }
+
+    return (clks_wm_resize(clks_syscall_wm_owner_pid(), req.window_id, (u32)req.width, (u32)req.height) == CLKS_TRUE)
+               ? 1ULL
+               : 0ULL;
 }
 
 static u64 clks_syscall_fd_open(u64 arg0, u64 arg1, u64 arg2) {
@@ -2295,11 +2331,36 @@ static u64 clks_syscall_exit(u64 arg0) {
 }
 
 static u64 clks_syscall_sleep_ticks(u64 arg0) {
-    return clks_exec_sleep_ticks(arg0);
+    u64 before = clks_interrupts_timer_ticks();
+    u64 slept;
+
+    if (clks_wm_ready() == CLKS_TRUE) {
+        clks_wm_tick(before);
+    }
+
+    slept = clks_exec_sleep_ticks(arg0);
+
+    if (clks_wm_ready() == CLKS_TRUE) {
+        clks_wm_tick(clks_interrupts_timer_ticks());
+    }
+
+    return slept;
 }
 
 static u64 clks_syscall_yield(void) {
-    return clks_exec_yield();
+    u64 tick;
+
+    if (clks_wm_ready() == CLKS_TRUE) {
+        clks_wm_tick(clks_interrupts_timer_ticks());
+    }
+
+    tick = clks_exec_yield();
+
+    if (clks_wm_ready() == CLKS_TRUE) {
+        clks_wm_tick(tick);
+    }
+
+    return tick;
 }
 
 static u64 clks_syscall_shutdown(void) {
@@ -2762,6 +2823,10 @@ static const char *clks_syscall_name(u64 id) {
         return "WM_MOVE";
     case CLKS_SYSCALL_WM_SET_FOCUS:
         return "WM_SET_FOCUS";
+    case CLKS_SYSCALL_WM_SET_FLAGS:
+        return "WM_SET_FLAGS";
+    case CLKS_SYSCALL_WM_RESIZE:
+        return "WM_RESIZE";
     default:
         return "UNKNOWN";
     }
@@ -3683,6 +3748,10 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_wm_move(frame->rbx));
     case CLKS_SYSCALL_WM_SET_FOCUS:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_wm_set_focus(frame->rbx));
+    case CLKS_SYSCALL_WM_SET_FLAGS:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_wm_set_flags(frame->rbx, frame->rcx));
+    case CLKS_SYSCALL_WM_RESIZE:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_wm_resize(frame->rbx));
     default:
         CLKS_SYSCALL_DISPATCH_RETURN((u64)-1);
     }

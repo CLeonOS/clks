@@ -21,6 +21,8 @@ clks_bool clks_fb_read_pixel(u32 x, u32 y, u32 *out_rgb);
 void clks_fb_fill_rect(u32 x, u32 y, u32 width, u32 height, u32 rgb);
 void clks_fb_blit_rgba(i32 dst_x, i32 dst_y, const void *src_pixels, u32 src_width, u32 src_height,
                        u32 src_pitch_bytes);
+void clks_fb_blit_rgba_no_shadow(i32 dst_x, i32 dst_y, const void *src_pixels, u32 src_width, u32 src_height,
+                                  u32 src_pitch_bytes);
 #define CLKS_FB_STYLE_BOLD 0x1U
 #define CLKS_FB_STYLE_UNDERLINE 0x2U
 

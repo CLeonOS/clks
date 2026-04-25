@@ -5,5 +5,6 @@
 
 void clks_interrupts_init(void);
 u64 clks_interrupts_timer_ticks(void);
+u32 clks_interrupts_timer_hz(void);
 
 #endif

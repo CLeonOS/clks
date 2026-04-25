@@ -30,6 +30,11 @@
 #define CLKS_PS2_DATA_PORT 0x60U
 #define CLKS_PS2_STATUS_PORT 0x64U
 
+#define CLKS_PIT_CHANNEL0_PORT 0x40U
+#define CLKS_PIT_COMMAND_PORT 0x43U
+#define CLKS_PIT_BASE_HZ 1193182ULL
+#define CLKS_TIMER_HZ 100U
+
 struct clks_idt_entry {
     u16 offset_low;
     u16 selector;
@@ -235,6 +240,28 @@ static void clks_load_idt(void) {
 static clks_bool clks_ps2_has_output(void) {
     return (clks_inb(CLKS_PS2_STATUS_PORT) & 0x01U) != 0U ? CLKS_TRUE : CLKS_FALSE;
 }
+
+static void clks_pit_set_frequency(u32 hz) {
+    u64 divisor64;
+    u16 divisor;
+
+    if (hz == 0U) {
+        return;
+    }
+
+    divisor64 = (CLKS_PIT_BASE_HZ + ((u64)hz / 2ULL)) / (u64)hz;
+    if (divisor64 == 0ULL) {
+        divisor64 = 1ULL;
+    } else if (divisor64 > 0xFFFFULL) {
+        divisor64 = 0xFFFFULL;
+    }
+
+    divisor = (u16)divisor64;
+    clks_outb(CLKS_PIT_COMMAND_PORT, 0x36U);
+    clks_outb(CLKS_PIT_CHANNEL0_PORT, (u8)(divisor & 0xFFU));
+    clks_outb(CLKS_PIT_CHANNEL0_PORT, (u8)((divisor >> 8U) & 0xFFU));
+}
+
 static void clks_enable_interrupts(void) {
     __asm__ volatile("sti");
 }
@@ -340,10 +367,15 @@ void clks_interrupts_init(void) {
     clks_idt_set_gate(CLKS_SYSCALL_VECTOR, clks_isr_stub_128, CLKS_USER_INT_GATE);
 
     clks_pic_remap_and_mask();
+    clks_pit_set_frequency(CLKS_TIMER_HZ);
     clks_load_idt();
     clks_enable_interrupts();
 }
 
 u64 clks_interrupts_timer_ticks(void) {
     return clks_timer_ticks;
+}
+
+u32 clks_interrupts_timer_hz(void) {
+    return CLKS_TIMER_HZ;
 }

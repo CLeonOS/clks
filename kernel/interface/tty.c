@@ -284,6 +284,16 @@ static u32 clks_tty_content_rows(void) {
     return clks_tty_rows;
 }
 
+static u32 clks_tty_scrollback_page_step(void) {
+    u32 rows = clks_tty_content_rows();
+
+    if (rows > 2U) {
+        return rows - 2U;
+    }
+
+    return 1U;
+}
+
 static clks_bool clks_tty_status_bar_enabled(void) {
     return (clks_tty_rows > 1U) ? CLKS_TRUE : CLKS_FALSE;
 }
@@ -1470,7 +1480,7 @@ void clks_tty_scrollback_page_up(void) {
     }
 
     clks_tty_hide_cursor();
-    next_offset = clks_tty_scrollback_clamped_offset(tty_index) + clks_tty_content_rows();
+    next_offset = clks_tty_scrollback_clamped_offset(tty_index) + clks_tty_scrollback_page_step();
 
     if (next_offset > max_offset) {
         next_offset = max_offset;
@@ -1506,8 +1516,8 @@ void clks_tty_scrollback_page_down(void) {
 
     clks_tty_hide_cursor();
 
-    if (current_offset > clks_tty_content_rows()) {
-        next_offset = current_offset - clks_tty_content_rows();
+    if (current_offset > clks_tty_scrollback_page_step()) {
+        next_offset = current_offset - clks_tty_scrollback_page_step();
     } else {
         next_offset = 0U;
     }

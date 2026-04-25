@@ -15,8 +15,13 @@
 #define CLKS_PS2_CMD_WRITE_AUX 0xD4U
 
 #define CLKS_PS2_MOUSE_CMD_RESET_DEFAULTS 0xF6U
+#define CLKS_PS2_MOUSE_CMD_SET_SCALING_1_1 0xE6U
+#define CLKS_PS2_MOUSE_CMD_SET_RESOLUTION 0xE8U
+#define CLKS_PS2_MOUSE_CMD_SET_SAMPLE_RATE 0xF3U
 #define CLKS_PS2_MOUSE_CMD_ENABLE_STREAM 0xF4U
 #define CLKS_PS2_MOUSE_ACK 0xFAU
+#define CLKS_PS2_MOUSE_SAMPLE_RATE 200U
+#define CLKS_PS2_MOUSE_RESOLUTION 3U
 
 #define CLKS_MOUSE_IO_TIMEOUT 100000U
 #define CLKS_MOUSE_DRAIN_MAX 64U
@@ -149,6 +154,33 @@ static clks_bool clks_mouse_send_device_cmd(u8 cmd, u8 *out_ack) {
     return CLKS_TRUE;
 }
 
+static clks_bool clks_mouse_send_device_data(u8 value, u8 *out_ack) {
+    return clks_mouse_send_device_cmd(value, out_ack);
+}
+
+static void clks_mouse_tune_device(void) {
+    u8 ack = 0U;
+
+    if (clks_mouse_send_device_cmd(CLKS_PS2_MOUSE_CMD_SET_SCALING_1_1, &ack) == CLKS_FALSE ||
+        ack != CLKS_PS2_MOUSE_ACK) {
+        clks_log(CLKS_LOG_WARN, "MOUSE", "PS2 SET SCALING FAILED");
+    }
+
+    if (clks_mouse_send_device_cmd(CLKS_PS2_MOUSE_CMD_SET_RESOLUTION, &ack) == CLKS_FALSE ||
+        ack != CLKS_PS2_MOUSE_ACK ||
+        clks_mouse_send_device_data((u8)CLKS_PS2_MOUSE_RESOLUTION, &ack) == CLKS_FALSE ||
+        ack != CLKS_PS2_MOUSE_ACK) {
+        clks_log(CLKS_LOG_WARN, "MOUSE", "PS2 SET RESOLUTION FAILED");
+    }
+
+    if (clks_mouse_send_device_cmd(CLKS_PS2_MOUSE_CMD_SET_SAMPLE_RATE, &ack) == CLKS_FALSE ||
+        ack != CLKS_PS2_MOUSE_ACK ||
+        clks_mouse_send_device_data((u8)CLKS_PS2_MOUSE_SAMPLE_RATE, &ack) == CLKS_FALSE ||
+        ack != CLKS_PS2_MOUSE_ACK) {
+        clks_log(CLKS_LOG_WARN, "MOUSE", "PS2 SET SAMPLE RATE FAILED");
+    }
+}
+
 static void clks_mouse_reset_runtime(void) {
     struct clks_framebuffer_info info;
 
@@ -211,6 +243,8 @@ void clks_mouse_init(void) {
         clks_log(CLKS_LOG_WARN, "MOUSE", "PS2 RESET DEFAULTS FAILED");
         return;
     }
+
+    clks_mouse_tune_device();
 
     if (clks_mouse_send_device_cmd(CLKS_PS2_MOUSE_CMD_ENABLE_STREAM, &ack) == CLKS_FALSE || ack != CLKS_PS2_MOUSE_ACK) {
         clks_log(CLKS_LOG_WARN, "MOUSE", "PS2 ENABLE STREAM FAILED");
