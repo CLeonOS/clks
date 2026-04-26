@@ -43,6 +43,7 @@ clks_bool clks_exec_spawn_pathv(const char *path, const char *argv_line, const c
 u64 clks_exec_wait_pid(u64 pid, u64 *out_status);
 clks_bool clks_exec_request_exit(u64 status);
 u64 clks_exec_fd_open(const char *path, u64 flags, u64 mode);
+u64 clks_exec_fd_open_pty(void);
 u64 clks_exec_fd_read(u64 fd, void *out_buffer, u64 size);
 u64 clks_exec_fd_write(u64 fd, const void *buffer, u64 size);
 u64 clks_exec_fd_close(u64 fd);

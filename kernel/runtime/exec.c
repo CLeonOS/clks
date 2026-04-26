@@ -6,6 +6,7 @@
 #include <clks/interrupts.h>
 #include <clks/keyboard.h>
 #include <clks/log.h>
+#include <clks/pty.h>
 #include <clks/serial.h>
 #include <clks/string.h>
 #include <clks/types.h>
@@ -70,6 +71,7 @@ enum clks_exec_fd_kind {
     CLKS_EXEC_FD_KIND_DEV_NULL = 3,
     CLKS_EXEC_FD_KIND_DEV_ZERO = 4,
     CLKS_EXEC_FD_KIND_DEV_RANDOM = 5,
+    CLKS_EXEC_FD_KIND_PTY = 6,
 };
 
 enum clks_exec_proc_state {
@@ -86,6 +88,7 @@ struct clks_exec_fd_entry {
     u64 flags;
     u64 offset;
     u32 tty_index;
+    u64 pty_id;
     char path[CLKS_EXEC_PATH_MAX];
 };
 
@@ -1046,6 +1049,12 @@ static clks_bool clks_exec_fd_copy_from_parent(struct clks_exec_proc_record *chi
         child->fds[(u32)child_fd].tty_index = child->tty_index;
     }
 
+    if (child->fds[(u32)child_fd].kind == CLKS_EXEC_FD_KIND_PTY &&
+        clks_pty_retain(child->fds[(u32)child_fd].pty_id) == CLKS_FALSE) {
+        clks_memset(&child->fds[(u32)child_fd], 0, sizeof(child->fds[(u32)child_fd]));
+        return CLKS_FALSE;
+    }
+
     return CLKS_TRUE;
 }
 
@@ -1210,6 +1219,30 @@ static u64 clks_exec_fd_file_write(struct clks_exec_fd_entry *entry, const void 
     return size;
 }
 
+static void clks_exec_fd_release_entry(struct clks_exec_fd_entry *entry) {
+    if (entry == CLKS_NULL || entry->used == CLKS_FALSE) {
+        return;
+    }
+
+    if (entry->kind == CLKS_EXEC_FD_KIND_PTY && entry->pty_id != 0ULL) {
+        clks_pty_release(entry->pty_id);
+    }
+
+    clks_memset(entry, 0, sizeof(*entry));
+}
+
+static void clks_exec_fd_release_all(struct clks_exec_proc_record *proc) {
+    u32 i;
+
+    if (proc == CLKS_NULL) {
+        return;
+    }
+
+    for (i = 0U; i < CLKS_EXEC_FD_MAX; i++) {
+        clks_exec_fd_release_entry(&proc->fds[i]);
+    }
+}
+
 static struct clks_exec_proc_record *clks_exec_prepare_proc_record(i32 slot, u64 pid, const char *path,
                                                                    const char *argv_line, const char *env_line,
                                                                    enum clks_exec_proc_state state) {
@@ -1220,6 +1253,7 @@ static struct clks_exec_proc_record *clks_exec_prepare_proc_record(i32 slot, u64
     }
 
     proc = &clks_exec_proc_table[(u32)slot];
+    clks_exec_fd_release_all(proc);
     clks_memset(proc, 0, sizeof(*proc));
 
     proc->used = CLKS_TRUE;
@@ -1294,6 +1328,7 @@ static void clks_exec_proc_mark_exited(struct clks_exec_proc_record *proc, u64 n
     }
 
     clks_exec_proc_pause_runtime(proc, now_tick);
+    clks_exec_fd_release_all(proc);
     proc->state = CLKS_EXEC_PROC_EXITED;
     proc->exit_status = status;
     proc->exited_tick = now_tick;
@@ -1661,6 +1696,7 @@ static clks_bool clks_exec_run_path_internal(const char *path, const char *argv_
 
     if (clks_exec_fd_apply_stdio_overrides(proc, parent_proc, stdin_fd, stdout_fd, stderr_fd) == CLKS_FALSE) {
         clks_log(CLKS_LOG_WARN, "EXEC", "INVALID STDIO FD OVERRIDE");
+        clks_exec_fd_release_all(proc);
         clks_memset(proc, 0, sizeof(*proc));
         return CLKS_FALSE;
     }
@@ -1703,6 +1739,7 @@ void clks_exec_init(void) {
     clks_memset(clks_exec_proc_table, 0, sizeof(clks_exec_proc_table));
     clks_memset(clks_exec_dynlib_table, 0, sizeof(clks_exec_dynlib_table));
     clks_exec_next_dynlib_handle = 1ULL;
+    clks_pty_init();
     clks_exec_log_info_serial("PATH EXEC FRAMEWORK ONLINE");
 }
 
@@ -1920,6 +1957,38 @@ u64 clks_exec_fd_open(const char *path, u64 flags, u64 mode) {
     return (u64)fd_slot;
 }
 
+u64 clks_exec_fd_open_pty(void) {
+    struct clks_exec_proc_record *proc = clks_exec_current_proc();
+    struct clks_exec_fd_entry *entry;
+    i32 fd_slot;
+    u64 pty_id;
+
+    if (proc == CLKS_NULL) {
+        return (u64)-1;
+    }
+
+    fd_slot = clks_exec_fd_find_free(proc);
+    if (fd_slot < 0) {
+        return (u64)-1;
+    }
+
+    pty_id = clks_pty_alloc();
+    if (pty_id == 0ULL) {
+        return (u64)-1;
+    }
+
+    entry = &proc->fds[(u32)fd_slot];
+    clks_memset(entry, 0, sizeof(*entry));
+    entry->used = CLKS_TRUE;
+    entry->kind = CLKS_EXEC_FD_KIND_PTY;
+    entry->flags = CLKS_EXEC_O_RDWR;
+    entry->offset = 0ULL;
+    entry->tty_index = proc->tty_index;
+    entry->pty_id = pty_id;
+    entry->path[0] = '\0';
+    return (u64)fd_slot;
+}
+
 u64 clks_exec_fd_read(u64 fd, void *out_buffer, u64 size) {
     struct clks_exec_proc_record *proc = clks_exec_current_proc();
     struct clks_exec_fd_entry *entry;
@@ -1982,6 +2051,16 @@ u64 clks_exec_fd_read(u64 fd, void *out_buffer, u64 size) {
         return size;
     }
 
+    if (entry->kind == CLKS_EXEC_FD_KIND_PTY) {
+        u64 got = clks_pty_read(entry->pty_id, out_buffer, size);
+
+        if (got != (u64)-1) {
+            entry->offset += got;
+        }
+
+        return got;
+    }
+
     if (entry->kind == CLKS_EXEC_FD_KIND_FILE) {
         return clks_exec_fd_file_read(entry, out_buffer, size);
     }
@@ -2022,6 +2101,16 @@ u64 clks_exec_fd_write(u64 fd, const void *buffer, u64 size) {
         return size;
     }
 
+    if (entry->kind == CLKS_EXEC_FD_KIND_PTY) {
+        u64 wrote = clks_pty_write(entry->pty_id, buffer, size);
+
+        if (wrote != (u64)-1) {
+            entry->offset += wrote;
+        }
+
+        return wrote;
+    }
+
     if (entry->kind == CLKS_EXEC_FD_KIND_FILE) {
         return clks_exec_fd_file_write(entry, buffer, size);
     }
@@ -2043,7 +2132,7 @@ u64 clks_exec_fd_close(u64 fd) {
         return (u64)-1;
     }
 
-    clks_memset(entry, 0, sizeof(*entry));
+    clks_exec_fd_release_entry(entry);
     return 0ULL;
 }
 
@@ -2069,6 +2158,12 @@ u64 clks_exec_fd_dup(u64 fd) {
     }
 
     proc->fds[(u32)fd_slot] = *entry;
+    if (proc->fds[(u32)fd_slot].kind == CLKS_EXEC_FD_KIND_PTY &&
+        clks_pty_retain(proc->fds[(u32)fd_slot].pty_id) == CLKS_FALSE) {
+        clks_memset(&proc->fds[(u32)fd_slot], 0, sizeof(proc->fds[(u32)fd_slot]));
+        return (u64)-1;
+    }
+
     return (u64)fd_slot;
 }
 

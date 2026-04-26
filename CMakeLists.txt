@@ -16,6 +16,16 @@ set(OBJDUMP_FOR_TARGET "llvm-objdump" CACHE STRING "objdump tool for checks")
 set(READELF_FOR_TARGET "llvm-readelf" CACHE STRING "readelf tool for checks")
 set(MAKE_TOOL "make" CACHE STRING "make executable")
 set(SH_TOOL "sh" CACHE STRING "POSIX shell executable")
+set(CLKS_OPT_LEVEL "" CACHE STRING "Optional C/C++ optimization level, e.g. 2 or O2")
+set(CLKS_OPT_FLAG "")
+if(NOT "${CLKS_OPT_LEVEL}" STREQUAL "")
+    set(_clks_opt_level "${CLKS_OPT_LEVEL}")
+    string(REGEX REPLACE "^-?O" "" _clks_opt_level "${_clks_opt_level}")
+    if(NOT _clks_opt_level MATCHES "^(0|1|2|3|s|z|g|fast)$")
+        cl_log_error("unsupported CLKS_OPT_LEVEL=${CLKS_OPT_LEVEL}; use 0/1/2/3/s/z/g/fast or O2-style values")
+    endif()
+    set(CLKS_OPT_FLAG "-O${_clks_opt_level}")
+endif()
 
 function(resolve_tool_with_fallback VAR_NAME)
     set(_fallbacks ${ARGN})
@@ -231,6 +241,8 @@ set(CFLAGS_COMMON
     -ffreestanding
     -fno-stack-protector
     -fno-builtin
+    -U_FORTIFY_SOURCE
+    -D_FORTIFY_SOURCE=0
     -g
     -Wall
     -Wextra
@@ -243,6 +255,8 @@ set(CXXFLAGS_COMMON
     -ffreestanding
     -fno-stack-protector
     -fno-builtin
+    -U_FORTIFY_SOURCE
+    -D_FORTIFY_SOURCE=0
     -fno-exceptions
     -fno-rtti
     -fno-threadsafe-statics
@@ -253,6 +267,10 @@ set(CXXFLAGS_COMMON
     -Werror
     "-I${CMAKE_SOURCE_DIR}/include"
 )
+if(NOT "${CLKS_OPT_FLAG}" STREQUAL "")
+    list(APPEND CFLAGS_COMMON "${CLKS_OPT_FLAG}")
+    list(APPEND CXXFLAGS_COMMON "${CLKS_OPT_FLAG}")
+endif()
 
 set(ARCH_CFLAGS
     -DCLKS_ARCH_X86_64=1

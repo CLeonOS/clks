@@ -79,7 +79,7 @@ static clks_bool clks_userland_request_shell_exec(void) {
 
     clks_user_launch_attempt_count++;
 
-    if (clks_exec_run_path("/shell/shell.elf", &status) == CLKS_TRUE && status == 0ULL) {
+    if (clks_exec_run_path("/shell/shell.elf", &status) == CLKS_TRUE) {
         clks_user_shell_exec_requested_flag = CLKS_TRUE;
         clks_user_launch_success_count++;
 

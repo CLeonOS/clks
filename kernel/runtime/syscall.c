@@ -40,7 +40,7 @@
 #define CLKS_SYSCALL_KDBG_STACK_WINDOW_BYTES (128ULL * 1024ULL)
 #define CLKS_SYSCALL_KERNEL_SYMBOL_FILE "/system/kernel.sym"
 #define CLKS_SYSCALL_KERNEL_ADDR_BASE 0xFFFF800000000000ULL
-#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_WM_RESIZE
+#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_PTY_OPEN
 #define CLKS_SYSCALL_DISK_SECTOR_BYTES 512U
 #define CLKS_SYSCALL_NET_UDP_PAYLOAD_MAX 1472U
 #define CLKS_SYSCALL_NET_TCP_IO_MAX 65536U
@@ -1136,6 +1136,10 @@ static u64 clks_syscall_fd_close(u64 arg0) {
 
 static u64 clks_syscall_fd_dup(u64 arg0) {
     return clks_exec_fd_dup(arg0);
+}
+
+static u64 clks_syscall_pty_open(void) {
+    return clks_exec_fd_open_pty();
 }
 
 static u64 clks_syscall_dl_open(u64 arg0) {
@@ -2827,6 +2831,8 @@ static const char *clks_syscall_name(u64 id) {
         return "WM_SET_FLAGS";
     case CLKS_SYSCALL_WM_RESIZE:
         return "WM_RESIZE";
+    case CLKS_SYSCALL_PTY_OPEN:
+        return "PTY_OPEN";
     default:
         return "UNKNOWN";
     }
@@ -4093,6 +4099,8 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_wm_set_flags(frame->rbx, frame->rcx));
     case CLKS_SYSCALL_WM_RESIZE:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_wm_resize(frame->rbx));
+    case CLKS_SYSCALL_PTY_OPEN:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_pty_open());
     default:
         CLKS_SYSCALL_DISPATCH_RETURN((u64)-1);
     }
