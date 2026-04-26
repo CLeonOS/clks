@@ -552,8 +552,7 @@ static void clks_tty_draw_status_bar(void) {
     clks_tty_status_append_u32_dec(line, clks_tty_cols, &cursor, scroll_offset);
     clks_tty_status_append_text(line, clks_tty_cols, &cursor, " IN:");
     clks_tty_status_append_text(line, clks_tty_cols, &cursor, input_mode);
-    if (scroll_offset > 0U || clks_tty_search_editing[tty_index] == CLKS_TRUE ||
-        clks_tty_search_len[tty_index] > 0U) {
+    if (scroll_offset > 0U || clks_tty_search_editing[tty_index] == CLKS_TRUE || clks_tty_search_len[tty_index] > 0U) {
         clks_tty_status_append_text(line, clks_tty_cols, &cursor, " /");
         clks_tty_status_append_text(line, clks_tty_cols, &cursor, clks_tty_search_query[tty_index]);
         if (clks_tty_search_editing[tty_index] == CLKS_TRUE) {
@@ -1762,8 +1761,7 @@ clks_bool clks_tty_scrollback_handle_key(char ch) {
         return CLKS_FALSE;
     }
 
-    if (clks_tty_scrollback_is_active(tty_index) != CLKS_TRUE &&
-        clks_tty_search_editing[tty_index] != CLKS_TRUE) {
+    if (clks_tty_scrollback_is_active(tty_index) != CLKS_TRUE && clks_tty_search_editing[tty_index] != CLKS_TRUE) {
         return CLKS_FALSE;
     }
 
