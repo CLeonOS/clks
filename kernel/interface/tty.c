@@ -26,6 +26,7 @@
 #define CLKS_TTY_SCROLLBAR_TRACK 0x002A2A2AU
 #define CLKS_TTY_SCROLLBAR_THUMB 0x00A8A8A8U
 #define CLKS_TTY_SCROLLBAR_W 4U
+#define CLKS_TTY_SEARCH_MAX 32U
 
 typedef struct clks_tty_ansi_state {
     clks_bool in_escape;
@@ -55,6 +56,12 @@ static u8 clks_tty_scrollback_style[CLKS_TTY_COUNT][CLKS_TTY_SCROLLBACK_LINES][C
 static u32 clks_tty_scrollback_head[CLKS_TTY_COUNT];
 static u32 clks_tty_scrollback_count[CLKS_TTY_COUNT];
 static u32 clks_tty_scrollback_offset[CLKS_TTY_COUNT];
+static char clks_tty_search_query[CLKS_TTY_COUNT][CLKS_TTY_SEARCH_MAX];
+static u32 clks_tty_search_len[CLKS_TTY_COUNT];
+static clks_bool clks_tty_search_editing[CLKS_TTY_COUNT];
+static clks_bool clks_tty_search_has_match[CLKS_TTY_COUNT];
+static clks_bool clks_tty_search_not_found[CLKS_TTY_COUNT];
+static u32 clks_tty_search_match_doc[CLKS_TTY_COUNT];
 
 static u32 clks_tty_rows = 0;
 static u32 clks_tty_cols = 0;
@@ -347,6 +354,146 @@ static void clks_tty_status_invalidate(void) {
     clks_tty_status_cache_valid = CLKS_FALSE;
 }
 
+static char clks_tty_ascii_tolower(char ch) {
+    if (ch >= 'A' && ch <= 'Z') {
+        return (char)(ch + ('a' - 'A'));
+    }
+
+    return ch;
+}
+
+static char clks_tty_doc_char_at(u32 tty_index, u32 doc_index, u32 col) {
+    u32 scroll_count;
+    u32 phys;
+    u32 row;
+
+    if (tty_index >= CLKS_TTY_COUNT || col >= clks_tty_cols) {
+        return ' ';
+    }
+
+    scroll_count = clks_tty_scrollback_count[tty_index];
+    if (doc_index < scroll_count) {
+        phys = clks_tty_scrollback_logical_to_physical(tty_index, doc_index);
+        return clks_tty_scrollback_cells[tty_index][phys][col];
+    }
+
+    row = doc_index - scroll_count;
+    if (row < clks_tty_content_rows()) {
+        return clks_tty_cells[tty_index][row][col];
+    }
+
+    return ' ';
+}
+
+static clks_bool clks_tty_doc_row_contains_query(u32 tty_index, u32 doc_index) {
+    u32 query_len;
+    u32 col;
+    u32 q;
+
+    if (tty_index >= CLKS_TTY_COUNT || clks_tty_cols == 0U) {
+        return CLKS_FALSE;
+    }
+
+    query_len = clks_tty_search_len[tty_index];
+    if (query_len == 0U || query_len >= CLKS_TTY_SEARCH_MAX || query_len > clks_tty_cols) {
+        return CLKS_FALSE;
+    }
+
+    for (col = 0U; col + query_len <= clks_tty_cols; col++) {
+        clks_bool same = CLKS_TRUE;
+
+        for (q = 0U; q < query_len; q++) {
+            char left = clks_tty_ascii_tolower(clks_tty_doc_char_at(tty_index, doc_index, col + q));
+            char right = clks_tty_ascii_tolower(clks_tty_search_query[tty_index][q]);
+
+            if (left != right) {
+                same = CLKS_FALSE;
+                break;
+            }
+        }
+
+        if (same == CLKS_TRUE) {
+            return CLKS_TRUE;
+        }
+    }
+
+    return CLKS_FALSE;
+}
+
+static void clks_tty_scroll_to_doc_row(u32 tty_index, u32 doc_index) {
+    u32 scroll_count;
+    u32 content_rows;
+    u32 max_offset;
+    u32 offset;
+
+    if (tty_index >= CLKS_TTY_COUNT) {
+        return;
+    }
+
+    scroll_count = clks_tty_scrollback_count[tty_index];
+    content_rows = clks_tty_content_rows();
+    max_offset = clks_tty_scrollback_max_offset(tty_index);
+
+    if (doc_index >= scroll_count) {
+        offset = 0U;
+    } else if (scroll_count - doc_index < content_rows) {
+        offset = scroll_count - doc_index;
+    } else {
+        offset = scroll_count - doc_index;
+    }
+
+    if (offset > max_offset) {
+        offset = max_offset;
+    }
+
+    clks_tty_scrollback_offset[tty_index] = offset;
+}
+
+static clks_bool clks_tty_search_find(u32 tty_index, clks_bool reverse) {
+    u32 scroll_count;
+    u32 doc_rows;
+    u32 start_doc;
+    u32 i;
+
+    if (tty_index >= CLKS_TTY_COUNT || clks_tty_search_len[tty_index] == 0U) {
+        return CLKS_FALSE;
+    }
+
+    scroll_count = clks_tty_scrollback_count[tty_index];
+    doc_rows = scroll_count;
+    if (doc_rows == 0U) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_tty_search_has_match[tty_index] == CLKS_TRUE && clks_tty_search_match_doc[tty_index] < doc_rows) {
+        start_doc = clks_tty_search_match_doc[tty_index];
+    } else {
+        u32 offset = clks_tty_scrollback_clamped_offset(tty_index);
+        start_doc = (scroll_count >= offset) ? (scroll_count - offset) : 0U;
+    }
+
+    for (i = 1U; i <= doc_rows; i++) {
+        u32 candidate;
+
+        if (reverse == CLKS_TRUE) {
+            candidate = (start_doc + doc_rows - i) % doc_rows;
+        } else {
+            candidate = (start_doc + i) % doc_rows;
+        }
+
+        if (clks_tty_doc_row_contains_query(tty_index, candidate) == CLKS_TRUE) {
+            clks_tty_search_has_match[tty_index] = CLKS_TRUE;
+            clks_tty_search_not_found[tty_index] = CLKS_FALSE;
+            clks_tty_search_match_doc[tty_index] = candidate;
+            clks_tty_scroll_to_doc_row(tty_index, candidate);
+            return CLKS_TRUE;
+        }
+    }
+
+    clks_tty_search_not_found[tty_index] = CLKS_TRUE;
+    return CLKS_FALSE;
+}
+
 static void clks_tty_draw_status_bar(void) {
     u32 tty_index;
     u32 status_row;
@@ -405,6 +552,19 @@ static void clks_tty_draw_status_bar(void) {
     clks_tty_status_append_u32_dec(line, clks_tty_cols, &cursor, scroll_offset);
     clks_tty_status_append_text(line, clks_tty_cols, &cursor, " IN:");
     clks_tty_status_append_text(line, clks_tty_cols, &cursor, input_mode);
+    if (scroll_offset > 0U || clks_tty_search_editing[tty_index] == CLKS_TRUE ||
+        clks_tty_search_len[tty_index] > 0U) {
+        clks_tty_status_append_text(line, clks_tty_cols, &cursor, " /");
+        clks_tty_status_append_text(line, clks_tty_cols, &cursor, clks_tty_search_query[tty_index]);
+        if (clks_tty_search_editing[tty_index] == CLKS_TRUE) {
+            clks_tty_status_append_text(line, clks_tty_cols, &cursor, "_");
+        } else if (clks_tty_search_not_found[tty_index] == CLKS_TRUE) {
+            clks_tty_status_append_text(line, clks_tty_cols, &cursor, "?");
+        }
+        if (scroll_offset > 0U) {
+            clks_tty_status_append_text(line, clks_tty_cols, &cursor, " n/N");
+        }
+    }
     clks_tty_status_append_text(line, clks_tty_cols, &cursor, " MODE:");
     clks_tty_status_append_text(line, clks_tty_cols, &cursor, run_mode);
 
@@ -463,6 +623,12 @@ static void clks_tty_clear_tty(u32 tty_index) {
     clks_tty_scrollback_head[tty_index] = 0U;
     clks_tty_scrollback_count[tty_index] = 0U;
     clks_tty_scrollback_offset[tty_index] = 0U;
+    clks_tty_search_query[tty_index][0] = '\0';
+    clks_tty_search_len[tty_index] = 0U;
+    clks_tty_search_editing[tty_index] = CLKS_FALSE;
+    clks_tty_search_has_match[tty_index] = CLKS_FALSE;
+    clks_tty_search_not_found[tty_index] = CLKS_FALSE;
+    clks_tty_search_match_doc[tty_index] = 0U;
 }
 
 static void clks_tty_hide_cursor(void) {
@@ -1581,6 +1747,93 @@ void clks_tty_scrollback_page_down(void) {
         clks_tty_redraw_active();
         clks_tty_reset_blink_timer();
     }
+}
+
+clks_bool clks_tty_scrollback_handle_key(char ch) {
+    u32 tty_index;
+    clks_bool redraw = CLKS_FALSE;
+
+    if (clks_tty_is_ready == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    tty_index = clks_tty_active_index;
+    if (tty_index == CLKS_TTY_DESKTOP_INDEX) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_tty_scrollback_is_active(tty_index) != CLKS_TRUE &&
+        clks_tty_search_editing[tty_index] != CLKS_TRUE) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_tty_search_editing[tty_index] == CLKS_TRUE) {
+        if (ch == 27) {
+            clks_tty_search_editing[tty_index] = CLKS_FALSE;
+            clks_tty_search_not_found[tty_index] = CLKS_FALSE;
+            redraw = CLKS_TRUE;
+        } else if (ch == 8 || ch == 127) {
+            if (clks_tty_search_len[tty_index] > 0U) {
+                clks_tty_search_len[tty_index]--;
+                clks_tty_search_query[tty_index][clks_tty_search_len[tty_index]] = '\0';
+                clks_tty_search_has_match[tty_index] = CLKS_FALSE;
+                clks_tty_search_not_found[tty_index] = CLKS_FALSE;
+            }
+            redraw = CLKS_TRUE;
+        } else if (ch == '\n' || ch == '\r') {
+            clks_tty_search_editing[tty_index] = CLKS_FALSE;
+            if (clks_tty_search_len[tty_index] > 0U) {
+                (void)clks_tty_search_find(tty_index, CLKS_FALSE);
+            }
+            redraw = CLKS_TRUE;
+        } else if ((unsigned char)ch >= 0x20U && (unsigned char)ch <= 0x7EU) {
+            if (clks_tty_search_len[tty_index] + 1U < CLKS_TTY_SEARCH_MAX) {
+                clks_tty_search_query[tty_index][clks_tty_search_len[tty_index]++] = ch;
+                clks_tty_search_query[tty_index][clks_tty_search_len[tty_index]] = '\0';
+                clks_tty_search_has_match[tty_index] = CLKS_FALSE;
+                clks_tty_search_not_found[tty_index] = CLKS_FALSE;
+            }
+            redraw = CLKS_TRUE;
+        } else {
+            return CLKS_TRUE;
+        }
+
+        if (redraw == CLKS_TRUE) {
+            clks_tty_redraw_active();
+            clks_tty_reset_blink_timer();
+        }
+        return CLKS_TRUE;
+    }
+
+    if (ch == '/') {
+        clks_tty_search_editing[tty_index] = CLKS_TRUE;
+        clks_tty_search_len[tty_index] = 0U;
+        clks_tty_search_query[tty_index][0] = '\0';
+        clks_tty_search_has_match[tty_index] = CLKS_FALSE;
+        clks_tty_search_not_found[tty_index] = CLKS_FALSE;
+        clks_tty_redraw_active();
+        clks_tty_reset_blink_timer();
+        return CLKS_TRUE;
+    }
+
+    if (ch == 'n' || ch == 'N') {
+        if (clks_tty_search_len[tty_index] > 0U) {
+            (void)clks_tty_search_find(tty_index, (ch == 'N') ? CLKS_TRUE : CLKS_FALSE);
+            clks_tty_redraw_active();
+            clks_tty_reset_blink_timer();
+        }
+        return CLKS_TRUE;
+    }
+
+    if (ch == 27) {
+        clks_tty_search_editing[tty_index] = CLKS_FALSE;
+        clks_tty_search_not_found[tty_index] = CLKS_FALSE;
+        clks_tty_redraw_active();
+        clks_tty_reset_blink_timer();
+        return CLKS_TRUE;
+    }
+
+    return CLKS_FALSE;
 }
 
 u32 clks_tty_active(void) {

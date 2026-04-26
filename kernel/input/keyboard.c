@@ -5,6 +5,7 @@
 #include <clks/tty.h>
 #include <clks/types.h>
 
+#define CLKS_SC_ESC 0x01U
 #define CLKS_SC_ALT 0x38U
 #define CLKS_SC_LSHIFT 0x2AU
 #define CLKS_SC_RSHIFT 0x36U
@@ -395,6 +396,10 @@ void clks_keyboard_handle_scancode(u8 scancode) {
         return;
     }
 
+    if (code == CLKS_SC_ESC && clks_tty_scrollback_handle_key(27) == CLKS_TRUE) {
+        return;
+    }
+
     {
         u32 active_tty = clks_tty_active();
         char translated;
@@ -410,6 +415,9 @@ void clks_keyboard_handle_scancode(u8 scancode) {
         translated = clks_keyboard_translate_scancode(code);
 
         if (translated != '\0') {
+            if (clks_tty_scrollback_handle_key(translated) == CLKS_TRUE) {
+                return;
+            }
             if (clks_keyboard_queue_push_for_tty(active_tty, translated) == CLKS_TRUE &&
                 clks_keyboard_should_pump_shell_now() == CLKS_TRUE) {
                 clks_shell_pump_input(1U);
