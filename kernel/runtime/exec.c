@@ -2959,8 +2959,8 @@ clks_bool clks_exec_suspend_current_from_syscall(void *frame_ptr, u64 syscall_re
         return CLKS_FALSE;
     }
 
-    if (proc->loaded_active == CLKS_FALSE || proc->run_stack_base == CLKS_NULL ||
-        proc->run_stack_bytes == 0ULL || clks_exec_unwind_slot_valid_stack[(u32)depth_index] == CLKS_FALSE) {
+    if (proc->loaded_active == CLKS_FALSE || proc->run_stack_base == CLKS_NULL || proc->run_stack_bytes == 0ULL ||
+        clks_exec_unwind_slot_valid_stack[(u32)depth_index] == CLKS_FALSE) {
         return CLKS_FALSE;
     }
 
