@@ -23,6 +23,9 @@
 #define CLKS_TTY_STATUS_BG 0x00202020U
 #define CLKS_TTY_STATUS_FG 0x00E6E6E6U
 #define CLKS_TTY_STATUS_STYLE CLKS_TTY_STYLE_BOLD
+#define CLKS_TTY_SCROLLBAR_TRACK 0x002A2A2AU
+#define CLKS_TTY_SCROLLBAR_THUMB 0x00A8A8A8U
+#define CLKS_TTY_SCROLLBAR_W 4U
 
 typedef struct clks_tty_ansi_state {
     clks_bool in_escape;
@@ -524,6 +527,55 @@ static void clks_tty_draw_cursor(void) {
     clks_tty_cursor_visible = CLKS_TRUE;
 }
 
+static void clks_tty_draw_scrollbar(u32 scroll_count, u32 scroll_offset) {
+    u32 content_rows;
+    u32 doc_rows;
+    u32 viewport_start;
+    u32 track_x;
+    u32 track_y;
+    u32 track_w;
+    u32 track_h;
+    u32 thumb_h;
+    u32 thumb_y;
+
+    if (scroll_offset == 0U || clks_tty_cols == 0U || clks_tty_cell_width == 0U || clks_tty_cell_height == 0U) {
+        return;
+    }
+
+    content_rows = clks_tty_content_rows();
+    if (content_rows == 0U || scroll_count == 0U) {
+        return;
+    }
+
+    doc_rows = scroll_count + content_rows;
+    track_w = (CLKS_TTY_SCROLLBAR_W < clks_tty_cell_width) ? CLKS_TTY_SCROLLBAR_W : clks_tty_cell_width;
+    track_x = (clks_tty_cols * clks_tty_cell_width) - track_w;
+    track_y = 0U;
+    track_h = content_rows * clks_tty_cell_height;
+
+    if (track_h == 0U || doc_rows <= content_rows) {
+        return;
+    }
+
+    viewport_start = (scroll_count >= scroll_offset) ? (scroll_count - scroll_offset) : 0U;
+    thumb_h = (track_h * content_rows) / doc_rows;
+    if (thumb_h < clks_tty_cell_height) {
+        thumb_h = clks_tty_cell_height;
+    }
+    if (thumb_h > track_h) {
+        thumb_h = track_h;
+    }
+
+    if (doc_rows == content_rows || track_h == thumb_h) {
+        thumb_y = track_y;
+    } else {
+        thumb_y = track_y + (((track_h - thumb_h) * viewport_start) / (doc_rows - content_rows));
+    }
+
+    clks_fb_fill_rect(track_x, track_y, track_w, track_h, CLKS_TTY_SCROLLBAR_TRACK);
+    clks_fb_fill_rect(track_x, thumb_y, track_w, thumb_h, CLKS_TTY_SCROLLBAR_THUMB);
+}
+
 static void clks_tty_redraw_active(void) {
     u32 row;
     u32 col;
@@ -572,6 +624,8 @@ static void clks_tty_redraw_active(void) {
 
     if (scroll_offset == 0U) {
         clks_tty_draw_cursor();
+    } else {
+        clks_tty_draw_scrollbar(scroll_count, scroll_offset);
     }
 
     clks_tty_draw_status_bar();
