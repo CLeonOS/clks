@@ -15,9 +15,6 @@
 #define CLKS_DESKTOP_TEXT_FG 0x00E6EDF7U
 #define CLKS_DESKTOP_TEXT_BG 0x003B4A61U
 
-#define CLKS_DESKTOP_CURSOR_FILL 0x00F5F8FFU
-#define CLKS_DESKTOP_CURSOR_OUTLINE 0x00101010U
-#define CLKS_DESKTOP_CURSOR_ACTIVE 0x00FFCE6EU
 #define CLKS_DESKTOP_CURSOR_W 16U
 #define CLKS_DESKTOP_CURSOR_H 16U
 
@@ -226,30 +223,16 @@ static void clks_desktop_draw_static_scene(const struct clks_mouse_state *mouse)
     clks_desktop_scene_drawn = CLKS_TRUE;
 }
 
-static clks_bool clks_desktop_cursor_pixel(u32 lx, u32 ly, u8 buttons, u32 *out_color) {
-    u32 fill = CLKS_DESKTOP_CURSOR_FILL;
-
-    if (out_color == CLKS_NULL) {
-        return CLKS_FALSE;
-    }
-
-    if ((buttons & CLKS_MOUSE_BTN_LEFT) != 0U) {
-        fill = CLKS_DESKTOP_CURSOR_ACTIVE;
-    }
-
+static clks_bool clks_desktop_cursor_pixel(u32 lx, u32 ly) {
     if (ly < 12U) {
         u32 span = (ly / 2U) + 1U;
 
         if (lx < span) {
-            clks_bool border = (lx == 0U || (lx + 1U) == span || ly == 11U) ? CLKS_TRUE : CLKS_FALSE;
-            *out_color = (border == CLKS_TRUE) ? CLKS_DESKTOP_CURSOR_OUTLINE : fill;
             return CLKS_TRUE;
         }
     }
 
     if (ly >= 8U && ly < 16U && lx >= 2U && lx < 5U) {
-        clks_bool border = (lx == 2U || lx == 4U || ly == 15U) ? CLKS_TRUE : CLKS_FALSE;
-        *out_color = (border == CLKS_TRUE) ? CLKS_DESKTOP_CURSOR_OUTLINE : fill;
         return CLKS_TRUE;
     }
 
@@ -304,19 +287,23 @@ static void clks_desktop_restore_cursor_under(void) {
 static void clks_desktop_draw_cursor(i32 x, i32 y, u8 buttons) {
     u32 ly;
 
+    (void)buttons;
+
     for (ly = 0U; ly < CLKS_DESKTOP_CURSOR_H; ly++) {
         u32 lx;
 
         for (lx = 0U; lx < CLKS_DESKTOP_CURSOR_W; lx++) {
             i32 gx = x + (i32)lx;
             i32 gy = y + (i32)ly;
-            u32 color = 0U;
+            usize idx = ((usize)ly * (usize)CLKS_DESKTOP_CURSOR_W) + (usize)lx;
+            u32 color;
 
-            if (clks_desktop_cursor_pixel(lx, ly, buttons, &color) == CLKS_FALSE) {
+            if (clks_desktop_cursor_pixel(lx, ly) == CLKS_FALSE) {
                 continue;
             }
 
             if (clks_desktop_in_bounds(gx, gy) == CLKS_TRUE) {
+                color = (clks_desktop_cursor_under[idx] ^ 0x00FFFFFFU) & 0x00FFFFFFU;
                 clks_fb_draw_pixel((u32)gx, (u32)gy, color);
             }
         }

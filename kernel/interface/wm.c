@@ -1167,9 +1167,24 @@ static clks_bool clks_wm_cursor_rect(i32 x, i32 y, struct clks_wm_rect *out_rect
                                        out_rect);
 }
 
+static void clks_wm_draw_inverted_cursor_pixel(i32 x, i32 y) {
+    u32 under = 0U;
+
+    if (x < 0 || y < 0) {
+        return;
+    }
+
+    if (clks_fb_read_pixel((u32)x, (u32)y, &under) == CLKS_FALSE) {
+        return;
+    }
+
+    clks_fb_draw_pixel((u32)x, (u32)y, (under ^ 0x00FFFFFFUL) & 0x00FFFFFFUL);
+}
+
 static void clks_wm_draw_cursor_clipped(i32 x, i32 y, u8 buttons, const struct clks_wm_rect *clip) {
-    u32 color = ((buttons & CLKS_MOUSE_BTN_LEFT) != 0U) ? 0x00FFD166UL : 0x00FFFFFFUL;
     i32 dx;
+
+    (void)buttons;
 
     if (clip == CLKS_NULL) {
         return;
@@ -1180,7 +1195,7 @@ static void clks_wm_draw_cursor_clipped(i32 x, i32 y, u8 buttons, const struct c
         i32 py = y;
 
         if (px >= clip->l && px < clip->r && py >= clip->t && py < clip->b) {
-            clks_fb_draw_pixel((u32)px, (u32)py, color);
+            clks_wm_draw_inverted_cursor_pixel(px, py);
         }
     }
 
@@ -1188,8 +1203,12 @@ static void clks_wm_draw_cursor_clipped(i32 x, i32 y, u8 buttons, const struct c
         i32 px = x;
         i32 py = y + dx;
 
+        if (dx == 0) {
+            continue;
+        }
+
         if (px >= clip->l && px < clip->r && py >= clip->t && py < clip->b) {
-            clks_fb_draw_pixel((u32)px, (u32)py, color);
+            clks_wm_draw_inverted_cursor_pixel(px, py);
         }
     }
 }
