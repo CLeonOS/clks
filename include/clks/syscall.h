@@ -120,6 +120,9 @@
 #define CLKS_SYSCALL_WM_SET_FLAGS 114ULL
 #define CLKS_SYSCALL_WM_RESIZE 115ULL
 #define CLKS_SYSCALL_PTY_OPEN 116ULL
+#define CLKS_SYSCALL_WM_COUNT 117ULL
+#define CLKS_SYSCALL_WM_ID_AT 118ULL
+#define CLKS_SYSCALL_WM_SNAPSHOT 119ULL
 
 void clks_syscall_init(void);
 u64 clks_syscall_dispatch(void *frame_ptr);

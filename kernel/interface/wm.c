@@ -39,6 +39,30 @@
 #define CLKS_WM_FRAME_CAP_FPS 120ULL
 #define CLKS_WM_STATS_TEXT_CELLS 16U
 
+#ifndef CLKS_CFG_WM_MULTI_RECT_DAMAGE
+#define CLKS_CFG_WM_MULTI_RECT_DAMAGE 1
+#endif
+
+#ifndef CLKS_CFG_WM_LAYER_CACHE
+#define CLKS_CFG_WM_LAYER_CACHE 1
+#endif
+
+#ifndef CLKS_CFG_WM_FRAME_PACING
+#define CLKS_CFG_WM_FRAME_PACING 1
+#endif
+
+#ifndef CLKS_CFG_WM_STATS_OVERLAY
+#define CLKS_CFG_WM_STATS_OVERLAY 1
+#endif
+
+#ifndef CLKS_CFG_WM_INPUT_DISPATCH
+#define CLKS_CFG_WM_INPUT_DISPATCH 1
+#endif
+
+#ifndef CLKS_CFG_WM_REAP_DEAD_OWNERS
+#define CLKS_CFG_WM_REAP_DEAD_OWNERS 1
+#endif
+
 struct clks_wm_event_queue {
     struct clks_wm_event events[CLKS_WM_EVENT_QUEUE_CAP];
     u32 head;
@@ -115,6 +139,8 @@ static struct clks_wm_damage_list clks_wm_scene_damage;
 static struct clks_wm_damage_list clks_wm_present_damage;
 static struct clks_wm_layers clks_wm_layers;
 static struct clks_wm_timing clks_wm_timing;
+
+static void clks_wm_reap_dead_owners(void);
 
 static clks_bool clks_wm_owner_allows(const struct clks_wm_window *win, u64 owner_pid) {
     if (win == CLKS_NULL || win->used == CLKS_FALSE) {
@@ -334,6 +360,11 @@ static void clks_wm_timing_update_timebase(u64 now_tick, u64 now_tsc) {
 }
 
 static clks_bool clks_wm_frame_paced(u64 now_tick, u64 now_tsc) {
+#if CLKS_CFG_WM_FRAME_PACING == 0
+    (void)now_tick;
+    (void)now_tsc;
+    return CLKS_TRUE;
+#else
     u64 cycles_per_second;
     u64 min_cycles;
     u64 tick_interval;
@@ -367,9 +398,14 @@ static clks_bool clks_wm_frame_paced(u64 now_tick, u64 now_tsc) {
     }
 
     return (now_tick >= clks_wm_timing.last_present_tick + tick_interval) ? CLKS_TRUE : CLKS_FALSE;
+#endif
 }
 
 static void clks_wm_stats_on_present(u64 now_tick, u64 now_tsc) {
+#if CLKS_CFG_WM_STATS_OVERLAY == 0
+    clks_wm_timing.last_present_tick = now_tick;
+    clks_wm_timing.last_present_tsc = now_tsc;
+#else
     u64 cycles_per_second = clks_wm_cycles_per_second();
 
     if (cycles_per_second != 0ULL && clks_wm_timing.last_present_tsc != 0ULL &&
@@ -420,6 +456,7 @@ static void clks_wm_stats_on_present(u64 now_tick, u64 now_tsc) {
 
     clks_wm_timing.last_present_tick = now_tick;
     clks_wm_timing.last_present_tsc = now_tsc;
+#endif
 }
 
 static clks_bool clks_wm_rect_clip_to_screen(i32 l, i32 t, i32 r, i32 b, struct clks_wm_rect *out_rect) {
@@ -596,6 +633,16 @@ static void clks_wm_damage_add(struct clks_wm_damage_list *list, const struct cl
         return;
     }
 
+#if CLKS_CFG_WM_MULTI_RECT_DAMAGE == 0
+    if (list->count == 0U) {
+        list->count = 1U;
+        list->rects[0] = rect;
+    } else {
+        list->rects[0] = clks_wm_rect_union(&list->rects[0], &rect);
+    }
+    return;
+#endif
+
     i = 0U;
     while (i < list->count) {
         if (clks_wm_rect_contains(&list->rects[i], &rect) == CLKS_TRUE) {
@@ -679,6 +726,9 @@ static void clks_wm_mark_dirty_cursor(i32 x, i32 y) {
 }
 
 static void clks_wm_mark_stats_dirty(void) {
+#if CLKS_CFG_WM_STATS_OVERLAY == 0
+    return;
+#else
     struct clks_framebuffer_info fb = clks_fb_info();
     u32 cell_w = clks_fb_cell_width();
     u32 cell_h = clks_fb_cell_height();
@@ -697,6 +747,7 @@ static void clks_wm_mark_stats_dirty(void) {
 
     clks_wm_mark_present_dirty_rect((i32)(fb.width - box_w - 4U), (i32)(fb.height - box_h - 4U), (i32)(fb.width - 4U),
                                     (i32)(fb.height - 4U));
+#endif
 }
 
 static void clks_wm_mark_dirty_full(void) {
@@ -714,6 +765,10 @@ static void clks_wm_layer_free(void) {
 }
 
 static clks_bool clks_wm_layer_ensure(void) {
+#if CLKS_CFG_WM_LAYER_CACHE == 0
+    clks_wm_layer_free();
+    return CLKS_FALSE;
+#else
     struct clks_framebuffer_info fb = clks_fb_info();
     u64 pixel_count;
     u64 bytes;
@@ -747,6 +802,7 @@ static clks_bool clks_wm_layer_ensure(void) {
     clks_wm_layers.ready = CLKS_TRUE;
     clks_wm_layers.background_dirty = CLKS_TRUE;
     return CLKS_TRUE;
+#endif
 }
 
 static void clks_wm_layer_fill_rect(u32 *layer, const struct clks_wm_rect *rect, u32 color) {
@@ -1002,6 +1058,7 @@ static void clks_wm_update_scene_layer(void) {
     clks_wm_scene_damage.count = 0U;
 }
 
+#if CLKS_CFG_WM_STATS_OVERLAY != 0
 static u32 clks_wm_u32_to_dec(char *out, u32 out_size, u32 value) {
     char tmp[10];
     u32 len = 0U;
@@ -1062,8 +1119,13 @@ static clks_bool clks_wm_stats_rect(struct clks_wm_rect *out_rect) {
     out_rect->b = (i32)(fb.height - 4U);
     return CLKS_TRUE;
 }
+#endif
 
 static void clks_wm_draw_stats_overlay_clipped(const struct clks_wm_rect *clip) {
+#if CLKS_CFG_WM_STATS_OVERLAY == 0
+    (void)clip;
+    return;
+#else
     struct clks_wm_rect box;
     struct clks_wm_rect clipped;
     u32 cell_w;
@@ -1096,6 +1158,7 @@ static void clks_wm_draw_stats_overlay_clipped(const struct clks_wm_rect *clip) 
         clks_fb_draw_char((u32)box.l + 4U + (i * cell_w), (u32)box.t + 3U, ch, CLKS_WM_STATS_FG_COLOR,
                           CLKS_WM_STATS_BG_COLOR);
     }
+#endif
 }
 
 static clks_bool clks_wm_cursor_rect(i32 x, i32 y, struct clks_wm_rect *out_rect) {
@@ -1258,6 +1321,7 @@ static void clks_wm_set_focus_slot(i32 new_focus_slot) {
     }
 }
 
+#if CLKS_CFG_WM_INPUT_DISPATCH != 0
 static i32 clks_wm_window_hit_test(i32 x, i32 y) {
     i32 zi;
 
@@ -1285,6 +1349,7 @@ static i32 clks_wm_window_hit_test(i32 x, i32 y) {
 
     return -1;
 }
+#endif
 
 static void clks_wm_remove_slot(u32 slot) {
     clks_bool was_focused;
@@ -1319,6 +1384,9 @@ static void clks_wm_remove_slot(u32 slot) {
 }
 
 static void clks_wm_reap_dead_owners(void) {
+#if CLKS_CFG_WM_REAP_DEAD_OWNERS == 0
+    return;
+#else
     u32 i;
 
     for (i = 0U; i < CLKS_WM_MAX_WINDOWS; i++) {
@@ -1337,8 +1405,10 @@ static void clks_wm_reap_dead_owners(void) {
             clks_wm_remove_slot(i);
         }
     }
+#endif
 }
 
+#if CLKS_CFG_WM_INPUT_DISPATCH != 0
 static void clks_wm_dispatch_keyboard_to_focused(void) {
     i32 focused_slot = clks_wm_focused_slot();
     u32 budget = 64U;
@@ -1417,6 +1487,7 @@ static void clks_wm_dispatch_mouse(void) {
     clks_wm_last_mouse_y = mouse.y;
     clks_wm_last_mouse_buttons = mouse.buttons;
 }
+#endif
 
 static void clks_wm_pump_foreground(void) {
     u64 now_tick;
@@ -1444,8 +1515,10 @@ static void clks_wm_pump_foreground(void) {
         clks_wm_mark_stats_dirty();
     }
 
+#if CLKS_CFG_WM_INPUT_DISPATCH != 0
     clks_wm_dispatch_mouse();
     clks_wm_dispatch_keyboard_to_focused();
+#endif
 
     now_tick = clks_interrupts_timer_ticks();
     now_tsc = clks_wm_read_tsc();
@@ -1508,6 +1581,62 @@ clks_bool clks_wm_is_foreground(void) {
     }
 
     return (clks_tty_active() == CLKS_WM_TTY_INDEX) ? CLKS_TRUE : CLKS_FALSE;
+}
+
+u64 clks_wm_window_count(void) {
+    clks_wm_reap_dead_owners();
+    return (u64)clks_wm_z_count;
+}
+
+clks_bool clks_wm_window_id_at(u64 index, u64 *out_window_id) {
+    u32 slot;
+
+    if (out_window_id == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    *out_window_id = 0ULL;
+    clks_wm_reap_dead_owners();
+    if (index >= (u64)clks_wm_z_count) {
+        return CLKS_FALSE;
+    }
+
+    slot = clks_wm_z_order[(u32)index];
+    if (slot >= CLKS_WM_MAX_WINDOWS || clks_wm_windows[slot].used == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    *out_window_id = clks_wm_windows[slot].id;
+    return CLKS_TRUE;
+}
+
+clks_bool clks_wm_snapshot(u64 window_id, struct clks_wm_snapshot *out_snapshot) {
+    i32 slot;
+    const struct clks_wm_window *win;
+
+    if (out_snapshot == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    clks_memset(out_snapshot, 0, sizeof(*out_snapshot));
+    clks_wm_reap_dead_owners();
+    slot = clks_wm_find_slot_by_id(window_id);
+    if (slot < 0) {
+        return CLKS_FALSE;
+    }
+
+    win = &clks_wm_windows[(u32)slot];
+    out_snapshot->window_id = win->id;
+    out_snapshot->owner_pid = win->owner_pid;
+    out_snapshot->flags = win->flags;
+    out_snapshot->x = (u64)(i64)win->x;
+    out_snapshot->y = (u64)(i64)win->y;
+    out_snapshot->width = (u64)win->width;
+    out_snapshot->height = (u64)win->height;
+    out_snapshot->focused = (win->focused == CLKS_TRUE) ? 1ULL : 0ULL;
+    out_snapshot->presented = (win->presented == CLKS_TRUE) ? 1ULL : 0ULL;
+    out_snapshot->event_count = (u64)win->queue.count;
+    return CLKS_TRUE;
 }
 
 u64 clks_wm_create(u64 owner_pid, i32 x, i32 y, u32 width, u32 height, u64 flags) {
@@ -1710,11 +1839,9 @@ clks_bool clks_wm_move(u64 owner_pid, u64 window_id, i32 x, i32 y) {
 clks_bool clks_wm_set_focus(u64 owner_pid, u64 window_id) {
     i32 slot = clks_wm_find_slot_by_id(window_id);
 
-    if (slot < 0) {
-        return CLKS_FALSE;
-    }
+    (void)owner_pid;
 
-    if (clks_wm_owner_allows(&clks_wm_windows[(u32)slot], owner_pid) == CLKS_FALSE) {
+    if (slot < 0) {
         return CLKS_FALSE;
     }
 

@@ -1096,6 +1096,52 @@ static u64 clks_syscall_wm_resize(u64 arg0) {
                : 0ULL;
 }
 
+static u64 clks_syscall_wm_count(void) {
+    if (clks_wm_ready() == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    return clks_wm_window_count();
+}
+
+static u64 clks_syscall_wm_id_at(u64 arg0, u64 arg1) {
+    u64 window_id = 0ULL;
+
+    if (arg1 == 0ULL || clks_wm_ready() == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    if (clks_syscall_user_ptr_writable(arg1, (u64)sizeof(window_id)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    if (clks_wm_window_id_at(arg0, &window_id) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    clks_memcpy((void *)(usize)arg1, &window_id, sizeof(window_id));
+    return 1ULL;
+}
+
+static u64 clks_syscall_wm_snapshot(u64 arg0, u64 arg1, u64 arg2) {
+    struct clks_wm_snapshot snap;
+
+    if (arg0 == 0ULL || arg1 == 0ULL || arg2 < (u64)sizeof(snap) || clks_wm_ready() == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    if (clks_syscall_user_ptr_writable(arg1, (u64)sizeof(snap)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    if (clks_wm_snapshot(arg0, &snap) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    clks_memcpy((void *)(usize)arg1, &snap, sizeof(snap));
+    return 1ULL;
+}
+
 static u64 clks_syscall_fd_open(u64 arg0, u64 arg1, u64 arg2) {
     char path[CLKS_SYSCALL_PATH_MAX];
 
@@ -2334,12 +2380,16 @@ static u64 clks_syscall_exit(u64 arg0) {
     return (clks_exec_request_exit(arg0) == CLKS_TRUE) ? 1ULL : 0ULL;
 }
 
-static u64 clks_syscall_sleep_ticks(u64 arg0) {
+static u64 clks_syscall_sleep_ticks(struct clks_syscall_frame *frame, u64 arg0) {
     u64 before = clks_interrupts_timer_ticks();
     u64 slept;
 
     if (clks_wm_ready() == CLKS_TRUE) {
         clks_wm_tick(before);
+    }
+
+    if (clks_exec_suspend_current_from_syscall(frame, arg0) == CLKS_TRUE) {
+        return arg0;
     }
 
     slept = clks_exec_sleep_ticks(arg0);
@@ -2351,11 +2401,16 @@ static u64 clks_syscall_sleep_ticks(u64 arg0) {
     return slept;
 }
 
-static u64 clks_syscall_yield(void) {
+static u64 clks_syscall_yield(struct clks_syscall_frame *frame) {
     u64 tick;
 
     if (clks_wm_ready() == CLKS_TRUE) {
         clks_wm_tick(clks_interrupts_timer_ticks());
+    }
+
+    tick = clks_interrupts_timer_ticks();
+    if (clks_exec_suspend_current_from_syscall(frame, tick) == CLKS_TRUE) {
+        return tick;
     }
 
     tick = clks_exec_yield();
@@ -2833,6 +2888,12 @@ static const char *clks_syscall_name(u64 id) {
         return "WM_RESIZE";
     case CLKS_SYSCALL_PTY_OPEN:
         return "PTY_OPEN";
+    case CLKS_SYSCALL_WM_COUNT:
+        return "WM_COUNT";
+    case CLKS_SYSCALL_WM_ID_AT:
+        return "WM_ID_AT";
+    case CLKS_SYSCALL_WM_SNAPSHOT:
+        return "WM_SNAPSHOT";
     default:
         return "UNKNOWN";
     }
@@ -3986,9 +4047,9 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
     case CLKS_SYSCALL_EXIT:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_exit(frame->rbx));
     case CLKS_SYSCALL_SLEEP_TICKS:
-        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_sleep_ticks(frame->rbx));
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_sleep_ticks(frame, frame->rbx));
     case CLKS_SYSCALL_YIELD:
-        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_yield());
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_yield(frame));
     case CLKS_SYSCALL_SHUTDOWN:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_shutdown());
     case CLKS_SYSCALL_RESTART:
@@ -4101,6 +4162,12 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_wm_resize(frame->rbx));
     case CLKS_SYSCALL_PTY_OPEN:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_pty_open());
+    case CLKS_SYSCALL_WM_COUNT:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_wm_count());
+    case CLKS_SYSCALL_WM_ID_AT:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_wm_id_at(frame->rbx, frame->rcx));
+    case CLKS_SYSCALL_WM_SNAPSHOT:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_wm_snapshot(frame->rbx, frame->rcx, frame->rdx));
     default:
         CLKS_SYSCALL_DISPATCH_RETURN((u64)-1);
     }

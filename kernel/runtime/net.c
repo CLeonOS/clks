@@ -108,6 +108,10 @@
 #define CLKS_NET_PING_DEFAULT_POLL_LOOPS 200000000ULL
 #define CLKS_NET_PING_MIN_POLL_LOOPS 5000000ULL
 
+#ifndef CLKS_CFG_NET_DHCP_CLIENT
+#define CLKS_CFG_NET_DHCP_CLIENT 1
+#endif
+
 #define CLKS_NET_IP_HEADER_MIN_LEN 20U
 #define CLKS_NET_ICMP_HEADER_LEN 8U
 #define CLKS_NET_TCP_HEADER_MIN_LEN 20U
@@ -2340,10 +2344,14 @@ void clks_net_init(void) {
     clks_log(CLKS_LOG_INFO, "NET", "INIT START");
     if (clks_net_hw_init() == CLKS_TRUE) {
         clks_net_hw_ready = CLKS_TRUE;
-        if (clks_net_dhcp_autoconfigure() == CLKS_TRUE) {
+        if (CLKS_CFG_NET_DHCP_CLIENT != 0 && clks_net_dhcp_autoconfigure() == CLKS_TRUE) {
             clks_log(CLKS_LOG_INFO, "NET", "DHCP CONFIG APPLIED");
         } else {
-            clks_log(CLKS_LOG_WARN, "NET", "DHCP FAILED, USING FALLBACK");
+            if (CLKS_CFG_NET_DHCP_CLIENT != 0) {
+                clks_log(CLKS_LOG_WARN, "NET", "DHCP FAILED, USING FALLBACK");
+            } else {
+                clks_log(CLKS_LOG_INFO, "NET", "DHCP DISABLED, USING FALLBACK");
+            }
             clks_net_apply_fallback_config();
         }
         clks_log_hex(CLKS_LOG_INFO, "NET", "IPV4_BE", clks_net_ipv4_be);

@@ -45,9 +45,14 @@ typedef u64 (*clks_exec_entry_fn)(void);
 #define CLKS_EXEC_O_APPEND 0x0400ULL
 #define CLKS_EXEC_FD_INHERIT ((u64) - 1)
 #define CLKS_EXEC_DYNLIB_MAX 32U
+#define CLKS_EXEC_INTERNAL_SUSPEND_STATUS 0x434C4B5353555350ULL
 
 #ifndef CLKS_CFG_EXEC_SERIAL_LOG
 #define CLKS_CFG_EXEC_SERIAL_LOG 1
+#endif
+
+#ifndef CLKS_CFG_EXEC_CONTEXT_SWITCH_LOG
+#define CLKS_CFG_EXEC_CONTEXT_SWITCH_LOG 0
 #endif
 
 #define CLKS_EXEC_ELF64_MAGIC_0 0x7FU
@@ -80,6 +85,31 @@ enum clks_exec_proc_state {
     CLKS_EXEC_PROC_RUNNING = 2,
     CLKS_EXEC_PROC_EXITED = 3,
     CLKS_EXEC_PROC_STOPPED = 4,
+};
+
+struct clks_exec_saved_interrupt_frame {
+    u64 rax;
+    u64 rbx;
+    u64 rcx;
+    u64 rdx;
+    u64 rsi;
+    u64 rdi;
+    u64 rbp;
+    u64 r8;
+    u64 r9;
+    u64 r10;
+    u64 r11;
+    u64 r12;
+    u64 r13;
+    u64 r14;
+    u64 r15;
+    u64 vector;
+    u64 error_code;
+    u64 rip;
+    u64 cs;
+    u64 rflags;
+    u64 rsp;
+    u64 ss;
 };
 
 struct clks_exec_fd_entry {
@@ -116,6 +146,12 @@ struct clks_exec_proc_record {
     u64 last_fault_error;
     u64 last_fault_rip;
     struct clks_exec_fd_entry fds[CLKS_EXEC_FD_MAX];
+    clks_bool loaded_active;
+    struct clks_elf64_loaded_image loaded;
+    void *run_stack_base;
+    u64 run_stack_bytes;
+    clks_bool saved_frame_valid;
+    struct clks_exec_saved_interrupt_frame saved_frame;
 };
 
 struct clks_exec_elf64_ehdr {
@@ -171,6 +207,7 @@ struct clks_exec_dynlib_slot {
 #if defined(CLKS_ARCH_X86_64)
 extern u64 clks_exec_call_on_stack_x86_64(void *entry_ptr, void *stack_top);
 extern void clks_exec_abort_to_caller_x86_64(void);
+extern u64 clks_exec_resume_frame_x86_64(void *frame_ptr, void *unwind_slot);
 static u64 clks_exec_read_cr2(void) {
     u64 value = 0ULL;
     __asm__ volatile("mov %%cr2, %0" : "=r"(value));
@@ -182,6 +219,7 @@ static u64 clks_exec_requests = 0ULL;
 static u64 clks_exec_success = 0ULL;
 static u32 clks_exec_running_depth = 0U;
 static clks_bool clks_exec_pending_dispatch_active = CLKS_FALSE;
+static u32 clks_exec_dispatch_cursor = 0U;
 static u64 clks_exec_random_state = 0xA5A55A5A12345678ULL;
 
 static struct clks_exec_proc_record clks_exec_proc_table[CLKS_EXEC_MAX_PROCS];
@@ -248,6 +286,25 @@ static void clks_exec_log_hex_serial(const char *label, u64 value) {
     clks_serial_write(": ");
     clks_exec_serial_write_hex64(value);
     clks_serial_write("\n");
+}
+
+static void clks_exec_log_context_switch_serial(const char *message) {
+    if (CLKS_CFG_EXEC_SERIAL_LOG == 0 || CLKS_CFG_EXEC_CONTEXT_SWITCH_LOG == 0) {
+        (void)message;
+        return;
+    }
+
+    clks_exec_log_info_serial(message);
+}
+
+static void clks_exec_log_context_switch_hex_serial(const char *label, u64 value) {
+    if (CLKS_CFG_EXEC_SERIAL_LOG == 0 || CLKS_CFG_EXEC_CONTEXT_SWITCH_LOG == 0) {
+        (void)label;
+        (void)value;
+        return;
+    }
+
+    clks_exec_log_hex_serial(label, value);
 }
 static clks_bool clks_exec_has_prefix(const char *text, const char *prefix) {
     usize i = 0U;
@@ -1243,6 +1300,28 @@ static void clks_exec_fd_release_all(struct clks_exec_proc_record *proc) {
     }
 }
 
+static void clks_exec_proc_release_runtime(struct clks_exec_proc_record *proc) {
+    if (proc == CLKS_NULL) {
+        return;
+    }
+
+    if (proc->loaded_active == CLKS_TRUE) {
+        clks_elf64_unload(&proc->loaded);
+        proc->loaded_active = CLKS_FALSE;
+    } else {
+        clks_memset(&proc->loaded, 0, sizeof(proc->loaded));
+    }
+
+    if (proc->run_stack_base != CLKS_NULL) {
+        clks_kfree(proc->run_stack_base);
+    }
+
+    proc->run_stack_base = CLKS_NULL;
+    proc->run_stack_bytes = 0ULL;
+    proc->saved_frame_valid = CLKS_FALSE;
+    clks_memset(&proc->saved_frame, 0, sizeof(proc->saved_frame));
+}
+
 static struct clks_exec_proc_record *clks_exec_prepare_proc_record(i32 slot, u64 pid, const char *path,
                                                                    const char *argv_line, const char *env_line,
                                                                    enum clks_exec_proc_state state) {
@@ -1253,6 +1332,7 @@ static struct clks_exec_proc_record *clks_exec_prepare_proc_record(i32 slot, u64
     }
 
     proc = &clks_exec_proc_table[(u32)slot];
+    clks_exec_proc_release_runtime(proc);
     clks_exec_fd_release_all(proc);
     clks_memset(proc, 0, sizeof(*proc));
 
@@ -1328,6 +1408,7 @@ static void clks_exec_proc_mark_exited(struct clks_exec_proc_record *proc, u64 n
     }
 
     clks_exec_proc_pause_runtime(proc, now_tick);
+    clks_exec_proc_release_runtime(proc);
     clks_exec_fd_release_all(proc);
     proc->state = CLKS_EXEC_PROC_EXITED;
     proc->exit_status = status;
@@ -1357,8 +1438,9 @@ static void clks_exec_restore_interrupt_window(clks_bool need_disable) {
 }
 #endif
 
-static clks_bool clks_exec_invoke_entry(void *entry_ptr, u32 depth_index, u64 *out_ret) {
-    if (entry_ptr == CLKS_NULL || out_ret == CLKS_NULL) {
+static clks_bool clks_exec_invoke_entry(struct clks_exec_proc_record *proc, void *entry_ptr, u32 depth_index,
+                                        u64 *out_ret) {
+    if (proc == CLKS_NULL || out_ret == CLKS_NULL) {
         return CLKS_FALSE;
     }
 
@@ -1368,7 +1450,6 @@ static clks_bool clks_exec_invoke_entry(void *entry_ptr, u32 depth_index, u64 *o
             CLKS_EXEC_RUN_STACK_BYTES,  CLKS_EXEC_RUN_STACK_TIER_1, CLKS_EXEC_RUN_STACK_TIER_2,
             CLKS_EXEC_RUN_STACK_TIER_3, CLKS_EXEC_RUN_STACK_TIER_4, CLKS_EXEC_RUN_STACK_TIER_5,
         };
-        void *stack_base = CLKS_NULL;
         void *stack_top;
         u64 stack_bytes = 0ULL;
         u64 unwind_slot;
@@ -1376,28 +1457,39 @@ static clks_bool clks_exec_invoke_entry(void *entry_ptr, u32 depth_index, u64 *o
         clks_bool restore_irq_disable = CLKS_FALSE;
         u32 candidate_index;
 
-        for (candidate_index = 0U;
-             candidate_index < (u32)(sizeof(clks_exec_stack_candidates) / sizeof(clks_exec_stack_candidates[0]));
-             candidate_index++) {
-            stack_bytes = clks_exec_stack_candidates[candidate_index];
-            stack_base = clks_kmalloc((usize)stack_bytes);
-            if (stack_base != CLKS_NULL) {
-                break;
+        if (proc->saved_frame_valid == CLKS_FALSE) {
+            if (entry_ptr == CLKS_NULL) {
+                return CLKS_FALSE;
+            }
+
+            for (candidate_index = 0U;
+                 candidate_index < (u32)(sizeof(clks_exec_stack_candidates) / sizeof(clks_exec_stack_candidates[0]));
+                 candidate_index++) {
+                stack_bytes = clks_exec_stack_candidates[candidate_index];
+                proc->run_stack_base = clks_kmalloc((usize)stack_bytes);
+                if (proc->run_stack_base != CLKS_NULL) {
+                    proc->run_stack_bytes = stack_bytes;
+                    break;
+                }
+            }
+
+            if (proc->run_stack_base == CLKS_NULL) {
+                clks_log(CLKS_LOG_WARN, "EXEC", "RUN STACK ALLOC FAILED");
+                return CLKS_FALSE;
+            }
+
+            if (stack_bytes != CLKS_EXEC_RUN_STACK_BYTES) {
+                clks_log(CLKS_LOG_WARN, "EXEC", "RUN STACK FALLBACK");
+                clks_exec_log_hex_serial("STACK_BYTES", stack_bytes);
             }
         }
 
-        if (stack_base == CLKS_NULL) {
-            clks_log(CLKS_LOG_WARN, "EXEC", "RUN STACK ALLOC FAILED");
+        if (proc->run_stack_base == CLKS_NULL || proc->run_stack_bytes == 0ULL) {
             return CLKS_FALSE;
         }
 
-        if (stack_bytes != CLKS_EXEC_RUN_STACK_BYTES) {
-            clks_log(CLKS_LOG_WARN, "EXEC", "RUN STACK FALLBACK");
-            clks_exec_log_hex_serial("STACK_BYTES", stack_bytes);
-        }
-
-        stack_top = (void *)((u8 *)stack_base + (usize)stack_bytes);
-        clks_exec_stack_begin_stack[depth_index] = (u64)stack_base;
+        stack_top = (void *)((u8 *)proc->run_stack_base + (usize)proc->run_stack_bytes);
+        clks_exec_stack_begin_stack[depth_index] = (u64)proc->run_stack_base;
         clks_exec_stack_end_stack[depth_index] = (u64)stack_top;
         unwind_slot = (((u64)stack_top) & ~0xFULL) - CLKS_EXEC_UNWIND_CTX_BYTES;
         clks_exec_unwind_slot_stack[depth_index] = unwind_slot;
@@ -1407,7 +1499,11 @@ static clks_bool clks_exec_invoke_entry(void *entry_ptr, u32 depth_index, u64 *o
             restore_irq_disable = clks_exec_enable_interrupt_window();
         }
 
-        call_ret = clks_exec_call_on_stack_x86_64(entry_ptr, stack_top);
+        if (proc->saved_frame_valid == CLKS_TRUE) {
+            call_ret = clks_exec_resume_frame_x86_64(&proc->saved_frame, (void *)unwind_slot);
+        } else {
+            call_ret = clks_exec_call_on_stack_x86_64(entry_ptr, stack_top);
+        }
 
         /* Close unwind window immediately after call returns to avoid IRQ race. */
         clks_exec_unwind_slot_valid_stack[depth_index] = CLKS_FALSE;
@@ -1417,11 +1513,20 @@ static clks_bool clks_exec_invoke_entry(void *entry_ptr, u32 depth_index, u64 *o
 
         clks_exec_restore_interrupt_window(restore_irq_disable);
         *out_ret = call_ret;
-        clks_kfree(stack_base);
+        if (call_ret != CLKS_EXEC_INTERNAL_SUSPEND_STATUS && proc->run_stack_base != CLKS_NULL) {
+            clks_kfree(proc->run_stack_base);
+            proc->run_stack_base = CLKS_NULL;
+            proc->run_stack_bytes = 0ULL;
+            proc->saved_frame_valid = CLKS_FALSE;
+            clks_memset(&proc->saved_frame, 0, sizeof(proc->saved_frame));
+        }
         return CLKS_TRUE;
     }
 #else
     (void)depth_index;
+    if (entry_ptr == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
     *out_ret = ((clks_exec_entry_fn)entry_ptr)();
     return CLKS_TRUE;
 #endif
@@ -1429,18 +1534,17 @@ static clks_bool clks_exec_invoke_entry(void *entry_ptr, u32 depth_index, u64 *o
 
 static clks_bool clks_exec_run_proc_slot(i32 slot, u64 *out_status) {
     struct clks_exec_proc_record *proc;
-    const void *image;
+    const void *image = CLKS_NULL;
     u64 image_size = 0ULL;
     struct clks_elf64_info info;
-    struct clks_elf64_loaded_image loaded;
-    clks_bool loaded_active = CLKS_FALSE;
+    clks_bool resume_existing = CLKS_FALSE;
     clks_bool depth_pushed = CLKS_FALSE;
     clks_bool depth_counted = CLKS_FALSE;
-    void *entry_ptr;
+    void *entry_ptr = CLKS_NULL;
     u64 run_ret = (u64)-1;
     i32 depth_index;
 
-    clks_memset(&loaded, 0, sizeof(loaded));
+    clks_memset(&info, 0, sizeof(info));
 
     if (out_status != CLKS_NULL) {
         *out_status = (u64)-1;
@@ -1483,42 +1587,46 @@ static clks_bool clks_exec_run_proc_slot(i32 slot, u64 *out_status) {
     clks_exec_pid_stack_depth++;
     depth_pushed = CLKS_TRUE;
 
-    image = clks_fs_read_all(proc->path, &image_size);
+    if (proc->loaded_active == CLKS_TRUE && proc->saved_frame_valid == CLKS_TRUE) {
+        resume_existing = CLKS_TRUE;
+    } else {
+        clks_exec_proc_release_runtime(proc);
+        image = clks_fs_read_all(proc->path, &image_size);
 
-    if (image == CLKS_NULL || image_size == 0ULL) {
-        clks_log(CLKS_LOG_WARN, "EXEC", "EXEC FILE MISSING");
-        clks_log(CLKS_LOG_WARN, "EXEC", proc->path);
-        goto fail;
-    }
+        if (image == CLKS_NULL || image_size == 0ULL) {
+            clks_log(CLKS_LOG_WARN, "EXEC", "EXEC FILE MISSING");
+            clks_log(CLKS_LOG_WARN, "EXEC", proc->path);
+            goto fail;
+        }
 
-    if (clks_elf64_inspect(image, image_size, &info) == CLKS_FALSE) {
-        clks_log(CLKS_LOG_WARN, "EXEC", "EXEC ELF INVALID");
-        clks_log(CLKS_LOG_WARN, "EXEC", proc->path);
-        goto fail;
-    }
+        if (clks_elf64_inspect(image, image_size, &info) == CLKS_FALSE) {
+            clks_log(CLKS_LOG_WARN, "EXEC", "EXEC ELF INVALID");
+            clks_log(CLKS_LOG_WARN, "EXEC", proc->path);
+            goto fail;
+        }
 
-    proc->image_mem_bytes = info.total_load_memsz;
+        proc->image_mem_bytes = info.total_load_memsz;
 
-    if (clks_elf64_load(image, image_size, &loaded) == CLKS_FALSE) {
-        clks_log(CLKS_LOG_WARN, "EXEC", "EXEC ELF LOAD FAILED");
-        clks_log(CLKS_LOG_WARN, "EXEC", proc->path);
-        goto fail;
-    }
+        if (clks_elf64_load(image, image_size, &proc->loaded) == CLKS_FALSE) {
+            clks_log(CLKS_LOG_WARN, "EXEC", "EXEC ELF LOAD FAILED");
+            clks_log(CLKS_LOG_WARN, "EXEC", proc->path);
+            goto fail;
+        }
 
-    loaded_active = CLKS_TRUE;
-
-    entry_ptr = clks_elf64_entry_pointer(&loaded, info.entry);
-    if (entry_ptr == CLKS_NULL) {
-        clks_log(CLKS_LOG_WARN, "EXEC", "ENTRY POINTER RESOLVE FAILED");
-        clks_log(CLKS_LOG_WARN, "EXEC", proc->path);
-        goto fail;
+        proc->loaded_active = CLKS_TRUE;
+        entry_ptr = clks_elf64_entry_pointer(&proc->loaded, info.entry);
+        if (entry_ptr == CLKS_NULL) {
+            clks_log(CLKS_LOG_WARN, "EXEC", "ENTRY POINTER RESOLVE FAILED");
+            clks_log(CLKS_LOG_WARN, "EXEC", proc->path);
+            goto fail;
+        }
     }
 
     {
-        u64 image_begin = (u64)loaded.image_base;
-        u64 image_end = image_begin + loaded.image_size;
+        u64 image_begin = (u64)proc->loaded.image_base;
+        u64 image_end = image_begin + proc->loaded.image_size;
 
-        if (loaded.image_base == CLKS_NULL || loaded.image_size == 0ULL || image_end <= image_begin) {
+        if (proc->loaded.image_base == CLKS_NULL || proc->loaded.image_size == 0ULL || image_end <= image_begin) {
             clks_log(CLKS_LOG_WARN, "EXEC", "EXEC IMAGE WINDOW INVALID");
             clks_log(CLKS_LOG_WARN, "EXEC", proc->path);
             goto fail;
@@ -1526,22 +1634,30 @@ static clks_bool clks_exec_run_proc_slot(i32 slot, u64 *out_status) {
 
         clks_exec_image_begin_stack[(u32)depth_index] = image_begin;
         clks_exec_image_end_stack[(u32)depth_index] = image_end;
-        clks_exec_image_vaddr_begin_stack[(u32)depth_index] = loaded.image_vaddr_base;
-        clks_exec_image_vaddr_end_stack[(u32)depth_index] = loaded.image_vaddr_base + loaded.image_size;
+        clks_exec_image_vaddr_begin_stack[(u32)depth_index] = proc->loaded.image_vaddr_base;
+        clks_exec_image_vaddr_end_stack[(u32)depth_index] = proc->loaded.image_vaddr_base + proc->loaded.image_size;
     }
 
-    clks_exec_log_info_serial("EXEC RUN START");
-    clks_exec_log_info_serial(proc->path);
-    clks_exec_log_hex_serial("ENTRY", info.entry);
-    clks_exec_log_hex_serial("PHNUM", (u64)info.phnum);
-    clks_exec_log_hex_serial("IMAGE_BASE", (u64)loaded.image_base);
-    clks_exec_log_hex_serial("IMAGE_SIZE", loaded.image_size);
-    clks_exec_log_hex_serial("VADDR_BASE", loaded.image_vaddr_base);
+    if (resume_existing == CLKS_TRUE) {
+        clks_exec_log_context_switch_serial("EXEC RUN RESUME");
+        clks_exec_log_context_switch_serial(proc->path);
+        clks_exec_log_context_switch_hex_serial("IMAGE_BASE", (u64)proc->loaded.image_base);
+        clks_exec_log_context_switch_hex_serial("IMAGE_SIZE", proc->loaded.image_size);
+        clks_exec_log_context_switch_hex_serial("VADDR_BASE", proc->loaded.image_vaddr_base);
+    } else {
+        clks_exec_log_info_serial("EXEC RUN START");
+        clks_exec_log_info_serial(proc->path);
+        clks_exec_log_hex_serial("ENTRY", info.entry);
+        clks_exec_log_hex_serial("PHNUM", (u64)info.phnum);
+        clks_exec_log_hex_serial("IMAGE_BASE", (u64)proc->loaded.image_base);
+        clks_exec_log_hex_serial("IMAGE_SIZE", proc->loaded.image_size);
+        clks_exec_log_hex_serial("VADDR_BASE", proc->loaded.image_vaddr_base);
+    }
 
     clks_exec_running_depth++;
     depth_counted = CLKS_TRUE;
 
-    if (clks_exec_invoke_entry(entry_ptr, (u32)depth_index, &run_ret) == CLKS_FALSE) {
+    if (clks_exec_invoke_entry(proc, entry_ptr, (u32)depth_index, &run_ret) == CLKS_FALSE) {
         clks_log(CLKS_LOG_WARN, "EXEC", "EXEC RUN INVOKE FAILED");
         clks_log(CLKS_LOG_WARN, "EXEC", proc->path);
         goto fail;
@@ -1554,6 +1670,33 @@ static clks_bool clks_exec_run_proc_slot(i32 slot, u64 *out_status) {
 
     if (clks_exec_exit_requested_stack[(u32)depth_index] == CLKS_TRUE) {
         run_ret = clks_exec_exit_status_stack[(u32)depth_index];
+    }
+
+    if (run_ret == CLKS_EXEC_INTERNAL_SUSPEND_STATUS && proc->saved_frame_valid == CLKS_TRUE) {
+        clks_exec_proc_pause_runtime(proc, clks_interrupts_timer_ticks());
+        proc->state = CLKS_EXEC_PROC_PENDING;
+        proc->exit_status = (u64)-1;
+        proc->exited_tick = 0ULL;
+        clks_exec_log_context_switch_serial("RUN SUSPENDED");
+        clks_exec_log_context_switch_serial(proc->path);
+
+        if (depth_pushed == CLKS_TRUE && clks_exec_pid_stack_depth > 0U) {
+            clks_exec_stop_requested_stack[(u32)depth_index] = CLKS_FALSE;
+            clks_exec_image_begin_stack[(u32)depth_index] = 0ULL;
+            clks_exec_image_end_stack[(u32)depth_index] = 0ULL;
+            clks_exec_image_vaddr_begin_stack[(u32)depth_index] = 0ULL;
+            clks_exec_image_vaddr_end_stack[(u32)depth_index] = 0ULL;
+            clks_exec_stack_begin_stack[(u32)depth_index] = 0ULL;
+            clks_exec_stack_end_stack[(u32)depth_index] = 0ULL;
+            clks_exec_pid_stack_depth--;
+            depth_pushed = CLKS_FALSE;
+        }
+
+        if (out_status != CLKS_NULL) {
+            *out_status = run_ret;
+        }
+
+        return CLKS_TRUE;
     }
 
     clks_exec_log_info_serial("RUN RETURNED");
@@ -1570,6 +1713,7 @@ static clks_bool clks_exec_run_proc_slot(i32 slot, u64 *out_status) {
     if (clks_exec_stop_requested_stack[(u32)depth_index] == CLKS_TRUE) {
         u64 now_tick = clks_interrupts_timer_ticks();
         clks_exec_proc_pause_runtime(proc, now_tick);
+        clks_exec_proc_release_runtime(proc);
         proc->state = CLKS_EXEC_PROC_STOPPED;
         proc->exit_status = run_ret;
         proc->exited_tick = 0ULL;
@@ -1591,10 +1735,6 @@ static clks_bool clks_exec_run_proc_slot(i32 slot, u64 *out_status) {
         clks_exec_stack_end_stack[(u32)depth_index] = 0ULL;
         clks_exec_pid_stack_depth--;
         depth_pushed = CLKS_FALSE;
-    }
-
-    if (loaded_active == CLKS_TRUE) {
-        clks_elf64_unload(&loaded);
     }
 
     if (out_status != CLKS_NULL) {
@@ -1622,10 +1762,6 @@ fail:
         clks_exec_pid_stack_depth--;
     }
 
-    if (loaded_active == CLKS_TRUE) {
-        clks_elf64_unload(&loaded);
-    }
-
     if (out_status != CLKS_NULL) {
         *out_status = (u64)-1;
     }
@@ -1634,17 +1770,19 @@ fail:
 }
 
 static clks_bool clks_exec_dispatch_pending_once(void) {
-    u32 i;
+    u32 attempt;
 
     if (clks_exec_pending_dispatch_active == CLKS_TRUE) {
         return CLKS_FALSE;
     }
 
     /* One pending process per tick keeps latency sane and avoids scheduler chaos. */
-    for (i = 0U; i < CLKS_EXEC_MAX_PROCS; i++) {
+    for (attempt = 0U; attempt < CLKS_EXEC_MAX_PROCS; attempt++) {
+        u32 i = (clks_exec_dispatch_cursor + attempt) % CLKS_EXEC_MAX_PROCS;
         if (clks_exec_proc_table[i].used == CLKS_TRUE && clks_exec_proc_table[i].state == CLKS_EXEC_PROC_PENDING) {
             u64 ignored_status = (u64)-1;
 
+            clks_exec_dispatch_cursor = (i + 1U) % CLKS_EXEC_MAX_PROCS;
             clks_exec_pending_dispatch_active = CLKS_TRUE;
             (void)clks_exec_run_proc_slot((i32)i, &ignored_status);
             clks_exec_pending_dispatch_active = CLKS_FALSE;
@@ -1721,6 +1859,7 @@ void clks_exec_init(void) {
     clks_exec_success = 0ULL;
     clks_exec_running_depth = 0U;
     clks_exec_pending_dispatch_active = CLKS_FALSE;
+    clks_exec_dispatch_cursor = 0U;
     clks_exec_random_state = 0xA5A55A5A12345678ULL;
     clks_exec_next_pid = 1ULL;
     clks_exec_pid_stack_depth = 0U;
@@ -2436,7 +2575,9 @@ static u64 clks_exec_proc_memory_bytes(const struct clks_exec_proc_record *proc)
 
     mem += proc->image_mem_bytes;
 
-    if (proc->state == CLKS_EXEC_PROC_RUNNING) {
+    if (proc->run_stack_base != CLKS_NULL && proc->run_stack_bytes != 0ULL) {
+        mem += proc->run_stack_bytes;
+    } else if (proc->state == CLKS_EXEC_PROC_RUNNING) {
         mem += CLKS_EXEC_RUN_STACK_BYTES;
     }
 
@@ -2798,6 +2939,42 @@ clks_bool clks_exec_handle_exception(u64 vector, u64 error_code, u64 rip, u64 *i
     (void)io_rip;
     (void)io_rdi;
     (void)io_rsi;
+    return CLKS_FALSE;
+#endif
+}
+
+clks_bool clks_exec_suspend_current_from_syscall(void *frame_ptr, u64 syscall_ret) {
+#if defined(CLKS_ARCH_X86_64)
+    struct clks_exec_saved_interrupt_frame *frame = (struct clks_exec_saved_interrupt_frame *)frame_ptr;
+    struct clks_exec_proc_record *proc;
+    i32 depth_index;
+
+    if (frame == CLKS_NULL || clks_exec_pending_dispatch_active == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    depth_index = clks_exec_current_depth_index();
+    proc = clks_exec_current_proc();
+    if (depth_index < 0 || proc == CLKS_NULL || proc->state != CLKS_EXEC_PROC_RUNNING) {
+        return CLKS_FALSE;
+    }
+
+    if (proc->loaded_active == CLKS_FALSE || proc->run_stack_base == CLKS_NULL ||
+        proc->run_stack_bytes == 0ULL || clks_exec_unwind_slot_valid_stack[(u32)depth_index] == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    proc->saved_frame = *frame;
+    proc->saved_frame.rax = syscall_ret;
+    proc->saved_frame_valid = CLKS_TRUE;
+
+    frame->rip = (u64)clks_exec_abort_to_caller_x86_64;
+    frame->rdi = clks_exec_unwind_slot_stack[(u32)depth_index];
+    frame->rsi = CLKS_EXEC_INTERNAL_SUSPEND_STATUS;
+    return CLKS_TRUE;
+#else
+    (void)frame_ptr;
+    (void)syscall_ret;
     return CLKS_FALSE;
 #endif
 }
