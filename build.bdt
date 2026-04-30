@@ -1,0 +1,13 @@
+[module]
+name = clks
+type = kernel
+languages = c, cpp, asm, rust
+
+[sources]
+scan_dirs = kernel, arch/x86_64, third_party, rust/src
+headers = include
+config = configs/menuconfig/config.clks.bdt
+
+[outputs]
+kernel = build/x86_64/clks_kernel.elf
+symbols = build/x86_64/kernel.sym

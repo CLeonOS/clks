@@ -11,7 +11,7 @@ CLKS now builds as an independent repository.
 
 - Kernel build no longer depends on CLeonOS userland sources.
 - menuconfig assets are local to this repository (`configs/menuconfig`, `scripts/menuconfig.py`).
-- CMake helper scripts are local to this repository (`cmake/`).
+- Builds are delegated to the root bdt build system.
 
 ## Directory Layout
 
@@ -22,12 +22,10 @@ CLKS now builds as an independent repository.
 |- kernel/              # Core kernel subsystems
 |- rust/                # Kernel Rust staticlib
 |- third_party/         # Embedded third-party sources
-|- cmake/               # Build helper scripts (log/check/symbol generation)
 |- configs/menuconfig/  # CLKS feature metadata and generated config outputs
-|- scripts/             # menuconfig launcher
 |- .github/workflows/   # CI (build-kernel/style-check)
-|- CMakeLists.txt       # Standalone CLKS CMake entry
-|- Makefile             # Convenience wrapper
+|- build.bdt            # CLKS bdt module description
+|- Makefile             # Wrapper that delegates to root bdt
 ```
 
 ## Build
@@ -40,13 +38,6 @@ Build symbols map:
 
 ```bash
 make kernel-symbols
-```
-
-Direct CMake:
-
-```bash
-cmake -S . -B build-cmake -DCMAKE_BUILD_TYPE=Release
-cmake --build build-cmake --target kernel
 ```
 
 ## Menuconfig

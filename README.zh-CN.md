@@ -11,7 +11,7 @@ CLKS 现在可作为独立仓库构建。
 
 - 内核构建不再依赖 CLeonOS 用户态源码。
 - menuconfig 资产已在本仓库内（`configs/menuconfig`、`scripts/menuconfig.py`）。
-- CMake 辅助脚本已在本仓库内（`cmake/`）。
+- 构建已委托给根目录 bdt 构建系统。
 
 ## 目录结构
 
@@ -22,12 +22,10 @@ CLKS 现在可作为独立仓库构建。
 |- kernel/              # 内核核心子系统
 |- rust/                # 内核 Rust staticlib
 |- third_party/         # 内嵌第三方源码
-|- cmake/               # 构建辅助脚本（日志/工具检查/符号生成）
 |- configs/menuconfig/  # CLKS 特性元数据与生成配置
-|- scripts/             # menuconfig 启动脚本
 |- .github/workflows/   # CI（build-kernel/style-check）
-|- CMakeLists.txt       # CLKS 独立 CMake 入口
-|- Makefile             # 便捷包装入口
+|- build.bdt            # CLKS bdt 模块描述
+|- Makefile             # 委托根目录 bdt 的包装入口
 ```
 
 ## 构建
@@ -40,13 +38,6 @@ make kernel
 
 ```bash
 make kernel-symbols
-```
-
-直接用 CMake：
-
-```bash
-cmake -S . -B build-cmake -DCMAKE_BUILD_TYPE=Release
-cmake --build build-cmake --target kernel
 ```
 
 ## Menuconfig
