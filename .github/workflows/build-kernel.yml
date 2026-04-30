@@ -11,55 +11,64 @@ permissions:
 jobs:
   build-kernel:
     runs-on: ubuntu-latest
+    env:
+      NO_COLOR: "1"
 
     steps:
-      - name: Checkout
+      - name: Checkout CLeonOS root
         uses: actions/checkout@v4
+        with:
+          repository: CLeonOS/cleonos
+          path: cleonos
+          submodules: recursive
+
+      - name: Use current CLKS checkout
+        run: rm -rf cleonos/clks
+
+      - name: Checkout current CLKS
+        uses: actions/checkout@v4
+        with:
+          path: cleonos/clks
 
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
-            cmake \
             git \
-            clang \
-            lld \
-            llvm \
-            python3
+            python3 \
+            tar \
+            xorriso \
+            mtools \
+            autoconf \
+            automake \
+            libtool \
+            pkg-config \
+            nasm
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Generate CLKS menuconfig defaults
+      - name: Generate CLKS menuconfig defaults with bdt
+        working-directory: cleonos
         run: |
-          python3 scripts/menuconfig.py --clks-only --defaults --non-interactive --preset full
+          make menuconfig-clks MENUCONFIG_PRESET=full MENUCONFIG_ARGS="--defaults --non-interactive"
 
-      - name: Configure
+      - name: Build kernel with bdt
+        working-directory: cleonos
         run: |
-          cmake -S . -B build-cmake \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DNO_COLOR=1 \
-            -DCC=gcc \
-            -DKERNEL_CXX=g++ \
-            -DLD=ld.lld \
-            -DNM=llvm-nm \
-            -DADDR2LINE=llvm-addr2line \
-            -DOBJCOPY_FOR_TARGET=llvm-objcopy \
-            -DOBJDUMP_FOR_TARGET=llvm-objdump \
-            -DREADELF_FOR_TARGET=llvm-readelf
-
-      - name: Build kernel
-        run: cmake --build build-cmake --target kernel -- -j"$(nproc)"
-
-      - name: Build kernel symbols
-        run: cmake --build build-cmake --target kernel-symbols -- -j"$(nproc)"
+          make kernel-symbols \
+            CC=gcc \
+            KERNEL_CXX=g++ \
+            LD=ld \
+            NM=nm \
+            JOBS="$(nproc)"
 
       - name: Upload kernel artifacts
         uses: actions/upload-artifact@v4
         with:
           name: clks-kernel
           path: |
-            build/x86_64/clks_kernel.elf
-            build/x86_64/kernel.sym
+            cleonos/build/x86_64/clks_kernel.elf
+            cleonos/build/x86_64/kernel.sym
           if-no-files-found: error

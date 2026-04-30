@@ -57,7 +57,7 @@ jobs:
           mapfile -t files < <(
             git ls-files \
               '*.c' '*.h' '*.cc' '*.cpp' '*.cxx' '*.hpp' '*.hxx' \
-              | grep -Ev '^(third_party/|build/|build-cmake/)' || true
+              | grep -Ev '^(third_party/|build/)' || true
           )
 
           if [[ ${#files[@]} -eq 0 ]]; then
