@@ -444,7 +444,7 @@ void clks_fb_scroll_up(u32 pixel_rows, u32 fill_rgb) {
     clks_fb_fill_rows_color32(fb_base + tail_offset, row_bytes, pixel_rows, fill_rgb);
 }
 
-void clks_fb_draw_char_styled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32 style_flags) {
+void clks_fb_draw_char_scaled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32 style_flags, u32 scale) {
     const u8 *glyph;
     u32 row;
     u32 col;
@@ -453,6 +453,8 @@ void clks_fb_draw_char_styled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32
     u32 row_stride;
     u32 draw_cols;
     u32 draw_rows;
+    u32 out_cols;
+    u32 out_rows;
     clks_bool style_bold;
     clks_bool style_underline;
     u32 underline_row;
@@ -467,6 +469,14 @@ void clks_fb_draw_char_styled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32
 
     if (x >= clks_fb.info.width || y >= clks_fb.info.height) {
         return;
+    }
+
+    if (scale == 0U) {
+        scale = 1U;
+    }
+
+    if (scale > 3U) {
+        scale = 3U;
     }
 
     glyph = clks_psf_glyph(clks_fb.font, (u32)(u8)ch);
@@ -496,22 +506,30 @@ void clks_fb_draw_char_styled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32
         return;
     }
 
-    draw_cols = cols;
+    out_cols = cols * scale;
+    out_rows = rows * scale;
+
+    if (out_cols == 0U || out_rows == 0U) {
+        return;
+    }
+
+    draw_cols = out_cols;
     if (x + draw_cols > clks_fb.info.width) {
         draw_cols = clks_fb.info.width - x;
     }
 
-    draw_rows = rows;
+    draw_rows = out_rows;
     if (y + draw_rows > clks_fb.info.height) {
         draw_rows = clks_fb.info.height - y;
     }
 
     style_bold = ((style_flags & CLKS_FB_STYLE_BOLD) != 0U) ? CLKS_TRUE : CLKS_FALSE;
     style_underline = ((style_flags & CLKS_FB_STYLE_UNDERLINE) != 0U) ? CLKS_TRUE : CLKS_FALSE;
-    underline_row = (rows > 1U) ? (rows - 2U) : 0U;
+    underline_row = (out_rows > scale) ? (out_rows - (2U * scale)) : 0U;
 
     for (row = 0U; row < draw_rows; row++) {
-        const u8 *row_bits = glyph + ((usize)row * (usize)row_stride);
+        u32 glyph_row = row / scale;
+        const u8 *row_bits = glyph + ((usize)glyph_row * (usize)row_stride);
         u32 *dst_row =
             (u32 *)(void *)(clks_fb.address + ((usize)(y + row) * (usize)clks_fb.info.pitch) + ((usize)x * 4U));
         u32 *shadow_row =
@@ -520,13 +538,14 @@ void clks_fb_draw_char_styled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32
                 : CLKS_NULL;
 
         for (col = 0U; col < draw_cols; col++) {
-            u8 bits = row_bits[col >> 3U];
-            u8 mask = (u8)(0x80U >> (col & 7U));
+            u32 glyph_col = col / scale;
+            u8 bits = row_bits[glyph_col >> 3U];
+            u8 mask = (u8)(0x80U >> (glyph_col & 7U));
             clks_bool pixel_on = ((bits & mask) != 0U) ? CLKS_TRUE : CLKS_FALSE;
             u32 color;
 
-            if (style_bold == CLKS_TRUE && pixel_on == CLKS_FALSE && col > 0U) {
-                u32 left_col = col - 1U;
+            if (style_bold == CLKS_TRUE && pixel_on == CLKS_FALSE && glyph_col > 0U) {
+                u32 left_col = glyph_col - 1U;
                 u8 left_bits = row_bits[left_col >> 3U];
                 u8 left_mask = (u8)(0x80U >> (left_col & 7U));
 
@@ -548,6 +567,10 @@ void clks_fb_draw_char_styled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32
             }
         }
     }
+}
+
+void clks_fb_draw_char_styled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32 style_flags) {
+    clks_fb_draw_char_scaled(x, y, ch, fg_rgb, bg_rgb, style_flags, 1U);
 }
 
 void clks_fb_draw_char(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb) {

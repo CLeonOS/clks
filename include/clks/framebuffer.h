@@ -28,6 +28,7 @@ void clks_fb_blit_rgba_no_shadow(i32 dst_x, i32 dst_y, const void *src_pixels, u
 
 void clks_fb_draw_char(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb);
 void clks_fb_draw_char_styled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32 style_flags);
+void clks_fb_draw_char_scaled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32 style_flags, u32 scale);
 clks_bool clks_fb_load_psf_font(const void *blob, u64 blob_size);
 u32 clks_fb_cell_width(void);
 u32 clks_fb_cell_height(void);
