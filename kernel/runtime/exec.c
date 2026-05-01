@@ -46,6 +46,9 @@ typedef u64 (*clks_exec_entry_fn)(void);
 #define CLKS_EXEC_FD_INHERIT ((u64) - 1)
 #define CLKS_EXEC_DYNLIB_MAX 32U
 #define CLKS_EXEC_INTERNAL_SUSPEND_STATUS 0x434C4B5353555350ULL
+#define CLKS_EXEC_USER_HEAP_BLOCK_MAX 128U
+#define CLKS_EXEC_USER_HEAP_ALLOC_MAX (4ULL * 1024ULL * 1024ULL)
+#define CLKS_EXEC_USER_HEAP_ALIGN 16ULL
 
 #ifndef CLKS_CFG_EXEC_SERIAL_LOG
 #define CLKS_CFG_EXEC_SERIAL_LOG 1
@@ -122,6 +125,11 @@ struct clks_exec_fd_entry {
     char path[CLKS_EXEC_PATH_MAX];
 };
 
+struct clks_exec_user_heap_block {
+    void *ptr;
+    u64 size;
+};
+
 struct clks_exec_proc_record {
     clks_bool used;
     enum clks_exec_proc_state state;
@@ -150,6 +158,8 @@ struct clks_exec_proc_record {
     struct clks_elf64_loaded_image loaded;
     void *run_stack_base;
     u64 run_stack_bytes;
+    u64 user_heap_bytes;
+    struct clks_exec_user_heap_block user_heap_blocks[CLKS_EXEC_USER_HEAP_BLOCK_MAX];
     clks_bool saved_frame_valid;
     struct clks_exec_saved_interrupt_frame saved_frame;
 };
@@ -541,6 +551,64 @@ static clks_bool clks_exec_addr_range_in_window(u64 addr, u64 size, u64 begin, u
     }
 
     return CLKS_TRUE;
+}
+
+static u64 clks_exec_align_up_u64(u64 value, u64 align) {
+    u64 mask;
+
+    if (align == 0ULL) {
+        return value;
+    }
+
+    mask = align - 1ULL;
+    return (value + mask) & ~mask;
+}
+
+static void clks_exec_proc_release_user_heap(struct clks_exec_proc_record *proc) {
+    u32 i;
+
+    if (proc == CLKS_NULL) {
+        return;
+    }
+
+    for (i = 0U; i < CLKS_EXEC_USER_HEAP_BLOCK_MAX; i++) {
+        if (proc->user_heap_blocks[i].ptr != CLKS_NULL) {
+            clks_kfree(proc->user_heap_blocks[i].ptr);
+            proc->user_heap_blocks[i].ptr = CLKS_NULL;
+            proc->user_heap_blocks[i].size = 0ULL;
+        }
+    }
+
+    proc->user_heap_bytes = 0ULL;
+}
+
+static clks_bool clks_exec_current_user_heap_ptr_range(u64 addr, u64 size) {
+    const struct clks_exec_proc_record *proc = clks_exec_current_proc();
+    u32 i;
+
+    if (proc == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    for (i = 0U; i < CLKS_EXEC_USER_HEAP_BLOCK_MAX; i++) {
+        u64 begin = (u64)(usize)proc->user_heap_blocks[i].ptr;
+        u64 end;
+
+        if (begin == 0ULL || proc->user_heap_blocks[i].size == 0ULL) {
+            continue;
+        }
+
+        end = begin + proc->user_heap_blocks[i].size;
+        if (end <= begin) {
+            continue;
+        }
+
+        if (clks_exec_addr_range_in_window(addr, size, begin, end) == CLKS_TRUE) {
+            return CLKS_TRUE;
+        }
+    }
+
+    return CLKS_FALSE;
 }
 
 static i32 clks_exec_dynlib_alloc_slot(void) {
@@ -1304,6 +1372,8 @@ static void clks_exec_proc_release_runtime(struct clks_exec_proc_record *proc) {
     if (proc == CLKS_NULL) {
         return;
     }
+
+    clks_exec_proc_release_user_heap(proc);
 
     if (proc->loaded_active == CLKS_TRUE) {
         clks_elf64_unload(&proc->loaded);
@@ -2419,6 +2489,47 @@ u64 clks_exec_dl_sym(u64 handle, const char *symbol) {
     return addr;
 }
 
+u64 clks_exec_user_heap_alloc(u64 size) {
+    struct clks_exec_proc_record *proc = clks_exec_current_proc();
+    void *ptr;
+    u64 aligned_size;
+    u32 i;
+
+    if (proc == CLKS_NULL || size == 0ULL) {
+        return 0ULL;
+    }
+
+    if (size > CLKS_EXEC_USER_HEAP_ALLOC_MAX) {
+        return 0ULL;
+    }
+
+    aligned_size = clks_exec_align_up_u64(size, CLKS_EXEC_USER_HEAP_ALIGN);
+    if (aligned_size == 0ULL || aligned_size < size || aligned_size > CLKS_EXEC_USER_HEAP_ALLOC_MAX) {
+        return 0ULL;
+    }
+
+    for (i = 0U; i < CLKS_EXEC_USER_HEAP_BLOCK_MAX; i++) {
+        if (proc->user_heap_blocks[i].ptr == CLKS_NULL) {
+            break;
+        }
+    }
+
+    if (i >= CLKS_EXEC_USER_HEAP_BLOCK_MAX) {
+        return 0ULL;
+    }
+
+    ptr = clks_kmalloc((usize)aligned_size);
+    if (ptr == CLKS_NULL) {
+        return 0ULL;
+    }
+
+    clks_memset(ptr, 0, (usize)aligned_size);
+    proc->user_heap_blocks[i].ptr = ptr;
+    proc->user_heap_blocks[i].size = aligned_size;
+    proc->user_heap_bytes += aligned_size;
+    return (u64)(usize)ptr;
+}
+
 u64 clks_exec_current_pid(void) {
     i32 depth_index = clks_exec_current_depth_index();
 
@@ -2580,6 +2691,8 @@ static u64 clks_exec_proc_memory_bytes(const struct clks_exec_proc_record *proc)
     } else if (proc->state == CLKS_EXEC_PROC_RUNNING) {
         mem += CLKS_EXEC_RUN_STACK_BYTES;
     }
+
+    mem += proc->user_heap_bytes;
 
     return mem;
 }
@@ -3074,6 +3187,10 @@ clks_bool clks_exec_current_user_ptr_readable(u64 addr, u64 size) {
     }
 
     if (clks_exec_addr_range_in_window(addr, size, stack_begin, stack_end) == CLKS_TRUE) {
+        return CLKS_TRUE;
+    }
+
+    if (clks_exec_current_user_heap_ptr_range(addr, size) == CLKS_TRUE) {
         return CLKS_TRUE;
     }
 

@@ -123,6 +123,7 @@
 #define CLKS_SYSCALL_WM_COUNT 117ULL
 #define CLKS_SYSCALL_WM_ID_AT 118ULL
 #define CLKS_SYSCALL_WM_SNAPSHOT 119ULL
+#define CLKS_SYSCALL_USER_HEAP_ALLOC 120ULL
 
 void clks_syscall_init(void);
 u64 clks_syscall_dispatch(void *frame_ptr);

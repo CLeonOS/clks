@@ -40,7 +40,7 @@
 #define CLKS_SYSCALL_KDBG_STACK_WINDOW_BYTES (128ULL * 1024ULL)
 #define CLKS_SYSCALL_KERNEL_SYMBOL_FILE "/system/kernel.sym"
 #define CLKS_SYSCALL_KERNEL_ADDR_BASE 0xFFFF800000000000ULL
-#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_PTY_OPEN
+#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_USER_HEAP_ALLOC
 #define CLKS_SYSCALL_DISK_SECTOR_BYTES 512U
 #define CLKS_SYSCALL_NET_UDP_PAYLOAD_MAX 1472U
 #define CLKS_SYSCALL_NET_TCP_IO_MAX 65536U
@@ -2894,6 +2894,8 @@ static const char *clks_syscall_name(u64 id) {
         return "WM_ID_AT";
     case CLKS_SYSCALL_WM_SNAPSHOT:
         return "WM_SNAPSHOT";
+    case CLKS_SYSCALL_USER_HEAP_ALLOC:
+        return "USER_HEAP_ALLOC";
     default:
         return "UNKNOWN";
     }
@@ -3626,14 +3628,18 @@ static clks_bool clks_syscall_usc_prompt_popup(const char *app_path, const char 
 
 static enum clks_syscall_usc_decision clks_syscall_usc_prompt_allow(const char *app_path, u64 id, u64 arg0, u64 arg1,
                                                                     u64 arg2) {
-    const char *name = clks_syscall_usc_syscall_name(id);
-    u32 tty_index = clks_exec_current_tty();
-
 #if !defined(CLKS_CFG_KEYBOARD) || (CLKS_CFG_KEYBOARD == 0)
-    (void)tty_index;
+    (void)app_path;
+    (void)id;
+    (void)arg0;
+    (void)arg1;
+    (void)arg2;
     clks_syscall_usc_emit_text_line("BLOCK", "keyboard disabled, cannot prompt");
     return CLKS_SYSCALL_USC_DECISION_DENY;
 #else
+    const char *name = clks_syscall_usc_syscall_name(id);
+    u32 tty_index = clks_exec_current_tty();
+
     clks_syscall_usc_emit_text_line("DANGEROUS_SYSCALL", "REQUEST DETECTED");
     clks_syscall_usc_emit_text_line("APP", app_path);
     clks_syscall_usc_emit_hex_line("SYSCALL_ID", id);
@@ -4168,6 +4174,8 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_wm_id_at(frame->rbx, frame->rcx));
     case CLKS_SYSCALL_WM_SNAPSHOT:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_wm_snapshot(frame->rbx, frame->rcx, frame->rdx));
+    case CLKS_SYSCALL_USER_HEAP_ALLOC:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_exec_user_heap_alloc(frame->rbx));
     default:
         CLKS_SYSCALL_DISPATCH_RETURN((u64)-1);
     }
