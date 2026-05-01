@@ -350,13 +350,13 @@ void clks_kernel_main(void) {
         clks_cpu_halt_forever();
     }
 
+    clks_net_init();
+
 #if CLKS_CFG_DRIVER_MANAGER
     clks_driver_init();
 #else
     clks_log(CLKS_LOG_WARN, "CFG", "DRIVER MANAGER DISABLED BY MENUCONFIG");
 #endif
-
-    clks_net_init();
 
 #if CLKS_CFG_KELF
     clks_kelf_init();

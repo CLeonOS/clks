@@ -1,11 +1,15 @@
 #include <clks/cpu.h>
+#include <clks/disk.h>
 #include <clks/elf64.h>
 #include <clks/exec.h>
+#include <clks/framebuffer.h>
 #include <clks/fs.h>
 #include <clks/heap.h>
 #include <clks/interrupts.h>
 #include <clks/keyboard.h>
 #include <clks/log.h>
+#include <clks/mouse.h>
+#include <clks/net.h>
 #include <clks/pty.h>
 #include <clks/serial.h>
 #include <clks/string.h>
@@ -80,6 +84,12 @@ enum clks_exec_fd_kind {
     CLKS_EXEC_FD_KIND_DEV_ZERO = 4,
     CLKS_EXEC_FD_KIND_DEV_RANDOM = 5,
     CLKS_EXEC_FD_KIND_PTY = 6,
+    CLKS_EXEC_FD_KIND_DEV_FB0 = 7,
+    CLKS_EXEC_FD_KIND_DEV_KBD = 8,
+    CLKS_EXEC_FD_KIND_DEV_MOUSE = 9,
+    CLKS_EXEC_FD_KIND_DEV_NET0 = 10,
+    CLKS_EXEC_FD_KIND_DEV_TTY0 = 11,
+    CLKS_EXEC_FD_KIND_DEV_DISK0 = 12,
 };
 
 enum clks_exec_proc_state {
@@ -1088,6 +1098,10 @@ static clks_bool clks_exec_path_is_dev_tty(const char *path) {
     return (path != CLKS_NULL && clks_strcmp(path, "/dev/tty") == 0) ? CLKS_TRUE : CLKS_FALSE;
 }
 
+static clks_bool clks_exec_path_is_dev_tty0(const char *path) {
+    return (path != CLKS_NULL && clks_strcmp(path, "/dev/tty0") == 0) ? CLKS_TRUE : CLKS_FALSE;
+}
+
 static clks_bool clks_exec_path_is_dev_null(const char *path) {
     return (path != CLKS_NULL && clks_strcmp(path, "/dev/null") == 0) ? CLKS_TRUE : CLKS_FALSE;
 }
@@ -1106,6 +1120,312 @@ static clks_bool clks_exec_path_is_dev_random(const char *path) {
     }
 
     return (clks_strcmp(path, "/dev/urandom") == 0) ? CLKS_TRUE : CLKS_FALSE;
+}
+
+static clks_bool clks_exec_path_is_dev_fb0(const char *path) {
+    return (path != CLKS_NULL && clks_strcmp(path, "/dev/fb0") == 0) ? CLKS_TRUE : CLKS_FALSE;
+}
+
+static clks_bool clks_exec_path_is_dev_kbd(const char *path) {
+    return (path != CLKS_NULL && clks_strcmp(path, "/dev/input/kbd") == 0) ? CLKS_TRUE : CLKS_FALSE;
+}
+
+static clks_bool clks_exec_path_is_dev_mouse(const char *path) {
+    return (path != CLKS_NULL && clks_strcmp(path, "/dev/input/mouse") == 0) ? CLKS_TRUE : CLKS_FALSE;
+}
+
+static clks_bool clks_exec_path_is_dev_net0(const char *path) {
+    return (path != CLKS_NULL && clks_strcmp(path, "/dev/net0") == 0) ? CLKS_TRUE : CLKS_FALSE;
+}
+
+static clks_bool clks_exec_path_is_dev_disk0(const char *path) {
+    return (path != CLKS_NULL && clks_strcmp(path, "/dev/disk0") == 0) ? CLKS_TRUE : CLKS_FALSE;
+}
+
+static clks_bool clks_exec_path_is_new_dev_node(const char *path) {
+    if (clks_exec_path_is_dev_fb0(path) == CLKS_TRUE || clks_exec_path_is_dev_kbd(path) == CLKS_TRUE ||
+        clks_exec_path_is_dev_mouse(path) == CLKS_TRUE || clks_exec_path_is_dev_net0(path) == CLKS_TRUE ||
+        clks_exec_path_is_dev_tty0(path) == CLKS_TRUE || clks_exec_path_is_dev_disk0(path) == CLKS_TRUE) {
+        return CLKS_TRUE;
+    }
+
+    return CLKS_FALSE;
+}
+
+static void clks_exec_text_append_char(char *out, usize out_size, usize *io_pos, char ch) {
+    if (out == CLKS_NULL || io_pos == CLKS_NULL || out_size == 0U) {
+        return;
+    }
+
+    if (*io_pos + 1U >= out_size) {
+        out[out_size - 1U] = '\0';
+        return;
+    }
+
+    out[*io_pos] = ch;
+    *io_pos = *io_pos + 1U;
+    out[*io_pos] = '\0';
+}
+
+static void clks_exec_text_append(const char *text, char *out, usize out_size, usize *io_pos) {
+    usize i = 0U;
+
+    if (text == CLKS_NULL) {
+        return;
+    }
+
+    while (text[i] != '\0') {
+        clks_exec_text_append_char(out, out_size, io_pos, text[i]);
+        i++;
+    }
+}
+
+static void clks_exec_text_append_u64_dec(u64 value, char *out, usize out_size, usize *io_pos) {
+    char tmp[24];
+    usize len = 0U;
+
+    if (value == 0ULL) {
+        clks_exec_text_append_char(out, out_size, io_pos, '0');
+        return;
+    }
+
+    while (value != 0ULL && len < sizeof(tmp)) {
+        tmp[len] = (char)('0' + (value % 10ULL));
+        value /= 10ULL;
+        len++;
+    }
+
+    while (len != 0U) {
+        len--;
+        clks_exec_text_append_char(out, out_size, io_pos, tmp[len]);
+    }
+}
+
+static void clks_exec_text_append_i32_dec(i32 value, char *out, usize out_size, usize *io_pos) {
+    u64 mag;
+
+    if (value < 0) {
+        clks_exec_text_append_char(out, out_size, io_pos, '-');
+        mag = (u64)(-(i64)value);
+    } else {
+        mag = (u64)value;
+    }
+
+    clks_exec_text_append_u64_dec(mag, out, out_size, io_pos);
+}
+
+static void clks_exec_text_append_ipv4(u32 ipv4_be, char *out, usize out_size, usize *io_pos) {
+    clks_exec_text_append_u64_dec((u64)((ipv4_be >> 24U) & 0xFFU), out, out_size, io_pos);
+    clks_exec_text_append_char(out, out_size, io_pos, '.');
+    clks_exec_text_append_u64_dec((u64)((ipv4_be >> 16U) & 0xFFU), out, out_size, io_pos);
+    clks_exec_text_append_char(out, out_size, io_pos, '.');
+    clks_exec_text_append_u64_dec((u64)((ipv4_be >> 8U) & 0xFFU), out, out_size, io_pos);
+    clks_exec_text_append_char(out, out_size, io_pos, '.');
+    clks_exec_text_append_u64_dec((u64)(ipv4_be & 0xFFU), out, out_size, io_pos);
+}
+
+static u64 clks_exec_dev_copy_text(struct clks_exec_fd_entry *entry, const char *text, void *out_buffer, u64 size) {
+    u64 text_len;
+    u64 read_len;
+
+    if (entry == CLKS_NULL || text == CLKS_NULL || out_buffer == CLKS_NULL || size == 0ULL) {
+        return 0ULL;
+    }
+
+    text_len = (u64)clks_strlen(text);
+
+    if (entry->offset >= text_len) {
+        return 0ULL;
+    }
+
+    read_len = text_len - entry->offset;
+    if (read_len > size) {
+        read_len = size;
+    }
+
+    clks_memcpy(out_buffer, (const u8 *)text + (usize)entry->offset, (usize)read_len);
+    entry->offset += read_len;
+    return read_len;
+}
+
+static u64 clks_exec_dev_fb0_read(struct clks_exec_fd_entry *entry, void *out_buffer, u64 size) {
+    char text[160];
+    usize pos = 0U;
+    struct clks_framebuffer_info info;
+
+    clks_memset(text, 0, sizeof(text));
+
+    if (clks_fb_ready() == CLKS_FALSE) {
+        clks_exec_text_append("available=0\n", text, sizeof(text), &pos);
+        return clks_exec_dev_copy_text(entry, text, out_buffer, size);
+    }
+
+    info = clks_fb_info();
+    clks_exec_text_append("available=1 width=", text, sizeof(text), &pos);
+    clks_exec_text_append_u64_dec((u64)info.width, text, sizeof(text), &pos);
+    clks_exec_text_append(" height=", text, sizeof(text), &pos);
+    clks_exec_text_append_u64_dec((u64)info.height, text, sizeof(text), &pos);
+    clks_exec_text_append(" pitch=", text, sizeof(text), &pos);
+    clks_exec_text_append_u64_dec((u64)info.pitch, text, sizeof(text), &pos);
+    clks_exec_text_append(" bpp=", text, sizeof(text), &pos);
+    clks_exec_text_append_u64_dec((u64)info.bpp, text, sizeof(text), &pos);
+    clks_exec_text_append("\n", text, sizeof(text), &pos);
+    return clks_exec_dev_copy_text(entry, text, out_buffer, size);
+}
+
+static u64 clks_exec_dev_mouse_read(struct clks_exec_fd_entry *entry, void *out_buffer, u64 size) {
+    char text[160];
+    usize pos = 0U;
+    struct clks_mouse_state state;
+
+    clks_memset(text, 0, sizeof(text));
+    clks_mouse_snapshot(&state);
+    clks_exec_text_append("ready=", text, sizeof(text), &pos);
+    clks_exec_text_append_u64_dec((state.ready == CLKS_TRUE) ? 1ULL : 0ULL, text, sizeof(text), &pos);
+    clks_exec_text_append(" x=", text, sizeof(text), &pos);
+    clks_exec_text_append_i32_dec(state.x, text, sizeof(text), &pos);
+    clks_exec_text_append(" y=", text, sizeof(text), &pos);
+    clks_exec_text_append_i32_dec(state.y, text, sizeof(text), &pos);
+    clks_exec_text_append(" buttons=", text, sizeof(text), &pos);
+    clks_exec_text_append_u64_dec((u64)state.buttons, text, sizeof(text), &pos);
+    clks_exec_text_append(" packets=", text, sizeof(text), &pos);
+    clks_exec_text_append_u64_dec(state.packet_count, text, sizeof(text), &pos);
+    clks_exec_text_append("\n", text, sizeof(text), &pos);
+    return clks_exec_dev_copy_text(entry, text, out_buffer, size);
+}
+
+static u64 clks_exec_dev_net0_read(struct clks_exec_fd_entry *entry, void *out_buffer, u64 size) {
+    char text[224];
+    usize pos = 0U;
+
+    clks_memset(text, 0, sizeof(text));
+    clks_exec_text_append("available=", text, sizeof(text), &pos);
+    clks_exec_text_append_u64_dec((clks_net_available() == CLKS_TRUE) ? 1ULL : 0ULL, text, sizeof(text), &pos);
+    clks_exec_text_append(" ipv4=", text, sizeof(text), &pos);
+    clks_exec_text_append_ipv4(clks_net_ipv4_addr_be(), text, sizeof(text), &pos);
+    clks_exec_text_append(" netmask=", text, sizeof(text), &pos);
+    clks_exec_text_append_ipv4(clks_net_ipv4_netmask_be(), text, sizeof(text), &pos);
+    clks_exec_text_append(" gateway=", text, sizeof(text), &pos);
+    clks_exec_text_append_ipv4(clks_net_ipv4_gateway_be(), text, sizeof(text), &pos);
+    clks_exec_text_append(" dns=", text, sizeof(text), &pos);
+    clks_exec_text_append_ipv4(clks_net_ipv4_dns_be(), text, sizeof(text), &pos);
+    clks_exec_text_append("\n", text, sizeof(text), &pos);
+    return clks_exec_dev_copy_text(entry, text, out_buffer, size);
+}
+
+static u64 clks_exec_dev_disk0_read(struct clks_exec_fd_entry *entry, void *out_buffer, u64 size) {
+    char text[192];
+    usize pos = 0U;
+
+    clks_memset(text, 0, sizeof(text));
+    clks_exec_text_append("present=", text, sizeof(text), &pos);
+    clks_exec_text_append_u64_dec((clks_disk_present() == CLKS_TRUE) ? 1ULL : 0ULL, text, sizeof(text), &pos);
+    clks_exec_text_append(" bytes=", text, sizeof(text), &pos);
+    clks_exec_text_append_u64_dec(clks_disk_size_bytes(), text, sizeof(text), &pos);
+    clks_exec_text_append(" sectors=", text, sizeof(text), &pos);
+    clks_exec_text_append_u64_dec(clks_disk_sector_count(), text, sizeof(text), &pos);
+    clks_exec_text_append(" fat32=", text, sizeof(text), &pos);
+    clks_exec_text_append_u64_dec((clks_disk_is_formatted_fat32() == CLKS_TRUE) ? 1ULL : 0ULL, text, sizeof(text),
+                                  &pos);
+    clks_exec_text_append(" mounted=", text, sizeof(text), &pos);
+    clks_exec_text_append_u64_dec((clks_disk_is_mounted() == CLKS_TRUE) ? 1ULL : 0ULL, text, sizeof(text), &pos);
+    clks_exec_text_append("\n", text, sizeof(text), &pos);
+    return clks_exec_dev_copy_text(entry, text, out_buffer, size);
+}
+
+static u64 clks_exec_parse_hex_rgb(const char *text, u64 len, u32 *out_rgb) {
+    u64 i = 0ULL;
+    u64 value = 0ULL;
+    u64 digits = 0ULL;
+
+    if (text == CLKS_NULL || out_rgb == CLKS_NULL) {
+        return 0ULL;
+    }
+
+    while (i < len && (text[i] == ' ' || text[i] == '\t' || text[i] == '\n' || text[i] == '\r')) {
+        i++;
+    }
+
+    if (i + 2ULL <= len && text[i] == '0' && (text[i + 1ULL] == 'x' || text[i + 1ULL] == 'X')) {
+        i += 2ULL;
+    } else if (i < len && text[i] == '#') {
+        i++;
+    }
+
+    while (i < len) {
+        char ch = text[i];
+        u64 digit;
+
+        if (ch >= '0' && ch <= '9') {
+            digit = (u64)(ch - '0');
+        } else if (ch >= 'a' && ch <= 'f') {
+            digit = (u64)(ch - 'a') + 10ULL;
+        } else if (ch >= 'A' && ch <= 'F') {
+            digit = (u64)(ch - 'A') + 10ULL;
+        } else {
+            break;
+        }
+
+        if (digits >= 8ULL) {
+            return 0ULL;
+        }
+
+        value = (value << 4ULL) | digit;
+        digits++;
+        i++;
+    }
+
+    if (digits == 0ULL) {
+        return 0ULL;
+    }
+
+    *out_rgb = (u32)(value & 0x00FFFFFFULL);
+    return 1ULL;
+}
+
+static clks_bool clks_exec_buffer_starts_with(const char *buffer, u64 size, const char *prefix) {
+    u64 i = 0ULL;
+
+    if (buffer == CLKS_NULL || prefix == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    while (prefix[i] != '\0') {
+        if (i >= size || buffer[i] != prefix[i]) {
+            return CLKS_FALSE;
+        }
+
+        i++;
+    }
+
+    return CLKS_TRUE;
+}
+
+static u64 clks_exec_dev_fb0_write(const void *buffer, u64 size) {
+    const char *text = (const char *)buffer;
+    struct clks_framebuffer_info info;
+    u64 frame_bytes;
+    u32 rgb = 0U;
+
+    if (clks_fb_ready() == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    if (clks_exec_buffer_starts_with(text, size, "clear ") == CLKS_TRUE &&
+        clks_exec_parse_hex_rgb(text + 6, size - 6ULL, &rgb) != 0ULL) {
+        clks_fb_clear(rgb);
+        return size;
+    }
+
+    info = clks_fb_info();
+    frame_bytes = (u64)info.width * (u64)info.height * 4ULL;
+
+    if (size == frame_bytes && info.bpp == 32U) {
+        clks_fb_blit_rgba(0, 0, buffer, info.width, info.height, info.width * 4U);
+        return size;
+    }
+
+    return (u64)-1;
 }
 
 static u8 clks_exec_random_next_byte(void) {
@@ -2096,15 +2416,16 @@ u64 clks_exec_fd_open(const char *path, u64 flags, u64 mode) {
         return (u64)-1;
     }
 
-    if (clks_exec_path_is_dev_tty(path) == CLKS_TRUE) {
+    if (clks_exec_path_is_dev_tty(path) == CLKS_TRUE || clks_exec_path_is_dev_tty0(path) == CLKS_TRUE) {
         struct clks_exec_fd_entry *entry = &proc->fds[(u32)fd_slot];
 
         clks_memset(entry, 0, sizeof(*entry));
         entry->used = CLKS_TRUE;
-        entry->kind = CLKS_EXEC_FD_KIND_TTY;
+        entry->kind = (clks_exec_path_is_dev_tty0(path) == CLKS_TRUE) ? CLKS_EXEC_FD_KIND_DEV_TTY0
+                                                                      : CLKS_EXEC_FD_KIND_TTY;
         entry->flags = flags;
         entry->offset = 0ULL;
-        entry->tty_index = proc->tty_index;
+        entry->tty_index = (clks_exec_path_is_dev_tty0(path) == CLKS_TRUE) ? 0U : proc->tty_index;
         entry->path[0] = '\0';
         return (u64)fd_slot;
     }
@@ -2126,6 +2447,34 @@ u64 clks_exec_fd_open(const char *path, u64 flags, u64 mode) {
             entry->kind = CLKS_EXEC_FD_KIND_DEV_ZERO;
         } else {
             entry->kind = CLKS_EXEC_FD_KIND_DEV_RANDOM;
+        }
+
+        return (u64)fd_slot;
+    }
+
+    if (clks_exec_path_is_new_dev_node(path) == CLKS_TRUE) {
+        struct clks_exec_fd_entry *entry = &proc->fds[(u32)fd_slot];
+
+        clks_memset(entry, 0, sizeof(*entry));
+        entry->used = CLKS_TRUE;
+        entry->flags = flags;
+        entry->offset = 0ULL;
+        entry->tty_index = proc->tty_index;
+        entry->path[0] = '\0';
+
+        if (clks_exec_path_is_dev_fb0(path) == CLKS_TRUE) {
+            entry->kind = CLKS_EXEC_FD_KIND_DEV_FB0;
+        } else if (clks_exec_path_is_dev_kbd(path) == CLKS_TRUE) {
+            entry->kind = CLKS_EXEC_FD_KIND_DEV_KBD;
+        } else if (clks_exec_path_is_dev_mouse(path) == CLKS_TRUE) {
+            entry->kind = CLKS_EXEC_FD_KIND_DEV_MOUSE;
+        } else if (clks_exec_path_is_dev_net0(path) == CLKS_TRUE) {
+            entry->kind = CLKS_EXEC_FD_KIND_DEV_NET0;
+        } else if (clks_exec_path_is_dev_disk0(path) == CLKS_TRUE) {
+            entry->kind = CLKS_EXEC_FD_KIND_DEV_DISK0;
+        } else {
+            entry->kind = CLKS_EXEC_FD_KIND_DEV_TTY0;
+            entry->tty_index = 0U;
         }
 
         return (u64)fd_slot;
@@ -2220,7 +2569,8 @@ u64 clks_exec_fd_read(u64 fd, void *out_buffer, u64 size) {
         return (u64)-1;
     }
 
-    if (entry->kind == CLKS_EXEC_FD_KIND_TTY) {
+    if (entry->kind == CLKS_EXEC_FD_KIND_TTY || entry->kind == CLKS_EXEC_FD_KIND_DEV_TTY0 ||
+        entry->kind == CLKS_EXEC_FD_KIND_DEV_KBD) {
         u64 count = 0ULL;
         char *dst = (char *)out_buffer;
 
@@ -2236,6 +2586,23 @@ u64 clks_exec_fd_read(u64 fd, void *out_buffer, u64 size) {
         }
 
         return count;
+    }
+
+    if (entry->kind == CLKS_EXEC_FD_KIND_DEV_FB0) {
+        return clks_exec_dev_fb0_read(entry, out_buffer, size);
+    }
+
+    if (entry->kind == CLKS_EXEC_FD_KIND_DEV_MOUSE) {
+        return clks_exec_dev_mouse_read(entry, out_buffer, size);
+    }
+
+    if (entry->kind == CLKS_EXEC_FD_KIND_DEV_NET0) {
+        clks_net_poll();
+        return clks_exec_dev_net0_read(entry, out_buffer, size);
+    }
+
+    if (entry->kind == CLKS_EXEC_FD_KIND_DEV_DISK0) {
+        return clks_exec_dev_disk0_read(entry, out_buffer, size);
     }
 
     if (entry->kind == CLKS_EXEC_FD_KIND_DEV_NULL) {
@@ -2299,9 +2666,28 @@ u64 clks_exec_fd_write(u64 fd, const void *buffer, u64 size) {
         return (u64)-1;
     }
 
-    if (entry->kind == CLKS_EXEC_FD_KIND_TTY) {
+    if (entry->kind == CLKS_EXEC_FD_KIND_TTY || entry->kind == CLKS_EXEC_FD_KIND_DEV_TTY0) {
         clks_tty_write_n_to(entry->tty_index, (const char *)buffer, (usize)size);
         return size;
+    }
+
+    if (entry->kind == CLKS_EXEC_FD_KIND_DEV_FB0) {
+        u64 wrote = clks_exec_dev_fb0_write(buffer, size);
+        if (wrote != (u64)-1) {
+            entry->offset += wrote;
+        }
+        return wrote;
+    }
+
+    if (entry->kind == CLKS_EXEC_FD_KIND_DEV_NET0) {
+        clks_net_poll();
+        entry->offset += size;
+        return size;
+    }
+
+    if (entry->kind == CLKS_EXEC_FD_KIND_DEV_KBD || entry->kind == CLKS_EXEC_FD_KIND_DEV_MOUSE ||
+        entry->kind == CLKS_EXEC_FD_KIND_DEV_DISK0) {
+        return (u64)-1;
     }
 
     if (entry->kind == CLKS_EXEC_FD_KIND_DEV_NULL || entry->kind == CLKS_EXEC_FD_KIND_DEV_ZERO ||

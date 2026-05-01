@@ -14,6 +14,9 @@
 
 #define CLKS_FS_NODE_FLAG_HEAP_DATA 0x0001U
 
+static const char *const clks_fs_dev_children[] = {"tty0", "fb0", "net0", "disk0", "input"};
+static const char *const clks_fs_dev_input_children[] = {"kbd", "mouse"};
+
 struct clks_fs_node {
     clks_bool used;
     enum clks_fs_node_type type;
@@ -153,6 +156,73 @@ static i32 clks_fs_find_node_by_external(const char *external_path) {
     }
 
     return clks_fs_find_node_by_internal(internal);
+}
+
+static clks_bool clks_fs_external_path_equals(const char *path, const char *expected) {
+    return (path != CLKS_NULL && expected != CLKS_NULL && clks_strcmp(path, expected) == 0) ? CLKS_TRUE : CLKS_FALSE;
+}
+
+static clks_bool clks_fs_is_dynamic_dev_dir(const char *path) {
+    return (clks_fs_external_path_equals(path, "/dev/input") == CLKS_TRUE) ? CLKS_TRUE : CLKS_FALSE;
+}
+
+static clks_bool clks_fs_is_dynamic_dev_file(const char *path) {
+    if (clks_fs_external_path_equals(path, "/dev/fb0") == CLKS_TRUE ||
+        clks_fs_external_path_equals(path, "/dev/net0") == CLKS_TRUE ||
+        clks_fs_external_path_equals(path, "/dev/disk0") == CLKS_TRUE ||
+        clks_fs_external_path_equals(path, "/dev/tty0") == CLKS_TRUE ||
+        clks_fs_external_path_equals(path, "/dev/input/kbd") == CLKS_TRUE ||
+        clks_fs_external_path_equals(path, "/dev/input/mouse") == CLKS_TRUE) {
+        return CLKS_TRUE;
+    }
+
+    return CLKS_FALSE;
+}
+
+static u64 clks_fs_dynamic_dev_child_count(const char *dir_path) {
+    if (clks_fs_external_path_equals(dir_path, "/dev") == CLKS_TRUE) {
+        return (u64)(sizeof(clks_fs_dev_children) / sizeof(clks_fs_dev_children[0]));
+    }
+
+    if (clks_fs_external_path_equals(dir_path, "/dev/input") == CLKS_TRUE) {
+        return (u64)(sizeof(clks_fs_dev_input_children) / sizeof(clks_fs_dev_input_children[0]));
+    }
+
+    return 0ULL;
+}
+
+static clks_bool clks_fs_dynamic_dev_child_name(const char *dir_path, u64 index, char *out_name,
+                                                usize out_name_size) {
+    const char *name = CLKS_NULL;
+    usize len;
+
+    if (out_name == CLKS_NULL || out_name_size == 0U) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_fs_external_path_equals(dir_path, "/dev") == CLKS_TRUE) {
+        if (index >= (u64)(sizeof(clks_fs_dev_children) / sizeof(clks_fs_dev_children[0]))) {
+            return CLKS_FALSE;
+        }
+
+        name = clks_fs_dev_children[index];
+    } else if (clks_fs_external_path_equals(dir_path, "/dev/input") == CLKS_TRUE) {
+        if (index >= (u64)(sizeof(clks_fs_dev_input_children) / sizeof(clks_fs_dev_input_children[0]))) {
+            return CLKS_FALSE;
+        }
+
+        name = clks_fs_dev_input_children[index];
+    } else {
+        return CLKS_FALSE;
+    }
+
+    len = clks_strlen(name);
+    if (len + 1U > out_name_size) {
+        return CLKS_FALSE;
+    }
+
+    clks_memcpy(out_name, name, len + 1U);
+    return CLKS_TRUE;
 }
 
 static const char *clks_fs_basename(const char *internal_path) {
@@ -571,6 +641,18 @@ clks_bool clks_fs_stat(const char *path, struct clks_fs_node_info *out_info) {
         return CLKS_TRUE;
     }
 
+    if (clks_fs_is_dynamic_dev_dir(path) == CLKS_TRUE) {
+        out_info->type = CLKS_FS_NODE_DIR;
+        out_info->size = 0ULL;
+        return CLKS_TRUE;
+    }
+
+    if (clks_fs_is_dynamic_dev_file(path) == CLKS_TRUE) {
+        out_info->type = CLKS_FS_NODE_FILE;
+        out_info->size = 0ULL;
+        return CLKS_TRUE;
+    }
+
     node_index = clks_fs_find_node_by_external(path);
 
     if (node_index < 0) {
@@ -629,6 +711,10 @@ u64 clks_fs_count_children(const char *dir_path) {
         return clks_disk_count_children(dir_path);
     }
 
+    if (clks_fs_is_dynamic_dev_dir(dir_path) == CLKS_TRUE) {
+        return clks_fs_dynamic_dev_child_count(dir_path);
+    }
+
     dir_index = clks_fs_find_node_by_external(dir_path);
 
     if (dir_index < 0) {
@@ -653,6 +739,7 @@ u64 clks_fs_count_children(const char *dir_path) {
         }
     }
 
+    count += clks_fs_dynamic_dev_child_count(dir_path);
     return count;
 }
 
@@ -667,6 +754,10 @@ clks_bool clks_fs_get_child_name(const char *dir_path, u64 index, char *out_name
 
     if (clks_disk_path_in_mount(dir_path) == CLKS_TRUE) {
         return clks_disk_get_child_name(dir_path, index, out_name, out_name_size);
+    }
+
+    if (clks_fs_is_dynamic_dev_dir(dir_path) == CLKS_TRUE) {
+        return clks_fs_dynamic_dev_child_name(dir_path, index, out_name, out_name_size);
     }
 
     dir_index = clks_fs_find_node_by_external(dir_path);
@@ -704,6 +795,11 @@ clks_bool clks_fs_get_child_name(const char *dir_path, u64 index, char *out_name
         }
 
         clks_memcpy(out_name, base, base_len + 1U);
+        return CLKS_TRUE;
+    }
+
+    if (index >= current &&
+        clks_fs_dynamic_dev_child_name(dir_path, index - current, out_name, out_name_size) == CLKS_TRUE) {
         return CLKS_TRUE;
     }
 

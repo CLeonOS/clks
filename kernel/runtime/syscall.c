@@ -1,6 +1,7 @@
 #include <clks/cpu.h>
 #include <clks/audio.h>
 #include <clks/disk.h>
+#include <clks/driver.h>
 #include <clks/exec.h>
 #include <clks/framebuffer.h>
 #include <clks/fs.h>
@@ -40,7 +41,7 @@
 #define CLKS_SYSCALL_KDBG_STACK_WINDOW_BYTES (128ULL * 1024ULL)
 #define CLKS_SYSCALL_KERNEL_SYMBOL_FILE "/system/kernel.sym"
 #define CLKS_SYSCALL_KERNEL_ADDR_BASE 0xFFFF800000000000ULL
-#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_USER_HEAP_ALLOC
+#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_DRIVER_RELOAD
 #define CLKS_SYSCALL_DISK_SECTOR_BYTES 512U
 #define CLKS_SYSCALL_NET_UDP_PAYLOAD_MAX 1472U
 #define CLKS_SYSCALL_NET_TCP_IO_MAX 65536U
@@ -201,6 +202,19 @@ struct clks_syscall_net_tcp_recv_req {
     u64 out_payload_ptr;
     u64 payload_capacity;
     u64 poll_budget;
+};
+
+struct clks_syscall_driver_info_user {
+    char name[CLKS_DRIVER_NAME_MAX];
+    char path[CLKS_DRIVER_PATH_MAX];
+    u64 kind;
+    u64 state;
+    u64 driver_class;
+    u64 from_elf;
+    u64 image_size;
+    u64 elf_entry;
+    u64 load_id;
+    u64 owner_pid;
 };
 
 struct clks_syscall_mouse_state_user {
@@ -1186,6 +1200,65 @@ static u64 clks_syscall_fd_dup(u64 arg0) {
 
 static u64 clks_syscall_pty_open(void) {
     return clks_exec_fd_open_pty();
+}
+
+static u64 clks_syscall_driver_count(void) {
+    return clks_driver_count();
+}
+
+static u64 clks_syscall_driver_info(u64 arg0, u64 arg1, u64 arg2) {
+    struct clks_driver_info info;
+    struct clks_syscall_driver_info_user out_info;
+
+    if (arg1 == 0ULL || arg2 < (u64)sizeof(out_info)) {
+        return 0ULL;
+    }
+
+    if (clks_syscall_user_ptr_writable(arg1, (u64)sizeof(out_info)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    if (clks_driver_get(arg0, &info) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    clks_memset(&out_info, 0, sizeof(out_info));
+    clks_memcpy(out_info.name, info.name, sizeof(out_info.name));
+    clks_memcpy(out_info.path, info.path, sizeof(out_info.path));
+    out_info.kind = (u64)info.kind;
+    out_info.state = (u64)info.state;
+    out_info.driver_class = (u64)info.driver_class;
+    out_info.from_elf = (info.from_elf == CLKS_TRUE) ? 1ULL : 0ULL;
+    out_info.image_size = info.image_size;
+    out_info.elf_entry = info.elf_entry;
+    out_info.load_id = info.load_id;
+    out_info.owner_pid = info.owner_pid;
+    clks_memcpy((void *)(usize)arg1, &out_info, sizeof(out_info));
+    return 1ULL;
+}
+
+static u64 clks_syscall_driver_load(u64 arg0) {
+    char path[CLKS_SYSCALL_PATH_MAX];
+
+    if (clks_syscall_copy_user_string(arg0, path, sizeof(path)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    return clks_driver_load_path(path);
+}
+
+static u64 clks_syscall_driver_unload(u64 arg0) {
+    char name_or_path[CLKS_SYSCALL_PATH_MAX];
+
+    if (clks_syscall_copy_user_string(arg0, name_or_path, sizeof(name_or_path)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    return (clks_driver_unload(name_or_path) == CLKS_TRUE) ? 1ULL : 0ULL;
+}
+
+static u64 clks_syscall_driver_reload(void) {
+    return clks_driver_reload_elf_dir();
 }
 
 static u64 clks_syscall_dl_open(u64 arg0) {
@@ -2896,6 +2969,16 @@ static const char *clks_syscall_name(u64 id) {
         return "WM_SNAPSHOT";
     case CLKS_SYSCALL_USER_HEAP_ALLOC:
         return "USER_HEAP_ALLOC";
+    case CLKS_SYSCALL_DRIVER_COUNT:
+        return "DRIVER_COUNT";
+    case CLKS_SYSCALL_DRIVER_INFO:
+        return "DRIVER_INFO";
+    case CLKS_SYSCALL_DRIVER_LOAD:
+        return "DRIVER_LOAD";
+    case CLKS_SYSCALL_DRIVER_UNLOAD:
+        return "DRIVER_UNLOAD";
+    case CLKS_SYSCALL_DRIVER_RELOAD:
+        return "DRIVER_RELOAD";
     default:
         return "UNKNOWN";
     }
@@ -4176,6 +4259,16 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_wm_snapshot(frame->rbx, frame->rcx, frame->rdx));
     case CLKS_SYSCALL_USER_HEAP_ALLOC:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_exec_user_heap_alloc(frame->rbx));
+    case CLKS_SYSCALL_DRIVER_COUNT:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_driver_count());
+    case CLKS_SYSCALL_DRIVER_INFO:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_driver_info(frame->rbx, frame->rcx, frame->rdx));
+    case CLKS_SYSCALL_DRIVER_LOAD:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_driver_load(frame->rbx));
+    case CLKS_SYSCALL_DRIVER_UNLOAD:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_driver_unload(frame->rbx));
+    case CLKS_SYSCALL_DRIVER_RELOAD:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_driver_reload());
     default:
         CLKS_SYSCALL_DISPATCH_RETURN((u64)-1);
     }
