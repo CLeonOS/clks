@@ -634,18 +634,6 @@ static clks_bool clks_shell_parse_u64_dec(const char *text, u64 *out_value) {
     return CLKS_TRUE;
 }
 
-static clks_bool clks_shell_path_is_under_temp(const char *path) {
-    if (path == CLKS_NULL) {
-        return CLKS_FALSE;
-    }
-
-    if (path[0] != '/' || path[1] != 't' || path[2] != 'e' || path[3] != 'm' || path[4] != 'p') {
-        return CLKS_FALSE;
-    }
-
-    return (path[5] == '\0' || path[5] == '/') ? CLKS_TRUE : CLKS_FALSE;
-}
-
 static void clks_shell_write_hex_u64(u64 value) {
     int nibble;
 
@@ -672,13 +660,13 @@ static clks_bool clks_shell_cmd_help(void) {
     clks_shell_writeln("  cat <file>");
     clks_shell_writeln("  pwd");
     clks_shell_writeln("  cd [dir]");
-    clks_shell_writeln("  mkdir <dir>      (/temp only)");
-    clks_shell_writeln("  touch <file>     (/temp only)");
-    clks_shell_writeln("  write <file> <text>   (/temp only)");
-    clks_shell_writeln("  append <file> <text>  (/temp only)");
-    clks_shell_writeln("  cp <src> <dst>   (dst /temp only)");
-    clks_shell_writeln("  mv <src> <dst>   (/temp only)");
-    clks_shell_writeln("  rm <path>        (/temp only)");
+    clks_shell_writeln("  mkdir <dir>");
+    clks_shell_writeln("  touch <file>");
+    clks_shell_writeln("  write <file> <text>");
+    clks_shell_writeln("  append <file> <text>");
+    clks_shell_writeln("  cp <src> <dst>");
+    clks_shell_writeln("  mv <src> <dst>");
+    clks_shell_writeln("  rm <path>");
     clks_shell_writeln("  memstat / fsstat / taskstat");
     clks_shell_writeln("  dmesg [n]");
     clks_shell_writeln("  shstat");
@@ -816,12 +804,6 @@ static clks_bool clks_shell_cmd_mkdir(const char *arg) {
         clks_shell_writeln("mkdir: invalid path");
         return CLKS_FALSE;
     }
-
-    if (clks_shell_path_is_under_temp(path) == CLKS_FALSE) {
-        clks_shell_writeln("mkdir: target must be under /temp");
-        return CLKS_FALSE;
-    }
-
     if (clks_fs_mkdir(path) == CLKS_FALSE) {
         clks_shell_writeln("mkdir: failed");
         return CLKS_FALSE;
@@ -843,12 +825,6 @@ static clks_bool clks_shell_cmd_touch(const char *arg) {
         clks_shell_writeln("touch: invalid path");
         return CLKS_FALSE;
     }
-
-    if (clks_shell_path_is_under_temp(path) == CLKS_FALSE) {
-        clks_shell_writeln("touch: target must be under /temp");
-        return CLKS_FALSE;
-    }
-
     if (clks_fs_write_all(path, empty_data, 0ULL) == CLKS_FALSE) {
         clks_shell_writeln("touch: failed");
         return CLKS_FALSE;
@@ -877,12 +853,6 @@ static clks_bool clks_shell_cmd_write(const char *arg) {
         clks_shell_writeln("write: invalid path");
         return CLKS_FALSE;
     }
-
-    if (clks_shell_path_is_under_temp(abs_path) == CLKS_FALSE) {
-        clks_shell_writeln("write: target must be under /temp");
-        return CLKS_FALSE;
-    }
-
     payload_len = clks_strlen(payload);
 
     if (clks_fs_write_all(abs_path, payload, payload_len) == CLKS_FALSE) {
@@ -913,12 +883,6 @@ static clks_bool clks_shell_cmd_append(const char *arg) {
         clks_shell_writeln("append: invalid path");
         return CLKS_FALSE;
     }
-
-    if (clks_shell_path_is_under_temp(abs_path) == CLKS_FALSE) {
-        clks_shell_writeln("append: target must be under /temp");
-        return CLKS_FALSE;
-    }
-
     payload_len = clks_strlen(payload);
 
     if (clks_fs_append(abs_path, payload, payload_len) == CLKS_FALSE) {
@@ -953,12 +917,6 @@ static clks_bool clks_shell_cmd_cp(const char *arg) {
         clks_shell_writeln("cp: invalid path");
         return CLKS_FALSE;
     }
-
-    if (clks_shell_path_is_under_temp(dst_path) == CLKS_FALSE) {
-        clks_shell_writeln("cp: destination must be under /temp");
-        return CLKS_FALSE;
-    }
-
     if (clks_fs_stat(src_path, &info) == CLKS_FALSE || info.type != CLKS_FS_NODE_FILE) {
         clks_shell_writeln("cp: source file not found");
         return CLKS_FALSE;
@@ -1000,13 +958,6 @@ static clks_bool clks_shell_cmd_mv(const char *arg) {
         clks_shell_writeln("mv: invalid path");
         return CLKS_FALSE;
     }
-
-    if (clks_shell_path_is_under_temp(src_path) == CLKS_FALSE ||
-        clks_shell_path_is_under_temp(dst_path) == CLKS_FALSE) {
-        clks_shell_writeln("mv: source and destination must be under /temp");
-        return CLKS_FALSE;
-    }
-
     if (clks_shell_cmd_cp(arg) == CLKS_FALSE) {
         return CLKS_FALSE;
     }
@@ -1031,12 +982,6 @@ static clks_bool clks_shell_cmd_rm(const char *arg) {
         clks_shell_writeln("rm: invalid path");
         return CLKS_FALSE;
     }
-
-    if (clks_shell_path_is_under_temp(path) == CLKS_FALSE) {
-        clks_shell_writeln("rm: target must be under /temp");
-        return CLKS_FALSE;
-    }
-
     if (clks_fs_remove(path) == CLKS_FALSE) {
         clks_shell_writeln("rm: failed (directory must be empty)");
         return CLKS_FALSE;
@@ -1514,7 +1459,7 @@ void clks_shell_init(void) {
     clks_shell_writeln("");
     clks_shell_writeln("CLeonOS interactive shell ready");
     clks_shell_writeln("type 'help' for commands");
-    clks_shell_writeln("/temp is writable in kernel shell mode");
+    clks_shell_writeln("filesystem write commands are enabled in kernel shell mode");
     clks_shell_prompt();
 
     clks_log(CLKS_LOG_INFO, "SHELL", "INTERACTIVE LOOP ONLINE");

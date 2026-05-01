@@ -106,31 +106,6 @@ static clks_bool clks_fs_normalize_external_path(const char *path, char *out_int
     return CLKS_TRUE;
 }
 
-static clks_bool clks_fs_internal_in_temp_tree(const char *internal_path) {
-    /* Write access is fenced into /temp so random code can't trash the world. */
-    if (internal_path == CLKS_NULL) {
-        return CLKS_FALSE;
-    }
-
-    if (internal_path[0] != 't' || internal_path[1] != 'e' || internal_path[2] != 'm' || internal_path[3] != 'p') {
-        return CLKS_FALSE;
-    }
-
-    return (internal_path[4] == '\0' || internal_path[4] == '/') ? CLKS_TRUE : CLKS_FALSE;
-}
-
-static clks_bool clks_fs_internal_is_temp_file_path(const char *internal_path) {
-    if (clks_fs_internal_in_temp_tree(internal_path) == CLKS_FALSE) {
-        return CLKS_FALSE;
-    }
-
-    if (internal_path[4] == '\0') {
-        return CLKS_FALSE;
-    }
-
-    return CLKS_TRUE;
-}
-
 static i32 clks_fs_find_node_by_internal(const char *internal_path) {
     u16 i;
 
@@ -177,6 +152,48 @@ static clks_bool clks_fs_is_dynamic_dev_file(const char *path) {
     }
 
     return CLKS_FALSE;
+}
+
+static clks_bool clks_fs_internal_path_is_dynamic_dev_file(const char *internal_path) {
+    if (internal_path == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_strcmp(internal_path, "dev/fb0") == 0 || clks_strcmp(internal_path, "dev/net0") == 0 ||
+        clks_strcmp(internal_path, "dev/disk0") == 0 || clks_strcmp(internal_path, "dev/tty0") == 0 ||
+        clks_strcmp(internal_path, "dev/input/kbd") == 0 || clks_strcmp(internal_path, "dev/input/mouse") == 0) {
+        return CLKS_TRUE;
+    }
+
+    return CLKS_FALSE;
+}
+
+static clks_bool clks_fs_internal_path_is_proc_tree(const char *internal_path) {
+    if (internal_path == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    if (internal_path[0] != 'p' || internal_path[1] != 'r' || internal_path[2] != 'o' || internal_path[3] != 'c') {
+        return CLKS_FALSE;
+    }
+
+    return (internal_path[4] == '\0' || internal_path[4] == '/') ? CLKS_TRUE : CLKS_FALSE;
+}
+
+static clks_bool clks_fs_internal_writable_node_path(const char *internal_path) {
+    if (internal_path == CLKS_NULL || internal_path[0] == '\0') {
+        return CLKS_FALSE;
+    }
+
+    if (clks_fs_internal_path_is_proc_tree(internal_path) == CLKS_TRUE) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_fs_internal_path_is_dynamic_dev_file(internal_path) == CLKS_TRUE) {
+        return CLKS_FALSE;
+    }
+
+    return CLKS_TRUE;
 }
 
 static u64 clks_fs_dynamic_dev_child_count(const char *dir_path) {
@@ -822,11 +839,7 @@ clks_bool clks_fs_mkdir(const char *path) {
         return CLKS_FALSE;
     }
 
-    if (clks_fs_internal_in_temp_tree(internal) == CLKS_FALSE) {
-        return CLKS_FALSE;
-    }
-
-    if (internal[0] == '\0') {
+    if (clks_fs_internal_writable_node_path(internal) == CLKS_FALSE) {
         return CLKS_FALSE;
     }
 
@@ -863,15 +876,11 @@ clks_bool clks_fs_write_all(const char *path, const void *data, u64 size) {
         return CLKS_FALSE;
     }
 
-    if (clks_fs_internal_is_temp_file_path(internal) == CLKS_FALSE) {
+    if (clks_fs_internal_writable_node_path(internal) == CLKS_FALSE) {
         return CLKS_FALSE;
     }
 
     if (clks_fs_split_parent(internal, parent, sizeof(parent)) == CLKS_FALSE) {
-        return CLKS_FALSE;
-    }
-
-    if (clks_fs_internal_in_temp_tree(parent) == CLKS_FALSE) {
         return CLKS_FALSE;
     }
 
@@ -936,7 +945,7 @@ clks_bool clks_fs_append(const char *path, const void *data, u64 size) {
         return CLKS_FALSE;
     }
 
-    if (clks_fs_internal_is_temp_file_path(internal) == CLKS_FALSE) {
+    if (clks_fs_internal_writable_node_path(internal) == CLKS_FALSE) {
         return CLKS_FALSE;
     }
 
@@ -1002,11 +1011,7 @@ clks_bool clks_fs_remove(const char *path) {
         return CLKS_FALSE;
     }
 
-    if (clks_fs_internal_in_temp_tree(internal) == CLKS_FALSE) {
-        return CLKS_FALSE;
-    }
-
-    if (clks_strcmp(internal, "temp") == 0) {
+    if (clks_fs_internal_writable_node_path(internal) == CLKS_FALSE) {
         return CLKS_FALSE;
     }
 
