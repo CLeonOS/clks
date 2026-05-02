@@ -232,6 +232,10 @@ static const char *clks_syscall_name(u64 id) {
         return "NET_TCP_CLOSE";
     case CLKS_SYSCALL_NET_TCP_LAST_ERROR:
         return "NET_TCP_LAST_ERROR";
+    case CLKS_SYSCALL_VM_ALLOC:
+        return "VM_ALLOC";
+    case CLKS_SYSCALL_VM_FREE:
+        return "VM_FREE";
     case CLKS_SYSCALL_MOUSE_STATE:
         return "MOUSE_STATE";
     case CLKS_SYSCALL_WM_CREATE:
@@ -334,4 +338,3 @@ static void clks_syscall_trace_user_return(clks_bool trace_enabled, u64 pid, u64
     clks_syscall_serial_write_hex64(ret);
     clks_serial_write("\n");
 }
-

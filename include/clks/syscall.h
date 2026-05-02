@@ -133,6 +133,8 @@
 #define CLKS_SYSCALL_TIME_MS 127ULL
 #define CLKS_SYSCALL_SLEEP_MS 128ULL
 #define CLKS_SYSCALL_NET_TCP_LAST_ERROR 129ULL
+#define CLKS_SYSCALL_VM_ALLOC 130ULL
+#define CLKS_SYSCALL_VM_FREE 131ULL
 
 void clks_syscall_init(void);
 u64 clks_syscall_dispatch(void *frame_ptr);

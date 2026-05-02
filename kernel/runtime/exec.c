@@ -1,3 +1,4 @@
+#include <clks/boot.h>
 #include <clks/cpu.h>
 #include <clks/disk.h>
 #include <clks/elf64.h>
@@ -10,11 +11,13 @@
 #include <clks/log.h>
 #include <clks/mouse.h>
 #include <clks/net.h>
+#include <clks/pmm.h>
 #include <clks/pty.h>
 #include <clks/serial.h>
 #include <clks/string.h>
 #include <clks/types.h>
 #include <clks/tty.h>
+#include <clks/vm.h>
 
 /* Process runtime core: this is where tiny mistakes become giant explosions. */
 
@@ -50,9 +53,11 @@ typedef u64 (*clks_exec_entry_fn)(void);
 #define CLKS_EXEC_FD_INHERIT ((u64) - 1)
 #define CLKS_EXEC_DYNLIB_MAX 32U
 #define CLKS_EXEC_INTERNAL_SUSPEND_STATUS 0x434C4B5353555350ULL
-#define CLKS_EXEC_USER_HEAP_BLOCK_MAX 128U
-#define CLKS_EXEC_USER_HEAP_ALLOC_MAX (4ULL * 1024ULL * 1024ULL)
-#define CLKS_EXEC_USER_HEAP_ALIGN 16ULL
+#define CLKS_EXEC_USER_VM_AREA_MAX 128U
+#define CLKS_EXEC_USER_VM_ALLOC_MAX (32ULL * 1024ULL * 1024ULL)
+#define CLKS_EXEC_USER_VM_ALIGN 4096ULL
+#define CLKS_EXEC_USER_VM_BASE 0x0000004000000000ULL
+#define CLKS_EXEC_USER_VM_LIMIT 0x0000007000000000ULL
 
 #ifndef CLKS_CFG_EXEC_SERIAL_LOG
 #define CLKS_CFG_EXEC_SERIAL_LOG 1
@@ -135,9 +140,12 @@ struct clks_exec_fd_entry {
     char path[CLKS_EXEC_PATH_MAX];
 };
 
-struct clks_exec_user_heap_block {
+struct clks_exec_user_vm_area {
     void *ptr;
     u64 size;
+    u64 requested_size;
+    u64 flags;
+    u32 page_count;
 };
 
 struct clks_exec_proc_record {
@@ -168,8 +176,9 @@ struct clks_exec_proc_record {
     struct clks_elf64_loaded_image loaded;
     void *run_stack_base;
     u64 run_stack_bytes;
-    u64 user_heap_bytes;
-    struct clks_exec_user_heap_block user_heap_blocks[CLKS_EXEC_USER_HEAP_BLOCK_MAX];
+    u64 address_space_cr3;
+    u64 user_vm_bytes;
+    struct clks_exec_user_vm_area user_vm_areas[CLKS_EXEC_USER_VM_AREA_MAX];
     clks_bool saved_frame_valid;
     struct clks_exec_saved_interrupt_frame saved_frame;
 };
@@ -244,6 +253,7 @@ static u64 clks_exec_random_state = 0xA5A55A5A12345678ULL;
 
 static struct clks_exec_proc_record clks_exec_proc_table[CLKS_EXEC_MAX_PROCS];
 static u64 clks_exec_next_pid = 1ULL;
+static u64 clks_exec_next_vm_base = CLKS_EXEC_USER_VM_BASE;
 static u64 clks_exec_pid_stack[CLKS_EXEC_MAX_DEPTH];
 static clks_bool clks_exec_exit_requested_stack[CLKS_EXEC_MAX_DEPTH];
 static u64 clks_exec_exit_status_stack[CLKS_EXEC_MAX_DEPTH];
@@ -574,25 +584,142 @@ static u64 clks_exec_align_up_u64(u64 value, u64 align) {
     return (value + mask) & ~mask;
 }
 
-static void clks_exec_proc_release_user_heap(struct clks_exec_proc_record *proc) {
+static u64 clks_exec_user_vm_next_base(u64 size) {
+    u64 cursor;
+    u32 guard = 0U;
+
+    if (size == 0ULL || size > (CLKS_EXEC_USER_VM_LIMIT - CLKS_EXEC_USER_VM_BASE)) {
+        return 0ULL;
+    }
+
+    if (clks_exec_next_vm_base < CLKS_EXEC_USER_VM_BASE || clks_exec_next_vm_base >= CLKS_EXEC_USER_VM_LIMIT) {
+        clks_exec_next_vm_base = CLKS_EXEC_USER_VM_BASE;
+    }
+
+    cursor = clks_exec_align_up_u64(clks_exec_next_vm_base, CLKS_EXEC_USER_VM_ALIGN);
+
+    for (;;) {
+        clks_bool moved = CLKS_FALSE;
+        u32 i;
+
+        if (cursor < CLKS_EXEC_USER_VM_BASE || cursor + size <= cursor || cursor + size > CLKS_EXEC_USER_VM_LIMIT) {
+            cursor = CLKS_EXEC_USER_VM_BASE;
+        }
+
+        for (i = 0U; i < CLKS_EXEC_MAX_PROCS; i++) {
+            const struct clks_exec_proc_record *proc = &clks_exec_proc_table[i];
+            u32 j;
+
+            if (proc->used == CLKS_FALSE) {
+                continue;
+            }
+
+            for (j = 0U; j < CLKS_EXEC_USER_VM_AREA_MAX; j++) {
+                u64 begin = (u64)(usize)proc->user_vm_areas[j].ptr;
+                u64 end;
+
+                if (begin == 0ULL || proc->user_vm_areas[j].size == 0ULL) {
+                    continue;
+                }
+
+                end = begin + proc->user_vm_areas[j].size;
+                if (end <= begin) {
+                    continue;
+                }
+
+                if (cursor < end && (cursor + size) > begin) {
+                    cursor = clks_exec_align_up_u64(end + CLKS_EXEC_USER_VM_ALIGN, CLKS_EXEC_USER_VM_ALIGN);
+                    moved = CLKS_TRUE;
+                }
+            }
+        }
+
+        if (moved == CLKS_FALSE) {
+            clks_exec_next_vm_base = cursor + size + CLKS_EXEC_USER_VM_ALIGN;
+            return cursor;
+        }
+
+        guard++;
+        if (guard > (CLKS_EXEC_MAX_PROCS * CLKS_EXEC_USER_VM_AREA_MAX) || cursor >= CLKS_EXEC_USER_VM_LIMIT) {
+            return 0ULL;
+        }
+    }
+}
+
+static u64 clks_exec_proc_address_space(const struct clks_exec_proc_record *proc) {
+    if (proc != CLKS_NULL && proc->address_space_cr3 != 0ULL) {
+        return proc->address_space_cr3;
+    }
+
+    return clks_vm_kernel_cr3();
+}
+
+static void clks_exec_switch_address_space(u64 target_cr3, u64 *out_prev_cr3, clks_bool *out_switched) {
+    u64 prev_cr3 = clks_vm_current_cr3();
+
+    if (out_prev_cr3 != CLKS_NULL) {
+        *out_prev_cr3 = prev_cr3;
+    }
+    if (out_switched != CLKS_NULL) {
+        *out_switched = CLKS_FALSE;
+    }
+
+    if (target_cr3 == 0ULL || prev_cr3 == 0ULL || target_cr3 == prev_cr3) {
+        return;
+    }
+
+    clks_vm_switch_cr3(target_cr3);
+
+    if (out_switched != CLKS_NULL) {
+        *out_switched = CLKS_TRUE;
+    }
+}
+
+static void clks_exec_restore_address_space(u64 prev_cr3, clks_bool switched) {
+    if (switched == CLKS_TRUE && prev_cr3 != 0ULL) {
+        clks_vm_switch_cr3(prev_cr3);
+    }
+}
+
+static void clks_exec_proc_release_user_vm(struct clks_exec_proc_record *proc) {
     u32 i;
+    u64 prev_cr3 = 0ULL;
+    clks_bool switched_cr3 = CLKS_FALSE;
 
     if (proc == CLKS_NULL) {
         return;
     }
 
-    for (i = 0U; i < CLKS_EXEC_USER_HEAP_BLOCK_MAX; i++) {
-        if (proc->user_heap_blocks[i].ptr != CLKS_NULL) {
-            clks_kfree(proc->user_heap_blocks[i].ptr);
-            proc->user_heap_blocks[i].ptr = CLKS_NULL;
-            proc->user_heap_blocks[i].size = 0ULL;
+    clks_exec_switch_address_space(clks_exec_proc_address_space(proc), &prev_cr3, &switched_cr3);
+
+    for (i = 0U; i < CLKS_EXEC_USER_VM_AREA_MAX; i++) {
+        if (proc->user_vm_areas[i].ptr != CLKS_NULL) {
+            u64 base = (u64)(usize)proc->user_vm_areas[i].ptr;
+            u64 pages = (u64)proc->user_vm_areas[i].page_count;
+            u64 page;
+
+            for (page = 0ULL; page < pages; page++) {
+                u64 phys = 0ULL;
+                u64 virt = base + (page * CLKS_EXEC_USER_VM_ALIGN);
+
+                if (clks_vm_unmap_page_current(virt, &phys) == CLKS_TRUE && phys != 0ULL) {
+                    clks_pmm_free_page(phys);
+                }
+            }
+
+            proc->user_vm_areas[i].ptr = CLKS_NULL;
+            proc->user_vm_areas[i].size = 0ULL;
+            proc->user_vm_areas[i].requested_size = 0ULL;
+            proc->user_vm_areas[i].flags = 0ULL;
+            proc->user_vm_areas[i].page_count = 0U;
         }
     }
 
-    proc->user_heap_bytes = 0ULL;
+    proc->user_vm_bytes = 0ULL;
+    clks_exec_restore_address_space(prev_cr3, switched_cr3);
 }
 
-static clks_bool clks_exec_current_user_heap_ptr_range(u64 addr, u64 size) {
+static clks_bool clks_exec_current_user_vm_ptr_range(u64 addr, u64 size, u64 required_flags) {
     const struct clks_exec_proc_record *proc = clks_exec_current_proc();
     u32 i;
 
@@ -600,20 +727,21 @@ static clks_bool clks_exec_current_user_heap_ptr_range(u64 addr, u64 size) {
         return CLKS_FALSE;
     }
 
-    for (i = 0U; i < CLKS_EXEC_USER_HEAP_BLOCK_MAX; i++) {
-        u64 begin = (u64)(usize)proc->user_heap_blocks[i].ptr;
+    for (i = 0U; i < CLKS_EXEC_USER_VM_AREA_MAX; i++) {
+        u64 begin = (u64)(usize)proc->user_vm_areas[i].ptr;
         u64 end;
 
-        if (begin == 0ULL || proc->user_heap_blocks[i].size == 0ULL) {
+        if (begin == 0ULL || proc->user_vm_areas[i].size == 0ULL) {
             continue;
         }
 
-        end = begin + proc->user_heap_blocks[i].size;
+        end = begin + proc->user_vm_areas[i].size;
         if (end <= begin) {
             continue;
         }
 
-        if (clks_exec_addr_range_in_window(addr, size, begin, end) == CLKS_TRUE) {
+        if (clks_exec_addr_range_in_window(addr, size, begin, end) == CLKS_TRUE &&
+            (proc->user_vm_areas[i].flags & required_flags) == required_flags) {
             return CLKS_TRUE;
         }
     }
@@ -1693,7 +1821,7 @@ static void clks_exec_proc_release_runtime(struct clks_exec_proc_record *proc) {
         return;
     }
 
-    clks_exec_proc_release_user_heap(proc);
+    clks_exec_proc_release_user_vm(proc);
 
     if (proc->loaded_active == CLKS_TRUE) {
         clks_elf64_unload(&proc->loaded);
@@ -1712,6 +1840,21 @@ static void clks_exec_proc_release_runtime(struct clks_exec_proc_record *proc) {
     clks_memset(&proc->saved_frame, 0, sizeof(proc->saved_frame));
 }
 
+static void clks_exec_proc_release_address_space(struct clks_exec_proc_record *proc) {
+    u64 kernel_cr3;
+
+    if (proc == CLKS_NULL || proc->address_space_cr3 == 0ULL) {
+        return;
+    }
+
+    kernel_cr3 = clks_vm_kernel_cr3();
+    if (kernel_cr3 != 0ULL && proc->address_space_cr3 != kernel_cr3) {
+        clks_vm_destroy_address_space(proc->address_space_cr3);
+    }
+
+    proc->address_space_cr3 = 0ULL;
+}
+
 static struct clks_exec_proc_record *clks_exec_prepare_proc_record(i32 slot, u64 pid, const char *path,
                                                                    const char *argv_line, const char *env_line,
                                                                    enum clks_exec_proc_state state) {
@@ -1723,6 +1866,7 @@ static struct clks_exec_proc_record *clks_exec_prepare_proc_record(i32 slot, u64
 
     proc = &clks_exec_proc_table[(u32)slot];
     clks_exec_proc_release_runtime(proc);
+    clks_exec_proc_release_address_space(proc);
     clks_exec_fd_release_all(proc);
     clks_memset(proc, 0, sizeof(*proc));
 
@@ -1737,6 +1881,10 @@ static struct clks_exec_proc_record *clks_exec_prepare_proc_record(i32 slot, u64
     proc->exit_status = (u64)-1;
     proc->tty_index = clks_tty_active();
     proc->image_mem_bytes = 0ULL;
+    proc->address_space_cr3 = clks_vm_create_address_space();
+    if (proc->address_space_cr3 == 0ULL) {
+        proc->address_space_cr3 = clks_vm_kernel_cr3();
+    }
     clks_exec_copy_path(proc->path, sizeof(proc->path), path);
     clks_exec_copy_line(proc->argv_line, sizeof(proc->argv_line), argv_line);
     clks_exec_copy_line(proc->env_line, sizeof(proc->env_line), env_line);
@@ -1799,6 +1947,7 @@ static void clks_exec_proc_mark_exited(struct clks_exec_proc_record *proc, u64 n
 
     clks_exec_proc_pause_runtime(proc, now_tick);
     clks_exec_proc_release_runtime(proc);
+    clks_exec_proc_release_address_space(proc);
     clks_exec_fd_release_all(proc);
     proc->state = CLKS_EXEC_PROC_EXITED;
     proc->exit_status = status;
@@ -1933,6 +2082,8 @@ static clks_bool clks_exec_run_proc_slot(i32 slot, u64 *out_status) {
     void *entry_ptr = CLKS_NULL;
     u64 run_ret = (u64)-1;
     i32 depth_index;
+    u64 prev_cr3 = 0ULL;
+    clks_bool switched_cr3 = CLKS_FALSE;
 
     clks_memset(&info, 0, sizeof(info));
 
@@ -1960,6 +2111,8 @@ static clks_bool clks_exec_run_proc_slot(i32 slot, u64 *out_status) {
         clks_exec_proc_mark_exited(proc, clks_interrupts_timer_ticks(), (u64)-1);
         return CLKS_FALSE;
     }
+
+    clks_exec_switch_address_space(clks_exec_proc_address_space(proc), &prev_cr3, &switched_cr3);
 
     clks_exec_proc_mark_running(proc, clks_interrupts_timer_ticks());
 
@@ -2086,6 +2239,7 @@ static clks_bool clks_exec_run_proc_slot(i32 slot, u64 *out_status) {
             *out_status = run_ret;
         }
 
+        clks_exec_restore_address_space(prev_cr3, switched_cr3);
         return CLKS_TRUE;
     }
 
@@ -2104,6 +2258,7 @@ static clks_bool clks_exec_run_proc_slot(i32 slot, u64 *out_status) {
         u64 now_tick = clks_interrupts_timer_ticks();
         clks_exec_proc_pause_runtime(proc, now_tick);
         clks_exec_proc_release_runtime(proc);
+        clks_exec_proc_release_address_space(proc);
         proc->state = CLKS_EXEC_PROC_STOPPED;
         proc->exit_status = run_ret;
         proc->exited_tick = 0ULL;
@@ -2131,6 +2286,7 @@ static clks_bool clks_exec_run_proc_slot(i32 slot, u64 *out_status) {
         *out_status = run_ret;
     }
 
+    clks_exec_restore_address_space(prev_cr3, switched_cr3);
     return CLKS_TRUE;
 
 fail:
@@ -2156,6 +2312,7 @@ fail:
         *out_status = (u64)-1;
     }
 
+    clks_exec_restore_address_space(prev_cr3, switched_cr3);
     return CLKS_FALSE;
 }
 
@@ -2875,45 +3032,153 @@ u64 clks_exec_dl_sym(u64 handle, const char *symbol) {
     return addr;
 }
 
-u64 clks_exec_user_heap_alloc(u64 size) {
+u64 clks_exec_vm_alloc(u64 size, u64 flags) {
     struct clks_exec_proc_record *proc = clks_exec_current_proc();
-    void *ptr;
     u64 aligned_size;
+    u64 base;
+    u64 pages;
+    u64 page;
     u32 i;
+    u64 vm_flags = CLKS_VM_FLAG_READ | CLKS_VM_FLAG_USER;
 
     if (proc == CLKS_NULL || size == 0ULL) {
         return 0ULL;
     }
 
-    if (size > CLKS_EXEC_USER_HEAP_ALLOC_MAX) {
+    if (size > CLKS_EXEC_USER_VM_ALLOC_MAX) {
         return 0ULL;
     }
 
-    aligned_size = clks_exec_align_up_u64(size, CLKS_EXEC_USER_HEAP_ALIGN);
-    if (aligned_size == 0ULL || aligned_size < size || aligned_size > CLKS_EXEC_USER_HEAP_ALLOC_MAX) {
+    aligned_size = clks_exec_align_up_u64(size, CLKS_EXEC_USER_VM_ALIGN);
+    if (aligned_size == 0ULL || aligned_size < size || aligned_size > CLKS_EXEC_USER_VM_ALLOC_MAX) {
         return 0ULL;
     }
 
-    for (i = 0U; i < CLKS_EXEC_USER_HEAP_BLOCK_MAX; i++) {
-        if (proc->user_heap_blocks[i].ptr == CLKS_NULL) {
+    pages = aligned_size / CLKS_EXEC_USER_VM_ALIGN;
+    if (pages == 0ULL || pages > 0xFFFFFFFFULL) {
+        return 0ULL;
+    }
+
+    for (i = 0U; i < CLKS_EXEC_USER_VM_AREA_MAX; i++) {
+        if (proc->user_vm_areas[i].ptr == CLKS_NULL) {
             break;
         }
     }
 
-    if (i >= CLKS_EXEC_USER_HEAP_BLOCK_MAX) {
+    if (i >= CLKS_EXEC_USER_VM_AREA_MAX) {
         return 0ULL;
     }
 
-    ptr = clks_kmalloc((usize)aligned_size);
-    if (ptr == CLKS_NULL) {
+    base = clks_exec_user_vm_next_base(aligned_size);
+    if (base == 0ULL || base < CLKS_EXEC_USER_VM_BASE || base + aligned_size <= base ||
+        base + aligned_size > CLKS_EXEC_USER_VM_LIMIT) {
         return 0ULL;
     }
 
-    clks_memset(ptr, 0, (usize)aligned_size);
-    proc->user_heap_blocks[i].ptr = ptr;
-    proc->user_heap_blocks[i].size = aligned_size;
-    proc->user_heap_bytes += aligned_size;
-    return (u64)(usize)ptr;
+    if ((flags & CLKS_VM_FLAG_WRITE) != 0ULL) {
+        vm_flags |= CLKS_VM_FLAG_WRITE;
+    }
+    if ((flags & CLKS_VM_FLAG_EXEC) != 0ULL) {
+        vm_flags |= CLKS_VM_FLAG_EXEC;
+    }
+
+    for (page = 0ULL; page < pages; page++) {
+        u64 phys = clks_pmm_alloc_page();
+        void *page_virt;
+        u64 virt = base + (page * CLKS_EXEC_USER_VM_ALIGN);
+
+        if (phys == 0ULL) {
+            goto fail_unmap;
+        }
+
+        page_virt = clks_boot_phys_to_virt(phys);
+        if (page_virt == CLKS_NULL) {
+            clks_pmm_free_page(phys);
+            goto fail_unmap;
+        }
+
+        clks_memset(page_virt, 0, (usize)CLKS_EXEC_USER_VM_ALIGN);
+
+        if (clks_vm_map_page_current(virt, phys, vm_flags) == CLKS_FALSE) {
+            clks_pmm_free_page(phys);
+            goto fail_unmap;
+        }
+    }
+
+    proc->user_vm_areas[i].ptr = (void *)(usize)base;
+    proc->user_vm_areas[i].size = aligned_size;
+    proc->user_vm_areas[i].requested_size = size;
+    proc->user_vm_areas[i].flags = vm_flags;
+    proc->user_vm_areas[i].page_count = (u32)pages;
+    proc->user_vm_bytes += aligned_size;
+    return base;
+
+fail_unmap:
+    while (page > 0ULL) {
+        u64 phys = 0ULL;
+        u64 virt;
+
+        page--;
+        virt = base + (page * CLKS_EXEC_USER_VM_ALIGN);
+        if (clks_vm_unmap_page_current(virt, &phys) == CLKS_TRUE && phys != 0ULL) {
+            clks_pmm_free_page(phys);
+        }
+    }
+
+    return 0ULL;
+}
+
+u64 clks_exec_vm_free(u64 addr, u64 size) {
+    struct clks_exec_proc_record *proc = clks_exec_current_proc();
+    u32 i;
+
+    if (proc == CLKS_NULL || addr == 0ULL) {
+        return 0ULL;
+    }
+
+    for (i = 0U; i < CLKS_EXEC_USER_VM_AREA_MAX; i++) {
+        u64 begin = (u64)(usize)proc->user_vm_areas[i].ptr;
+
+        if (begin == 0ULL) {
+            continue;
+        }
+
+        if (begin == addr && (size == 0ULL || size == proc->user_vm_areas[i].requested_size ||
+                              size == proc->user_vm_areas[i].size)) {
+            u64 area_size = proc->user_vm_areas[i].size;
+            u64 pages = (u64)proc->user_vm_areas[i].page_count;
+            u64 page;
+
+            for (page = 0ULL; page < pages; page++) {
+                u64 phys = 0ULL;
+                u64 virt = begin + (page * CLKS_EXEC_USER_VM_ALIGN);
+
+                if (clks_vm_unmap_page_current(virt, &phys) == CLKS_TRUE && phys != 0ULL) {
+                    clks_pmm_free_page(phys);
+                }
+            }
+
+            proc->user_vm_areas[i].ptr = CLKS_NULL;
+            proc->user_vm_areas[i].size = 0ULL;
+            proc->user_vm_areas[i].requested_size = 0ULL;
+            proc->user_vm_areas[i].flags = 0ULL;
+            proc->user_vm_areas[i].page_count = 0U;
+
+            if (proc->user_vm_bytes >= area_size) {
+                proc->user_vm_bytes -= area_size;
+            } else {
+                proc->user_vm_bytes = 0ULL;
+            }
+
+            return 1ULL;
+        }
+    }
+
+    return 0ULL;
+}
+
+u64 clks_exec_user_heap_alloc(u64 size) {
+    return clks_exec_vm_alloc(size, CLKS_VM_FLAG_READ | CLKS_VM_FLAG_WRITE);
 }
 
 u64 clks_exec_current_pid(void) {
@@ -3078,7 +3343,7 @@ static u64 clks_exec_proc_memory_bytes(const struct clks_exec_proc_record *proc)
         mem += CLKS_EXEC_RUN_STACK_BYTES;
     }
 
-    mem += proc->user_heap_bytes;
+    mem += proc->user_vm_bytes;
 
     return mem;
 }
@@ -3576,7 +3841,7 @@ clks_bool clks_exec_current_user_ptr_readable(u64 addr, u64 size) {
         return CLKS_TRUE;
     }
 
-    if (clks_exec_current_user_heap_ptr_range(addr, size) == CLKS_TRUE) {
+    if (clks_exec_current_user_vm_ptr_range(addr, size, CLKS_VM_FLAG_READ) == CLKS_TRUE) {
         return CLKS_TRUE;
     }
 
@@ -3584,5 +3849,41 @@ clks_bool clks_exec_current_user_ptr_readable(u64 addr, u64 size) {
 }
 
 clks_bool clks_exec_current_user_ptr_writable(u64 addr, u64 size) {
-    return clks_exec_current_user_ptr_readable(addr, size);
+    i32 depth_index;
+    u64 image_begin;
+    u64 image_end;
+    u64 stack_begin;
+    u64 stack_end;
+
+    if (clks_exec_is_running() == CLKS_FALSE || clks_exec_current_path_is_user() == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    if (size == 0ULL || clks_exec_pid_stack_depth == 0U) {
+        return CLKS_FALSE;
+    }
+
+    depth_index = (i32)(clks_exec_pid_stack_depth - 1U);
+    image_begin = clks_exec_image_begin_stack[(u32)depth_index];
+    image_end = clks_exec_image_end_stack[(u32)depth_index];
+    stack_begin = clks_exec_stack_begin_stack[(u32)depth_index];
+    stack_end = clks_exec_stack_end_stack[(u32)depth_index];
+
+    /*
+     * The legacy exec loader still keeps writable data inside one kmalloc image.
+     * Keep that compatible until ELF segments are mapped with per-page permissions.
+     */
+    if (clks_exec_addr_range_in_window(addr, size, image_begin, image_end) == CLKS_TRUE) {
+        return CLKS_TRUE;
+    }
+
+    if (clks_exec_addr_range_in_window(addr, size, stack_begin, stack_end) == CLKS_TRUE) {
+        return CLKS_TRUE;
+    }
+
+    if (clks_exec_current_user_vm_ptr_range(addr, size, CLKS_VM_FLAG_READ | CLKS_VM_FLAG_WRITE) == CLKS_TRUE) {
+        return CLKS_TRUE;
+    }
+
+    return CLKS_FALSE;
 }

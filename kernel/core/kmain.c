@@ -26,6 +26,7 @@
 #include <clks/tty.h>
 #include <clks/types.h>
 #include <clks/userland.h>
+#include <clks/vm.h>
 #include <clks/wm.h>
 
 /* Boot orchestration file: one wrong init order and the whole damn thing faceplants. */
@@ -245,6 +246,7 @@ void clks_kernel_main(void) {
 
     clks_pmm_init(boot_memmap);
     pmm_stats = clks_pmm_get_stats();
+    clks_vm_init();
 
 #if CLKS_CFG_PMM_STATS_LOG
     clks_log_hex(CLKS_LOG_INFO, "PMM", "MANAGED_PAGES", pmm_stats.managed_pages);

@@ -17,7 +17,7 @@
 #define CLKS_SYSCALL_KDBG_STACK_WINDOW_BYTES (128ULL * 1024ULL)
 #define CLKS_SYSCALL_KERNEL_SYMBOL_FILE "/system/kernel.sym"
 #define CLKS_SYSCALL_KERNEL_ADDR_BASE 0xFFFF800000000000ULL
-#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_NET_TCP_LAST_ERROR
+#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_VM_FREE
 #define CLKS_SYSCALL_DISK_SECTOR_BYTES 512U
 #define CLKS_SYSCALL_NET_UDP_PAYLOAD_MAX 1472U
 #define CLKS_SYSCALL_NET_TCP_IO_MAX 65536U
@@ -367,4 +367,3 @@ static u64 clks_syscall_copy_text_to_user(u64 dst_addr, u64 dst_size, const char
     ((char *)dst_addr)[copy_len] = '\0';
     return (u64)copy_len;
 }
-

@@ -331,6 +331,10 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_tcp_close(frame->rbx));
     case CLKS_SYSCALL_NET_TCP_LAST_ERROR:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_tcp_last_error());
+    case CLKS_SYSCALL_VM_ALLOC:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_exec_vm_alloc(frame->rbx, frame->rcx));
+    case CLKS_SYSCALL_VM_FREE:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_exec_vm_free(frame->rbx, frame->rcx));
     case CLKS_SYSCALL_MOUSE_STATE:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_mouse_state(frame->rbx));
     case CLKS_SYSCALL_WM_CREATE:

@@ -52,6 +52,8 @@ u64 clks_exec_dl_open(const char *path);
 u64 clks_exec_dl_close(u64 handle);
 u64 clks_exec_dl_sym(u64 handle, const char *symbol);
 u64 clks_exec_user_heap_alloc(u64 size);
+u64 clks_exec_vm_alloc(u64 size, u64 flags);
+u64 clks_exec_vm_free(u64 addr, u64 size);
 u64 clks_exec_current_pid(void);
 u32 clks_exec_current_tty(void);
 u64 clks_exec_current_argc(void);
