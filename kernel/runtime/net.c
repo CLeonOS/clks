@@ -1331,9 +1331,8 @@ static u16 clks_net_tcp_next_ephemeral_port(void) {
 
 static u32 clks_net_tcp_make_iss(u32 dst_ipv4_be, u16 src_port, u16 dst_port, u32 try_index) {
     u64 ticks = clks_interrupts_timer_ticks();
-    u32 value = ((u32)ticks * 1103515245U) ^ ((u32)(ticks >> 32U) * 2654435761U) ^
-                ((u32)clks_net_ipv4_ident << 16U) ^ ((u32)src_port << 1U) ^ dst_ipv4_be ^
-                ((u32)dst_port << 8U) ^ (try_index * 0x9E3779B9U);
+    u32 value = ((u32)ticks * 1103515245U) ^ ((u32)(ticks >> 32U) * 2654435761U) ^ ((u32)clks_net_ipv4_ident << 16U) ^
+                ((u32)src_port << 1U) ^ dst_ipv4_be ^ ((u32)dst_port << 8U) ^ (try_index * 0x9E3779B9U);
 
     if (value == 0U) {
         value = 1U;
@@ -2653,8 +2652,8 @@ clks_bool clks_net_tcp_connect(u32 dst_ipv4_be, u16 dst_port, u16 src_port, u64 
         if (src_port == 0U && try_index > 0U) {
             clks_net_tcp.local_port = clks_net_tcp_next_ephemeral_port();
         }
-        clks_net_tcp.snd_iss = clks_net_tcp_make_iss(dst_ipv4_be, clks_net_tcp.local_port, clks_net_tcp.remote_port,
-                                                     try_index);
+        clks_net_tcp.snd_iss =
+            clks_net_tcp_make_iss(dst_ipv4_be, clks_net_tcp.local_port, clks_net_tcp.remote_port, try_index);
         clks_net_tcp.snd_una = clks_net_tcp.snd_iss;
         clks_net_tcp.snd_nxt = clks_net_tcp.snd_iss + 1U;
         clks_net_tcp.rcv_nxt = 0U;
