@@ -71,6 +71,7 @@ static clks_bool clks_kbd_lctrl_down = CLKS_FALSE;
 static clks_bool clks_kbd_rctrl_down = CLKS_FALSE;
 static clks_bool clks_kbd_e0_prefix = CLKS_FALSE;
 static clks_bool clks_kbd_force_stop_latch = CLKS_FALSE;
+static clks_bool clks_kbd_input_ready = CLKS_FALSE;
 static u64 clks_kbd_hotkey_switches = 0ULL;
 
 static u64 clks_kbd_push_count = 0ULL;
@@ -181,6 +182,16 @@ static clks_bool clks_keyboard_ctrl_active(void) {
     return (clks_kbd_lctrl_down == CLKS_TRUE || clks_kbd_rctrl_down == CLKS_TRUE) ? CLKS_TRUE : CLKS_FALSE;
 }
 
+static void clks_keyboard_reset_modifier_state(void) {
+    clks_kbd_alt_down = CLKS_FALSE;
+    clks_kbd_lshift_down = CLKS_FALSE;
+    clks_kbd_rshift_down = CLKS_FALSE;
+    clks_kbd_lctrl_down = CLKS_FALSE;
+    clks_kbd_rctrl_down = CLKS_FALSE;
+    clks_kbd_e0_prefix = CLKS_FALSE;
+    clks_kbd_force_stop_latch = CLKS_FALSE;
+}
+
 static clks_bool clks_keyboard_try_emit_ctrl_shortcut(u8 code, u32 tty_index) {
     char shortcut = '\0';
 
@@ -256,13 +267,8 @@ void clks_keyboard_init(void) {
         clks_kbd_input_count[tty] = 0U;
     }
 
-    clks_kbd_alt_down = CLKS_FALSE;
-    clks_kbd_lshift_down = CLKS_FALSE;
-    clks_kbd_rshift_down = CLKS_FALSE;
-    clks_kbd_lctrl_down = CLKS_FALSE;
-    clks_kbd_rctrl_down = CLKS_FALSE;
-    clks_kbd_e0_prefix = CLKS_FALSE;
-    clks_kbd_force_stop_latch = CLKS_FALSE;
+    clks_keyboard_reset_modifier_state();
+    clks_kbd_input_ready = CLKS_FALSE;
     clks_kbd_hotkey_switches = 0ULL;
     clks_kbd_push_count = 0ULL;
     clks_kbd_pop_count = 0ULL;
@@ -286,9 +292,36 @@ void clks_keyboard_init(void) {
     clks_log_hex(CLKS_LOG_INFO, "KBD", "QUEUE_CAP", CLKS_KBD_INPUT_CAP);
 }
 
+void clks_keyboard_flush(void) {
+    u32 tty;
+
+    for (tty = 0U; tty < CLKS_KBD_TTY_MAX; tty++) {
+        clks_kbd_input_head[tty] = 0U;
+        clks_kbd_input_tail[tty] = 0U;
+        clks_kbd_input_count[tty] = 0U;
+    }
+
+    clks_keyboard_reset_modifier_state();
+}
+
+void clks_keyboard_set_input_ready(clks_bool ready) {
+    if (ready == CLKS_TRUE) {
+        clks_keyboard_flush();
+        clks_kbd_input_ready = CLKS_TRUE;
+    } else {
+        clks_kbd_input_ready = CLKS_FALSE;
+        clks_keyboard_flush();
+    }
+}
+
 void clks_keyboard_handle_scancode(u8 scancode) {
     clks_bool released;
     u8 code;
+
+    if (clks_kbd_input_ready == CLKS_FALSE) {
+        clks_keyboard_reset_modifier_state();
+        return;
+    }
 
     if (scancode == CLKS_SC_EXT_PREFIX) {
         clks_kbd_e0_prefix = CLKS_TRUE;

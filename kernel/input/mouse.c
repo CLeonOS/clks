@@ -8,7 +8,11 @@
 #define CLKS_PS2_CMD_PORT 0x64U
 #define CLKS_PS2_STATUS_OBF 0x01U
 #define CLKS_PS2_STATUS_IBF 0x02U
+#define CLKS_PS2_STATUS_AUX 0x20U
 
+#define CLKS_PS2_CMD_DISABLE_KBD 0xADU
+#define CLKS_PS2_CMD_ENABLE_KBD 0xAEU
+#define CLKS_PS2_CMD_DISABLE_AUX 0xA7U
 #define CLKS_PS2_CMD_ENABLE_AUX 0xA8U
 #define CLKS_PS2_CMD_READ_CFG 0x20U
 #define CLKS_PS2_CMD_WRITE_CFG 0x60U
@@ -24,6 +28,7 @@
 #define CLKS_PS2_MOUSE_RESOLUTION 3U
 
 #define CLKS_MOUSE_IO_TIMEOUT 100000U
+#define CLKS_MOUSE_ACK_RETRY_MAX 64U
 #define CLKS_MOUSE_DRAIN_MAX 64U
 #define CLKS_MOUSE_SYNC_BIT 0x08U
 #define CLKS_MOUSE_OVERFLOW_MASK 0xC0U
@@ -120,6 +125,30 @@ static clks_bool clks_mouse_read_data(u8 *out_value) {
     return CLKS_TRUE;
 }
 
+static clks_bool clks_mouse_read_aux_data(u8 *out_value) {
+    u32 i;
+
+    if (out_value == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    for (i = 0U; i < CLKS_MOUSE_ACK_RETRY_MAX; i++) {
+        u8 status;
+
+        if (clks_mouse_wait_output_ready() == CLKS_FALSE) {
+            return CLKS_FALSE;
+        }
+
+        status = clks_mouse_inb(CLKS_PS2_STATUS_PORT);
+        *out_value = clks_mouse_inb(CLKS_PS2_DATA_PORT);
+        if ((status & CLKS_PS2_STATUS_AUX) != 0U) {
+            return CLKS_TRUE;
+        }
+    }
+
+    return CLKS_FALSE;
+}
+
 static void clks_mouse_drain_output(void) {
     u32 i;
 
@@ -143,7 +172,7 @@ static clks_bool clks_mouse_send_device_cmd(u8 cmd, u8 *out_ack) {
         return CLKS_FALSE;
     }
 
-    if (clks_mouse_read_data(&ack) == CLKS_FALSE) {
+    if (clks_mouse_read_aux_data(&ack) == CLKS_FALSE) {
         return CLKS_FALSE;
     }
 
@@ -216,29 +245,36 @@ void clks_mouse_init(void) {
     u8 ack = 0U;
 
     clks_mouse_reset_runtime();
+
+    (void)clks_mouse_write_cmd(CLKS_PS2_CMD_DISABLE_KBD);
+    (void)clks_mouse_write_cmd(CLKS_PS2_CMD_DISABLE_AUX);
     clks_mouse_drain_output();
 
     if (clks_mouse_write_cmd(CLKS_PS2_CMD_ENABLE_AUX) == CLKS_FALSE) {
         clks_log(CLKS_LOG_WARN, "MOUSE", "PS2 ENABLE AUX FAILED");
+        (void)clks_mouse_write_cmd(CLKS_PS2_CMD_ENABLE_KBD);
         return;
     }
 
     if (clks_mouse_write_cmd(CLKS_PS2_CMD_READ_CFG) == CLKS_FALSE || clks_mouse_read_data(&config) == CLKS_FALSE) {
         clks_log(CLKS_LOG_WARN, "MOUSE", "PS2 READ CFG FAILED");
+        (void)clks_mouse_write_cmd(CLKS_PS2_CMD_ENABLE_KBD);
         return;
     }
 
-    config |= 0x02U;
+    config |= 0x03U;
     config &= (u8)~0x20U;
 
     if (clks_mouse_write_cmd(CLKS_PS2_CMD_WRITE_CFG) == CLKS_FALSE || clks_mouse_write_data(config) == CLKS_FALSE) {
         clks_log(CLKS_LOG_WARN, "MOUSE", "PS2 WRITE CFG FAILED");
+        (void)clks_mouse_write_cmd(CLKS_PS2_CMD_ENABLE_KBD);
         return;
     }
 
     if (clks_mouse_send_device_cmd(CLKS_PS2_MOUSE_CMD_RESET_DEFAULTS, &ack) == CLKS_FALSE ||
         ack != CLKS_PS2_MOUSE_ACK) {
         clks_log(CLKS_LOG_WARN, "MOUSE", "PS2 RESET DEFAULTS FAILED");
+        (void)clks_mouse_write_cmd(CLKS_PS2_CMD_ENABLE_KBD);
         return;
     }
 
@@ -246,8 +282,12 @@ void clks_mouse_init(void) {
 
     if (clks_mouse_send_device_cmd(CLKS_PS2_MOUSE_CMD_ENABLE_STREAM, &ack) == CLKS_FALSE || ack != CLKS_PS2_MOUSE_ACK) {
         clks_log(CLKS_LOG_WARN, "MOUSE", "PS2 ENABLE STREAM FAILED");
+        (void)clks_mouse_write_cmd(CLKS_PS2_CMD_ENABLE_KBD);
         return;
     }
+
+    (void)clks_mouse_write_cmd(CLKS_PS2_CMD_ENABLE_KBD);
+    clks_mouse_drain_output();
 
     clks_mouse.ready = CLKS_TRUE;
     clks_log(CLKS_LOG_INFO, "MOUSE", "PS2 POINTER ONLINE");

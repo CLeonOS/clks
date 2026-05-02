@@ -2,6 +2,7 @@
 #include <clks/fs.h>
 #include <clks/elf64.h>
 #include <clks/heap.h>
+#include <clks/interrupts.h>
 #include <clks/keyboard.h>
 #include <clks/log.h>
 #include <clks/panic.h>
@@ -1437,6 +1438,8 @@ static void clks_shell_handle_char(char ch) {
 }
 
 void clks_shell_init(void) {
+    clks_keyboard_set_input_ready(CLKS_FALSE);
+
     clks_shell_reset_line();
     clks_shell_history_count = 0U;
     clks_shell_history_cancel_nav();
@@ -1462,6 +1465,8 @@ void clks_shell_init(void) {
     clks_shell_writeln("filesystem write commands are enabled in kernel shell mode");
     clks_shell_prompt();
 
+    clks_interrupts_drain_ps2_input();
+    clks_keyboard_set_input_ready(CLKS_TRUE);
     clks_log(CLKS_LOG_INFO, "SHELL", "INTERACTIVE LOOP ONLINE");
 }
 

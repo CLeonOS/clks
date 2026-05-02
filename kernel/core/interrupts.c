@@ -29,6 +29,10 @@
 
 #define CLKS_PS2_DATA_PORT 0x60U
 #define CLKS_PS2_STATUS_PORT 0x64U
+#define CLKS_PS2_STATUS_OBF 0x01U
+#define CLKS_PS2_STATUS_AUX 0x20U
+#define CLKS_PS2_DISPATCH_BUDGET 32U
+#define CLKS_PS2_BOOT_DRAIN_BUDGET 256U
 
 #define CLKS_PIT_CHANNEL0_PORT 0x40U
 #define CLKS_PIT_COMMAND_PORT 0x43U
@@ -237,8 +241,54 @@ static void clks_load_idt(void) {
     __asm__ volatile("lidt %0" : : "m"(idtr));
 }
 
-static clks_bool clks_ps2_has_output(void) {
-    return (clks_inb(CLKS_PS2_STATUS_PORT) & 0x01U) != 0U ? CLKS_TRUE : CLKS_FALSE;
+static clks_bool clks_ps2_status_has_output(u8 status) {
+    return ((status & CLKS_PS2_STATUS_OBF) != 0U) ? CLKS_TRUE : CLKS_FALSE;
+}
+
+static clks_bool clks_ps2_status_is_aux(u8 status) {
+    return ((status & CLKS_PS2_STATUS_AUX) != 0U) ? CLKS_TRUE : CLKS_FALSE;
+}
+
+static void clks_ps2_dispatch_byte(u8 status, u8 data_byte) {
+    if (clks_ps2_status_is_aux(status) == CLKS_TRUE) {
+        clks_mouse_handle_byte(data_byte);
+    } else {
+        clks_keyboard_handle_scancode(data_byte);
+    }
+}
+
+static void clks_ps2_dispatch_pending(void) {
+    u32 i;
+
+    for (i = 0U; i < CLKS_PS2_DISPATCH_BUDGET; i++) {
+        u8 status = clks_inb(CLKS_PS2_STATUS_PORT);
+        u8 data_byte;
+
+        if (clks_ps2_status_has_output(status) == CLKS_FALSE) {
+            break;
+        }
+
+        data_byte = clks_inb(CLKS_PS2_DATA_PORT);
+        clks_ps2_dispatch_byte(status, data_byte);
+    }
+}
+
+static void clks_ps2_drain_boot_input(void) {
+    u32 i;
+
+    for (i = 0U; i < CLKS_PS2_BOOT_DRAIN_BUDGET; i++) {
+        if (clks_ps2_status_has_output(clks_inb(CLKS_PS2_STATUS_PORT)) == CLKS_FALSE) {
+            break;
+        }
+
+        (void)clks_inb(CLKS_PS2_DATA_PORT);
+    }
+}
+
+void clks_interrupts_drain_ps2_input(void) {
+    __asm__ volatile("cli" : : : "memory");
+    clks_ps2_drain_boot_input();
+    __asm__ volatile("sti" : : : "memory");
 }
 
 static void clks_pit_set_frequency(u32 hz) {
@@ -287,16 +337,8 @@ void clks_interrupt_dispatch(struct clks_interrupt_frame *frame) {
     if (vector == CLKS_IRQ_TIMER) {
         clks_timer_ticks++;
         clks_scheduler_on_timer_tick(clks_timer_ticks);
-    } else if (vector == CLKS_IRQ_KEYBOARD) {
-        if (clks_ps2_has_output() == CLKS_TRUE) {
-            u8 scancode = clks_inb(CLKS_PS2_DATA_PORT);
-            clks_keyboard_handle_scancode(scancode);
-        }
-    } else if (vector == CLKS_IRQ_MOUSE) {
-        if (clks_ps2_has_output() == CLKS_TRUE) {
-            u8 data_byte = clks_inb(CLKS_PS2_DATA_PORT);
-            clks_mouse_handle_byte(data_byte);
-        }
+    } else if (vector == CLKS_IRQ_KEYBOARD || vector == CLKS_IRQ_MOUSE) {
+        clks_ps2_dispatch_pending();
     }
 
     if (vector >= CLKS_IRQ_BASE && vector <= CLKS_IRQ_LAST) {
@@ -366,6 +408,7 @@ void clks_interrupts_init(void) {
 
     clks_idt_set_gate(CLKS_SYSCALL_VECTOR, clks_isr_stub_128, CLKS_USER_INT_GATE);
 
+    clks_ps2_drain_boot_input();
     clks_pic_remap_and_mask();
     clks_pit_set_frequency(CLKS_TIMER_HZ);
     clks_load_idt();

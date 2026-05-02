@@ -19,6 +19,8 @@
 #define CLKS_KEY_SHIFT_END ((char)0x16)
 
 void clks_keyboard_init(void);
+void clks_keyboard_flush(void);
+void clks_keyboard_set_input_ready(clks_bool ready);
 void clks_keyboard_handle_scancode(u8 scancode);
 u64 clks_keyboard_hotkey_switch_count(void);
 clks_bool clks_keyboard_pop_char(char *out_ch);
