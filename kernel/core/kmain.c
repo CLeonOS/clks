@@ -199,6 +199,7 @@ void clks_kernel_main(void) {
 
     /* Serial first, because when graphics dies we still need a heartbeat. */
     clks_serial_init();
+    clks_cpu_init_fpu();
 
     /* If boot protocol handshake fails, continuing would be pure fantasy. */
     if (clks_boot_base_revision_supported() == CLKS_FALSE) {
