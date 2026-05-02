@@ -208,8 +208,7 @@ static u64 clks_fs_dynamic_dev_child_count(const char *dir_path) {
     return 0ULL;
 }
 
-static clks_bool clks_fs_dynamic_dev_child_name(const char *dir_path, u64 index, char *out_name,
-                                                usize out_name_size) {
+static clks_bool clks_fs_dynamic_dev_child_name(const char *dir_path, u64 index, char *out_name, usize out_name_size) {
     const char *name = CLKS_NULL;
     usize len;
 
