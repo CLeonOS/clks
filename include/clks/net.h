@@ -20,5 +20,6 @@ clks_bool clks_net_tcp_connect(u32 dst_ipv4_be, u16 dst_port, u16 src_port, u64 
 u64 clks_net_tcp_send(const void *payload, u64 payload_len, u64 poll_budget);
 u64 clks_net_tcp_recv(void *out_payload, u64 payload_capacity, u64 poll_budget);
 clks_bool clks_net_tcp_close(u64 poll_budget);
+u64 clks_net_tcp_last_error(void);
 
 #endif

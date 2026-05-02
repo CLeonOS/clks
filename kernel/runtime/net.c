@@ -1,6 +1,7 @@
 #include <clks/net.h>
 #include <clks/boot.h>
 #include <clks/cpu.h>
+#include <clks/interrupts.h>
 #include <clks/log.h>
 #include <clks/pmm.h>
 #include <clks/string.h>
@@ -105,8 +106,21 @@
 #define CLKS_NET_TCP_MIN_POLL_LOOPS 5000000ULL
 #define CLKS_NET_TCP_RETRY_COUNT 4U
 #define CLKS_NET_TCP_DEFAULT_WINDOW 16384U
+#define CLKS_NET_TCP_MSS 1460U
+#define CLKS_NET_TCP_SYN_OPTION_LEN 4U
+#define CLKS_NET_TCP_OPT_MSS 2U
+#define CLKS_NET_TCP_OPT_MSS_LEN 4U
 #define CLKS_NET_PING_DEFAULT_POLL_LOOPS 200000000ULL
 #define CLKS_NET_PING_MIN_POLL_LOOPS 5000000ULL
+
+#define CLKS_NET_TCP_ERR_NONE 0ULL
+#define CLKS_NET_TCP_ERR_UNAVAILABLE 1ULL
+#define CLKS_NET_TCP_ERR_BAD_ARG 2ULL
+#define CLKS_NET_TCP_ERR_ARP 3ULL
+#define CLKS_NET_TCP_ERR_SYN_TX 4ULL
+#define CLKS_NET_TCP_ERR_RST 5ULL
+#define CLKS_NET_TCP_ERR_TIMEOUT 6ULL
+#define CLKS_NET_TCP_ERR_STALE_ACK 7ULL
 
 #ifndef CLKS_CFG_NET_DHCP_CLIENT
 #define CLKS_CFG_NET_DHCP_CLIENT 1
@@ -237,6 +251,7 @@ struct clks_net_tcp_conn {
     u32 recv_head;
     u32 recv_tail;
     u32 recv_count;
+    clks_bool stale_ack_seen;
     u8 recv_buf[CLKS_NET_TCP_RECV_CAP];
 };
 
@@ -276,6 +291,7 @@ static u32 clks_net_udp_tail = 0U;
 static u32 clks_net_udp_count = 0U;
 static struct clks_net_tcp_conn clks_net_tcp;
 static u16 clks_net_tcp_ephemeral_port = 43000U;
+static u64 clks_net_tcp_last_err = CLKS_NET_TCP_ERR_NONE;
 
 static u16 clks_net_ipv4_ident = 1U;
 static u16 clks_net_ping_ident = 0x434CU;
@@ -1303,11 +1319,26 @@ static void clks_net_tcp_reset(void) {
 }
 
 static u16 clks_net_tcp_next_ephemeral_port(void) {
-    clks_net_tcp_ephemeral_port++;
+    u32 mix = (u32)(clks_interrupts_timer_ticks() ^ (u64)clks_net_ipv4_ident ^ (u64)clks_net_tcp_ephemeral_port);
+    u16 step = (u16)((mix & 0x003FU) | 1U);
+
+    clks_net_tcp_ephemeral_port = (u16)(clks_net_tcp_ephemeral_port + step);
     if (clks_net_tcp_ephemeral_port < 43000U || clks_net_tcp_ephemeral_port > 60000U) {
-        clks_net_tcp_ephemeral_port = 43000U;
+        clks_net_tcp_ephemeral_port = (u16)(43000U + (mix % 16001U));
     }
     return clks_net_tcp_ephemeral_port;
+}
+
+static u32 clks_net_tcp_make_iss(u32 dst_ipv4_be, u16 src_port, u16 dst_port, u32 try_index) {
+    u64 ticks = clks_interrupts_timer_ticks();
+    u32 value = ((u32)ticks * 1103515245U) ^ ((u32)(ticks >> 32U) * 2654435761U) ^
+                ((u32)clks_net_ipv4_ident << 16U) ^ ((u32)src_port << 1U) ^ dst_ipv4_be ^
+                ((u32)dst_port << 8U) ^ (try_index * 0x9E3779B9U);
+
+    if (value == 0U) {
+        value = 1U;
+    }
+    return value;
 }
 
 static void clks_net_tcp_recv_push(const u8 *payload, u16 payload_len) {
@@ -1496,7 +1527,8 @@ static clks_bool clks_net_send_tcp_segment_raw(u32 src_ipv4_be, u32 dst_ipv4_be,
                                                u16 payload_len) {
     u8 tcp[CLKS_NET_TCP_HEADER_MIN_LEN + CLKS_NET_MAX_IPV4_PAYLOAD];
     struct clks_net_tcp_hdr *hdr = (struct clks_net_tcp_hdr *)(void *)tcp;
-    u16 tcp_len = (u16)(CLKS_NET_TCP_HEADER_MIN_LEN + payload_len);
+    u16 header_len = CLKS_NET_TCP_HEADER_MIN_LEN;
+    u16 tcp_len;
     u16 window = CLKS_NET_TCP_DEFAULT_WINDOW;
     u16 checksum;
     u32 free_bytes;
@@ -1505,7 +1537,10 @@ static clks_bool clks_net_send_tcp_segment_raw(u32 src_ipv4_be, u32 dst_ipv4_be,
         return CLKS_FALSE;
     }
 
-    if (payload_len > (CLKS_NET_MAX_IPV4_PAYLOAD - CLKS_NET_TCP_HEADER_MIN_LEN)) {
+    if ((flags & CLKS_NET_TCP_FLAG_SYN) != 0U) {
+        header_len = (u16)(CLKS_NET_TCP_HEADER_MIN_LEN + CLKS_NET_TCP_SYN_OPTION_LEN);
+    }
+    if (payload_len > (CLKS_NET_MAX_IPV4_PAYLOAD - header_len)) {
         return CLKS_FALSE;
     }
 
@@ -1513,11 +1548,14 @@ static clks_bool clks_net_send_tcp_segment_raw(u32 src_ipv4_be, u32 dst_ipv4_be,
         return CLKS_FALSE;
     }
 
+    tcp_len = (u16)(header_len + payload_len);
+    clks_memset(tcp, 0, (usize)tcp_len);
+
     clks_net_write_be16(hdr->src_port, src_port);
     clks_net_write_be16(hdr->dst_port, dst_port);
     clks_net_write_be32(hdr->seq, seq);
     clks_net_write_be32(hdr->ack, ack);
-    clks_net_write_be16(hdr->data_offset_flags, (u16)((5U << 12U) | (flags & 0x01FFU)));
+    clks_net_write_be16(hdr->data_offset_flags, (u16)(((header_len / 4U) << 12U) | (flags & 0x01FFU)));
     free_bytes = CLKS_NET_TCP_RECV_CAP - clks_net_tcp.recv_count;
     if (free_bytes < window) {
         window = (u16)free_bytes;
@@ -1526,8 +1564,14 @@ static clks_bool clks_net_send_tcp_segment_raw(u32 src_ipv4_be, u32 dst_ipv4_be,
     clks_net_write_be16(hdr->checksum, 0U);
     clks_net_write_be16(hdr->urg_ptr, 0U);
 
+    if ((flags & CLKS_NET_TCP_FLAG_SYN) != 0U) {
+        tcp[CLKS_NET_TCP_HEADER_MIN_LEN] = CLKS_NET_TCP_OPT_MSS;
+        tcp[CLKS_NET_TCP_HEADER_MIN_LEN + 1U] = CLKS_NET_TCP_OPT_MSS_LEN;
+        clks_net_write_be16(&tcp[CLKS_NET_TCP_HEADER_MIN_LEN + 2U], CLKS_NET_TCP_MSS);
+    }
+
     if (payload_len > 0U) {
-        clks_memcpy(tcp + CLKS_NET_TCP_HEADER_MIN_LEN, payload, payload_len);
+        clks_memcpy(tcp + header_len, payload, payload_len);
     }
 
     checksum = clks_net_tcp_checksum(src_ipv4_be, dst_ipv4_be, tcp, tcp_len);
@@ -2058,6 +2102,10 @@ static void clks_net_process_tcp(u32 src_ipv4_be, const u8 *src_mac, const u8 *t
             clks_net_tcp.rcv_nxt = seq + 1U;
             clks_net_tcp.state = CLKS_NET_TCP_STATE_ESTABLISHED;
             (void)clks_net_send_tcp_ack();
+        } else {
+            if ((flags & CLKS_NET_TCP_FLAG_SYN) == 0U && (flags & CLKS_NET_TCP_FLAG_ACK) != 0U) {
+                clks_net_tcp.stale_ack_seen = CLKS_TRUE;
+            }
         }
         return;
     }
@@ -2559,11 +2607,15 @@ clks_bool clks_net_tcp_connect(u32 dst_ipv4_be, u16 dst_port, u16 src_port, u64 
     u64 per_try_budget;
     u32 try_index;
 
+    clks_net_tcp_last_err = CLKS_NET_TCP_ERR_NONE;
+
     if (clks_net_available() == CLKS_FALSE) {
+        clks_net_tcp_last_err = CLKS_NET_TCP_ERR_UNAVAILABLE;
         return CLKS_FALSE;
     }
 
     if (dst_ipv4_be == 0U || dst_port == 0U) {
+        clks_net_tcp_last_err = CLKS_NET_TCP_ERR_BAD_ARG;
         return CLKS_FALSE;
     }
 
@@ -2574,6 +2626,7 @@ clks_bool clks_net_tcp_connect(u32 dst_ipv4_be, u16 dst_port, u16 src_port, u64 
     }
 
     if (clks_net_resolve_ipv4(dst_ipv4_be, dst_mac, poll_budget / 2ULL) == CLKS_FALSE) {
+        clks_net_tcp_last_err = CLKS_NET_TCP_ERR_ARP;
         return CLKS_FALSE;
     }
 
@@ -2588,14 +2641,6 @@ clks_bool clks_net_tcp_connect(u32 dst_ipv4_be, u16 dst_port, u16 src_port, u64 
     clks_net_tcp.remote_port = dst_port;
     clks_net_tcp.local_port = (src_port != 0U) ? src_port : clks_net_tcp_next_ephemeral_port();
     clks_memcpy(clks_net_tcp.remote_mac, dst_mac, CLKS_NET_ETH_ADDR_LEN);
-    clks_net_tcp.snd_iss =
-        ((u32)clks_net_ipv4_ident << 16U) ^ ((u32)clks_net_tcp.local_port << 1U) ^ dst_ipv4_be ^ ((u32)dst_port << 8U);
-    if (clks_net_tcp.snd_iss == 0U) {
-        clks_net_tcp.snd_iss = 1U;
-    }
-    clks_net_tcp.snd_una = clks_net_tcp.snd_iss;
-    clks_net_tcp.snd_nxt = clks_net_tcp.snd_iss + 1U;
-    clks_net_tcp.rcv_nxt = 0U;
 
     per_try_budget = poll_budget / CLKS_NET_TCP_RETRY_COUNT;
     if (per_try_budget < 20000ULL) {
@@ -2605,9 +2650,20 @@ clks_bool clks_net_tcp_connect(u32 dst_ipv4_be, u16 dst_port, u16 src_port, u64 
     for (try_index = 0U; try_index < CLKS_NET_TCP_RETRY_COUNT; try_index++) {
         u64 i;
 
+        if (src_port == 0U && try_index > 0U) {
+            clks_net_tcp.local_port = clks_net_tcp_next_ephemeral_port();
+        }
+        clks_net_tcp.snd_iss = clks_net_tcp_make_iss(dst_ipv4_be, clks_net_tcp.local_port, clks_net_tcp.remote_port,
+                                                     try_index);
+        clks_net_tcp.snd_una = clks_net_tcp.snd_iss;
+        clks_net_tcp.snd_nxt = clks_net_tcp.snd_iss + 1U;
+        clks_net_tcp.rcv_nxt = 0U;
+        clks_net_tcp.stale_ack_seen = CLKS_FALSE;
+
         if (clks_net_send_tcp_segment_raw(clks_net_ipv4_be, dst_ipv4_be, clks_net_tcp.remote_mac,
                                           clks_net_tcp.local_port, clks_net_tcp.remote_port, clks_net_tcp.snd_iss, 0U,
                                           CLKS_NET_TCP_FLAG_SYN, CLKS_NULL, 0U) == CLKS_FALSE) {
+            clks_net_tcp_last_err = CLKS_NET_TCP_ERR_SYN_TX;
             continue;
         }
 
@@ -2616,10 +2672,17 @@ clks_bool clks_net_tcp_connect(u32 dst_ipv4_be, u16 dst_port, u16 src_port, u64 
 
             if (clks_net_tcp.reset_seen == CLKS_TRUE) {
                 clks_net_tcp_reset();
+                clks_net_tcp_last_err = CLKS_NET_TCP_ERR_RST;
                 return CLKS_FALSE;
             }
 
+            if (clks_net_tcp.stale_ack_seen == CLKS_TRUE) {
+                clks_net_tcp_last_err = CLKS_NET_TCP_ERR_STALE_ACK;
+                break;
+            }
+
             if (clks_net_tcp.state == CLKS_NET_TCP_STATE_ESTABLISHED) {
+                clks_net_tcp_last_err = CLKS_NET_TCP_ERR_NONE;
                 return CLKS_TRUE;
             }
 
@@ -2630,6 +2693,9 @@ clks_bool clks_net_tcp_connect(u32 dst_ipv4_be, u16 dst_port, u16 src_port, u64 
     }
 
     clks_net_tcp_reset();
+    if (clks_net_tcp_last_err == CLKS_NET_TCP_ERR_NONE || clks_net_tcp_last_err == CLKS_NET_TCP_ERR_SYN_TX) {
+        clks_net_tcp_last_err = CLKS_NET_TCP_ERR_TIMEOUT;
+    }
     return CLKS_FALSE;
 }
 
@@ -2802,6 +2868,10 @@ clks_bool clks_net_tcp_close(u64 poll_budget) {
     return CLKS_FALSE;
 }
 
+u64 clks_net_tcp_last_error(void) {
+    return clks_net_tcp_last_err;
+}
+
 #else
 
 void clks_net_init(void) {}
@@ -2878,6 +2948,10 @@ u64 clks_net_tcp_recv(void *out_payload, u64 payload_capacity, u64 poll_budget) 
 clks_bool clks_net_tcp_close(u64 poll_budget) {
     (void)poll_budget;
     return CLKS_FALSE;
+}
+
+u64 clks_net_tcp_last_error(void) {
+    return CLKS_NET_TCP_ERR_UNAVAILABLE;
 }
 
 #endif
