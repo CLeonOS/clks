@@ -2421,8 +2421,8 @@ u64 clks_exec_fd_open(const char *path, u64 flags, u64 mode) {
 
         clks_memset(entry, 0, sizeof(*entry));
         entry->used = CLKS_TRUE;
-        entry->kind = (clks_exec_path_is_dev_tty0(path) == CLKS_TRUE) ? CLKS_EXEC_FD_KIND_DEV_TTY0
-                                                                      : CLKS_EXEC_FD_KIND_TTY;
+        entry->kind =
+            (clks_exec_path_is_dev_tty0(path) == CLKS_TRUE) ? CLKS_EXEC_FD_KIND_DEV_TTY0 : CLKS_EXEC_FD_KIND_TTY;
         entry->flags = flags;
         entry->offset = 0ULL;
         entry->tty_index = (clks_exec_path_is_dev_tty0(path) == CLKS_TRUE) ? 0U : proc->tty_index;

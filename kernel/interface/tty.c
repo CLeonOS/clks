@@ -129,8 +129,7 @@ static void clks_tty_draw_cell_with_colors(u32 row, u32 col, char ch, u32 fg, u3
     }
 
     scale = (u8)clks_tty_clamp_scale((u32)scale);
-    clks_fb_draw_char_scaled(col * clks_tty_cell_width, row * clks_tty_cell_height, ch, fg, bg, (u32)style,
-                             (u32)scale);
+    clks_fb_draw_char_scaled(col * clks_tty_cell_width, row * clks_tty_cell_height, ch, fg, bg, (u32)style, (u32)scale);
 }
 
 static void clks_tty_draw_cell(u32 tty_index, u32 row, u32 col) {
@@ -799,11 +798,10 @@ static void clks_tty_redraw_active(void) {
             u32 phys = clks_tty_scrollback_logical_to_physical(tty_index, doc_index);
 
             for (col = 0; col < clks_tty_cols; col++) {
-                clks_tty_draw_cell_with_colors(row, col, clks_tty_scrollback_cells[tty_index][phys][col],
-                                               clks_tty_scrollback_fg[tty_index][phys][col],
-                                               clks_tty_scrollback_bg[tty_index][phys][col],
-                                               clks_tty_scrollback_style[tty_index][phys][col],
-                                               clks_tty_scrollback_scale[tty_index][phys][col]);
+                clks_tty_draw_cell_with_colors(
+                    row, col, clks_tty_scrollback_cells[tty_index][phys][col],
+                    clks_tty_scrollback_fg[tty_index][phys][col], clks_tty_scrollback_bg[tty_index][phys][col],
+                    clks_tty_scrollback_style[tty_index][phys][col], clks_tty_scrollback_scale[tty_index][phys][col]);
             }
 
             continue;
@@ -919,8 +917,7 @@ static void clks_tty_put_visible(u32 tty_index, u32 row, u32 col, char ch) {
 
     for (rr = 0U; rr < span_rows; rr++) {
         for (cc = 0U; cc < span_cols; cc++) {
-            clks_tty_cells[tty_index][row + rr][col + cc] =
-                (rr == 0U && cc == 0U) ? ch : CLKS_TTY_CELL_CONTINUATION;
+            clks_tty_cells[tty_index][row + rr][col + cc] = (rr == 0U && cc == 0U) ? ch : CLKS_TTY_CELL_CONTINUATION;
             clks_tty_cell_fg[tty_index][row + rr][col + cc] = fg;
             clks_tty_cell_bg[tty_index][row + rr][col + cc] = bg;
             clks_tty_cell_style[tty_index][row + rr][col + cc] = style;
