@@ -744,18 +744,24 @@ static clks_bool clks_disk_write_named_dir_entry(u32 parent_cluster, const char 
     u32 needed;
     u8 checksum;
     u32 i;
+    clks_bool needs_lfn;
 
     if (component == CLKS_NULL || out_slot == CLKS_NULL) {
         return CLKS_FALSE;
     }
 
-    if (clks_disk_component_generate_sfn(component, sfn) == CLKS_FALSE) {
-        return CLKS_FALSE;
+    if (clks_disk_component_to_sfn(component, sfn) == CLKS_TRUE) {
+        needs_lfn = CLKS_FALSE;
+    } else {
+        if (clks_disk_component_generate_sfn(component, sfn) == CLKS_FALSE) {
+            return CLKS_FALSE;
+        }
+        needs_lfn = CLKS_TRUE;
     }
 
     name_len = clks_disk_component_len(component);
-    lfn_count = (name_len + 12U) / 13U;
-    if (lfn_count == 0U || lfn_count > CLKS_DISK_LFN_MAX_ENTRIES) {
+    lfn_count = (needs_lfn == CLKS_TRUE) ? (u32)((name_len + 12U) / 13U) : 0U;
+    if (needs_lfn == CLKS_TRUE && (lfn_count == 0U || lfn_count > CLKS_DISK_LFN_MAX_ENTRIES)) {
         return CLKS_FALSE;
     }
 
@@ -764,18 +770,20 @@ static clks_bool clks_disk_write_named_dir_entry(u32 parent_cluster, const char 
         return CLKS_FALSE;
     }
 
-    checksum = clks_disk_lfn_checksum(sfn);
-    for (i = 0U; i < lfn_count; i++) {
-        u8 lfn_entry[CLKS_DISK_DIRENT_SIZE];
-        u8 order = (u8)(lfn_count - i);
+    if (needs_lfn == CLKS_TRUE) {
+        checksum = clks_disk_lfn_checksum(sfn);
+        for (i = 0U; i < lfn_count; i++) {
+            u8 lfn_entry[CLKS_DISK_DIRENT_SIZE];
+            u8 order = (u8)(lfn_count - i);
 
-        if (i == 0U) {
-            order |= 0x40U;
-        }
+            if (i == 0U) {
+                order |= 0x40U;
+            }
 
-        clks_disk_build_lfn_entry(lfn_entry, component, name_len, order, checksum);
-        if (clks_disk_write_dir_entry_at(free_slot.cluster, free_slot.entry_index + i, lfn_entry) == CLKS_FALSE) {
-            return CLKS_FALSE;
+            clks_disk_build_lfn_entry(lfn_entry, component, name_len, order, checksum);
+            if (clks_disk_write_dir_entry_at(free_slot.cluster, free_slot.entry_index + i, lfn_entry) == CLKS_FALSE) {
+                return CLKS_FALSE;
+            }
         }
     }
 

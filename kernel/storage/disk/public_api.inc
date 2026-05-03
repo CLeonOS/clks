@@ -825,6 +825,7 @@ clks_bool clks_disk_remove(const char *path) {
     struct clks_disk_path_lookup lookup;
     u64 lba = 0ULL;
     u8 *entry;
+    u32 lfn_entry_index;
 
     if (clks_disk_path_to_relative(path, relative, sizeof(relative)) == CLKS_FALSE) {
         return CLKS_FALSE;
@@ -850,6 +851,27 @@ clks_bool clks_disk_remove(const char *path) {
     entry = clks_disk_dir_entry_ptr(lookup.slot.cluster, lookup.slot.entry_index, &lba);
     if (entry == CLKS_NULL) {
         return CLKS_FALSE;
+    }
+
+    lfn_entry_index = lookup.slot.entry_index;
+    while (lfn_entry_index > 0U) {
+        u64 lfn_lba = 0ULL;
+        u8 *lfn_entry;
+
+        lfn_entry_index--;
+        lfn_entry = clks_disk_dir_entry_ptr(lookup.slot.cluster, lfn_entry_index, &lfn_lba);
+        if (lfn_entry == CLKS_NULL) {
+            return CLKS_FALSE;
+        }
+
+        if (lfn_entry[0] == 0x00U || lfn_entry[0] == 0xE5U || lfn_entry[11U] != CLKS_DISK_ATTR_LFN) {
+            break;
+        }
+
+        lfn_entry[0] = 0xE5U;
+        if (clks_disk_sync_sector_range(lfn_lba, 1ULL) == CLKS_FALSE) {
+            return CLKS_FALSE;
+        }
     }
 
     entry[0] = 0xE5U;
