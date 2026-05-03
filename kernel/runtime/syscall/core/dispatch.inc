@@ -359,6 +359,8 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_user_remove(frame->rbx));
     case CLKS_SYSCALL_USER_IS_ADMIN:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_user_is_admin());
+    case CLKS_SYSCALL_DISK_FSCK_FAT32:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_disk_fsck_fat32(frame->rbx, frame->rcx));
     case CLKS_SYSCALL_MOUSE_STATE:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_mouse_state(frame->rbx));
     case CLKS_SYSCALL_WM_CREATE:

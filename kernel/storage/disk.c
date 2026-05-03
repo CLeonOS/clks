@@ -127,4 +127,5 @@ static u8 clks_disk_ata_drive_lba = CLKS_DISK_ATA_DRIVE_LBA_MASTER;
 #include "disk/directory.inc"
 #include "disk/file_chain.inc"
 #include "disk/format.inc"
+#include "disk/fsck.inc"
 #include "disk/public_api.inc"

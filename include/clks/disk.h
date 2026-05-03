@@ -8,6 +8,21 @@
 #define CLKS_DISK_NODE_FILE 1ULL
 #define CLKS_DISK_NODE_DIR 2ULL
 
+#define CLKS_DISK_FSCK_FLAG_FIX 0x1ULL
+
+struct clks_disk_fsck_result {
+    u64 status;
+    u64 checked_clusters;
+    u64 free_clusters;
+    u64 used_clusters;
+    u64 bad_entries;
+    u64 loops;
+    u64 size_mismatches;
+    u64 orphan_clusters;
+    u64 fixed_entries;
+    u64 fixed_orphans;
+};
+
 void clks_disk_init(void);
 
 clks_bool clks_disk_present(void);
@@ -33,6 +48,7 @@ clks_bool clks_disk_mkdir(const char *path);
 clks_bool clks_disk_write_all(const char *path, const void *data, u64 size);
 clks_bool clks_disk_append(const char *path, const void *data, u64 size);
 clks_bool clks_disk_remove(const char *path);
+clks_bool clks_disk_fsck_fat32(u64 flags, struct clks_disk_fsck_result *out_result);
 u64 clks_disk_node_count(void);
 
 #endif

@@ -99,3 +99,27 @@ static u64 clks_syscall_disk_write_sector(u64 arg0, u64 arg1) {
     clks_memcpy(sector, (const void *)arg1, (usize)CLKS_SYSCALL_DISK_SECTOR_BYTES);
     return (clks_disk_write_sector(arg0, (const void *)sector) == CLKS_TRUE) ? 1ULL : 0ULL;
 }
+
+static u64 clks_syscall_disk_fsck_fat32(u64 arg0, u64 arg1) {
+    struct clks_disk_fsck_result result;
+
+    if (arg1 == 0ULL) {
+        return 0ULL;
+    }
+
+    if ((arg0 & CLKS_DISK_FSCK_FLAG_FIX) != 0ULL && clks_user_privileged_operation_allowed() == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    if (clks_syscall_user_ptr_writable(arg1, (u64)sizeof(result)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    clks_memset(&result, 0, sizeof(result));
+    if (clks_disk_fsck_fat32(arg0, &result) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    clks_memcpy((void *)arg1, &result, sizeof(result));
+    return 1ULL;
+}

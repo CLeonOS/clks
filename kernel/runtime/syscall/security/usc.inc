@@ -48,6 +48,7 @@ static clks_bool clks_syscall_usc_is_dangerous(u64 id) {
     case CLKS_SYSCALL_DISK_FORMAT_FAT32:
         return CLKS_TRUE;
     case CLKS_SYSCALL_DISK_WRITE_SECTOR:
+    case CLKS_SYSCALL_DISK_FSCK_FAT32:
         return CLKS_TRUE;
     default:
         return CLKS_FALSE;
@@ -491,28 +492,30 @@ static void clks_syscall_usc_popup_draw(u32 *pixels, u32 width, u32 height, cons
 
     clks_syscall_usc_popup_build_syscall_line(syscall_line, sizeof(syscall_line), name, id);
 
-    clks_syscall_usc_popup_fill_rect(pixels, width, height, 0U, 0U, width, height, 0x00F3F3F3UL);
-    clks_syscall_usc_popup_fill_rect(pixels, width, height, 0U, 0U, width, 34U, 0x000078D7UL);
-    clks_syscall_usc_popup_draw_border(pixels, width, height, 0U, 0U, width, height, 0x00005A9EUL);
-    clks_syscall_usc_popup_draw_text(pixels, width, height, 16U, 10U, width - 16U, "USERSAFECONTROLLER", 0x00FFFFFFUL,
-                                     1U);
-    clks_syscall_usc_popup_draw_text(pixels, width, height, 18U, 50U, width - 18U,
-                                     "A USER APP REQUESTS A DANGEROUS ACTION", 0x00202020UL, 1U);
-    clks_syscall_usc_popup_draw_text(pixels, width, height, 18U, 76U, width - 18U, "APP:", 0x00404040UL, 1U);
-    clks_syscall_usc_popup_draw_text(pixels, width, height, 58U, 76U, width - 18U, app_path, 0x00000000UL, 1U);
-    clks_syscall_usc_popup_draw_text(pixels, width, height, 18U, 100U, width - 18U, syscall_line, 0x00000000UL, 1U);
+    clks_syscall_usc_popup_fill_rect(pixels, width, height, 0U, 0U, width, height, 0x00001024UL);
+    clks_syscall_usc_popup_fill_rect(pixels, width, height, 6U, 6U, width - 12U, height - 12U, 0x00002048UL);
+    clks_syscall_usc_popup_draw_border(pixels, width, height, 0U, 0U, width, height, 0x0000D7FFUL);
+    clks_syscall_usc_popup_draw_border(pixels, width, height, 4U, 4U, width - 8U, height - 8U, 0x000078D7UL);
+    clks_syscall_usc_popup_fill_rect(pixels, width, height, 12U, 10U, width - 24U, 20U, 0x00000080UL);
+    clks_syscall_usc_popup_draw_text(pixels, width, height, 20U, 16U, width - 20U, " USER SAFE CONTROLLER ",
+                                     0x00FFFFFFUL, 1U);
+    clks_syscall_usc_popup_draw_text(pixels, width, height, 18U, 48U, width - 18U,
+                                     "DANGEROUS SYSCALL REQUEST", 0x00FFFF66UL, 1U);
+    clks_syscall_usc_popup_draw_text(pixels, width, height, 18U, 74U, width - 18U, "APP:", 0x0080FFFFUL, 1U);
+    clks_syscall_usc_popup_draw_text(pixels, width, height, 58U, 74U, width - 18U, app_path, 0x00FFFFFFUL, 1U);
+    clks_syscall_usc_popup_draw_text(pixels, width, height, 18U, 100U, width - 18U, syscall_line, 0x00FFFFFFUL, 1U);
     clks_syscall_usc_popup_draw_text(pixels, width, height, 18U, 128U, width - 18U,
-                                     "CHOOSE: 1 ONCE  2 SESSION  3 PERMANENT  N DENY", 0x00404040UL, 1U);
-    clks_syscall_usc_popup_fill_rect(pixels, width, height, 18U, 154U, width - 36U, 1U, 0x00D6D6D6UL);
+                                     "SELECT: 1 ONCE  2 SESSION  3 PERMANENT  N DENY", 0x00C0C0C0UL, 1U);
+    clks_syscall_usc_popup_fill_rect(pixels, width, height, 18U, 154U, width - 36U, 1U, 0x000078D7UL);
 
-    clks_syscall_usc_popup_draw_button(pixels, width, height, &buttons[0], "1 ONCE", 0x00FFFFFFUL, 0x000078D7UL,
-                                       0x00000000UL);
-    clks_syscall_usc_popup_draw_button(pixels, width, height, &buttons[1], "2 SESSION", 0x00FFFFFFUL, 0x000078D7UL,
-                                       0x00000000UL);
-    clks_syscall_usc_popup_draw_button(pixels, width, height, &buttons[2], "3 PERM", 0x00FFFFFFUL, 0x000078D7UL,
-                                       0x00000000UL);
-    clks_syscall_usc_popup_draw_button(pixels, width, height, &buttons[3], "N DENY", 0x00F8D7DAUL, 0x00A4262CUL,
-                                       0x00000000UL);
+    clks_syscall_usc_popup_draw_button(pixels, width, height, &buttons[0], "1 ONCE", 0x00002070UL, 0x0000D7FFUL,
+                                       0x00FFFFFFUL);
+    clks_syscall_usc_popup_draw_button(pixels, width, height, &buttons[1], "2 SESSION", 0x00002070UL, 0x0000D7FFUL,
+                                       0x00FFFFFFUL);
+    clks_syscall_usc_popup_draw_button(pixels, width, height, &buttons[2], "3 PERM", 0x00002070UL, 0x0000D7FFUL,
+                                       0x00FFFFFFUL);
+    clks_syscall_usc_popup_draw_button(pixels, width, height, &buttons[3], "N DENY", 0x00600018UL, 0x00FF6060UL,
+                                       0x00FFFFFFUL);
 }
 
 static clks_bool clks_syscall_usc_decision_from_key(char ch, enum clks_syscall_usc_decision *out_decision) {
@@ -661,6 +664,81 @@ static clks_bool clks_syscall_usc_prompt_popup(const char *app_path, const char 
     *out_decision = decision;
     return CLKS_TRUE;
 }
+
+static clks_bool clks_syscall_usc_prompt_framebuffer_tui(const char *app_path, const char *name, u64 id,
+                                                         u32 tty_index,
+                                                         enum clks_syscall_usc_decision *out_decision) {
+    struct clks_framebuffer_info fb;
+    u32 *pixels;
+    u32 *saved;
+    u32 x;
+    u32 y;
+    u32 row;
+    u32 col;
+    clks_bool decided = CLKS_FALSE;
+    enum clks_syscall_usc_decision decision = CLKS_SYSCALL_USC_DECISION_DENY;
+
+    if (out_decision == CLKS_NULL || clks_fb_ready() == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    fb = clks_fb_info();
+    if (fb.bpp != 32U || fb.width < CLKS_SYSCALL_USC_POPUP_WIDTH || fb.height < CLKS_SYSCALL_USC_POPUP_HEIGHT) {
+        return CLKS_FALSE;
+    }
+
+    pixels = (u32 *)clks_kmalloc((usize)(CLKS_SYSCALL_USC_POPUP_WIDTH * CLKS_SYSCALL_USC_POPUP_HEIGHT * 4U));
+    if (pixels == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    saved = (u32 *)clks_kmalloc((usize)(CLKS_SYSCALL_USC_POPUP_WIDTH * CLKS_SYSCALL_USC_POPUP_HEIGHT * 4U));
+    if (saved == CLKS_NULL) {
+        clks_kfree(pixels);
+        return CLKS_FALSE;
+    }
+
+    x = (fb.width - CLKS_SYSCALL_USC_POPUP_WIDTH) / 2U;
+    y = (fb.height - CLKS_SYSCALL_USC_POPUP_HEIGHT) / 2U;
+
+    for (row = 0U; row < CLKS_SYSCALL_USC_POPUP_HEIGHT; row++) {
+        for (col = 0U; col < CLKS_SYSCALL_USC_POPUP_WIDTH; col++) {
+            u32 rgb = 0U;
+            (void)clks_fb_read_pixel(x + col, y + row, &rgb);
+            saved[((u64)row * CLKS_SYSCALL_USC_POPUP_WIDTH) + col] = rgb;
+        }
+    }
+
+    clks_syscall_usc_popup_draw(pixels, CLKS_SYSCALL_USC_POPUP_WIDTH, CLKS_SYSCALL_USC_POPUP_HEIGHT, app_path, name,
+                                id);
+    clks_fb_blit_rgba((i32)x, (i32)y, pixels, CLKS_SYSCALL_USC_POPUP_WIDTH, CLKS_SYSCALL_USC_POPUP_HEIGHT,
+                      CLKS_SYSCALL_USC_POPUP_WIDTH * 4U);
+
+    while (decided == CLKS_FALSE) {
+        char ch = '\0';
+
+        if (clks_keyboard_pop_char_for_tty(tty_index, &ch) == CLKS_TRUE) {
+            if (clks_syscall_usc_decision_from_key(ch, &decision) == CLKS_TRUE) {
+                decided = CLKS_TRUE;
+                break;
+            }
+        }
+
+        clks_syscall_usc_sleep_until_input();
+    }
+
+    clks_fb_blit_rgba((i32)x, (i32)y, saved, CLKS_SYSCALL_USC_POPUP_WIDTH, CLKS_SYSCALL_USC_POPUP_HEIGHT,
+                      CLKS_SYSCALL_USC_POPUP_WIDTH * 4U);
+    clks_kfree(saved);
+    clks_kfree(pixels);
+
+    if (decided == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    *out_decision = decision;
+    return CLKS_TRUE;
+}
 #endif
 
 static enum clks_syscall_usc_decision clks_syscall_usc_prompt_allow(const char *app_path, u64 id, u64 arg0, u64 arg1,
@@ -693,43 +771,16 @@ static enum clks_syscall_usc_decision clks_syscall_usc_prompt_allow(const char *
         }
     }
 
-    clks_log(CLKS_LOG_WARN, "USC", "CONFIRM: [1/o]=once [2/s]=session [3/p]=permanent [n]=deny");
-    clks_tty_write("[WARN][USC] Allow mode [1/o once, 2/s session, 3/p permanent, n deny]: ");
-    clks_serial_write("[WARN][USC] Allow mode [1/o once, 2/s session, 3/p permanent, n deny]: ");
+    {
+        enum clks_syscall_usc_decision tui_decision;
 
-    while (1) {
-        char ch = '\0';
-
-        if (clks_keyboard_pop_char_for_tty(tty_index, &ch) == CLKS_TRUE) {
-            if (ch == '1' || ch == 'o' || ch == 'O') {
-                clks_tty_write("1\n");
-                clks_serial_write("1\n");
-                return CLKS_SYSCALL_USC_DECISION_ALLOW_ONCE;
-            }
-
-            if (ch == '2' || ch == 's' || ch == 'S') {
-                clks_tty_write("2\n");
-                clks_serial_write("2\n");
-                return CLKS_SYSCALL_USC_DECISION_ALLOW_SESSION;
-            }
-
-            if (ch == '3' || ch == 'p' || ch == 'P') {
-                clks_tty_write("3\n");
-                clks_serial_write("3\n");
-                return CLKS_SYSCALL_USC_DECISION_ALLOW_PERMANENT;
-            }
-
-            if (ch == 'n' || ch == 'N' || ch == '\n' || ch == '\r' || ch == 27) {
-                clks_tty_write("n\n");
-                clks_serial_write("n\n");
-                return CLKS_SYSCALL_USC_DECISION_DENY;
-            }
-
-            continue;
+        if (clks_syscall_usc_prompt_framebuffer_tui(app_path, name, id, tty_index, &tui_decision) == CLKS_TRUE) {
+            return tui_decision;
         }
-
-        clks_syscall_usc_sleep_until_input();
     }
+
+    clks_syscall_usc_emit_text_line("BLOCK", "screen prompt unavailable");
+    return CLKS_SYSCALL_USC_DECISION_DENY;
 #endif
 }
 #endif
@@ -795,4 +846,3 @@ static clks_bool clks_syscall_usc_check(u64 id, u64 arg0, u64 arg1, u64 arg2) {
     return CLKS_FALSE;
 #endif
 }
-

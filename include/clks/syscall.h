@@ -145,6 +145,7 @@
 #define CLKS_SYSCALL_USER_SET_ROLE 139ULL
 #define CLKS_SYSCALL_USER_REMOVE 140ULL
 #define CLKS_SYSCALL_USER_IS_ADMIN 141ULL
+#define CLKS_SYSCALL_DISK_FSCK_FAT32 142ULL
 
 void clks_syscall_init(void);
 u64 clks_syscall_dispatch(void *frame_ptr);
