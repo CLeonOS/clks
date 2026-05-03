@@ -70,8 +70,7 @@ clks_bool clks_exec_current_set_user(u64 uid, u64 role, const char *name, const 
                                      clks_bool disk_login_required);
 void clks_exec_current_clear_user(clks_bool disk_login_required);
 clks_bool clks_exec_current_user_info(u64 *out_uid, u64 *out_role, char *out_name, usize name_size, char *out_home,
-                                      usize home_size, clks_bool *out_logged_in,
-                                      clks_bool *out_disk_login_required);
+                                      usize home_size, clks_bool *out_logged_in, clks_bool *out_disk_login_required);
 u64 clks_exec_current_uid(void);
 u64 clks_exec_current_role(void);
 clks_bool clks_exec_current_logged_in(void);
