@@ -6,6 +6,30 @@
 #include <clks/types.h>
 #include <clks/user.h>
 
+#ifndef CLKS_CFG_USER_SYSTEM
+#define CLKS_CFG_USER_SYSTEM 1
+#endif
+
+#ifndef CLKS_CFG_USER_DISK_LOGIN
+#define CLKS_CFG_USER_DISK_LOGIN 1
+#endif
+
+#ifndef CLKS_CFG_USER_READ_POLICY
+#define CLKS_CFG_USER_READ_POLICY 1
+#endif
+
+#ifndef CLKS_CFG_USER_WRITE_POLICY
+#define CLKS_CFG_USER_WRITE_POLICY 1
+#endif
+
+#ifndef CLKS_CFG_USER_PRIVILEGE_POLICY
+#define CLKS_CFG_USER_PRIVILEGE_POLICY 1
+#endif
+
+#ifndef CLKS_CFG_USER_BOOT_LOG
+#define CLKS_CFG_USER_BOOT_LOG 1
+#endif
+
 typedef struct clks_user_sha256_ctx {
     u8 data[64];
     u32 datalen;
@@ -675,10 +699,15 @@ static clks_bool clks_user_db_ensure(void) {
 }
 
 void clks_user_init(void) {
-    clks_user_disk_login_required = clks_user_is_disk_boot();
+    clks_user_disk_login_required =
+        (CLKS_CFG_USER_SYSTEM != 0 && CLKS_CFG_USER_DISK_LOGIN != 0 && clks_user_is_disk_boot() == CLKS_TRUE)
+            ? CLKS_TRUE
+            : CLKS_FALSE;
+#if CLKS_CFG_USER_BOOT_LOG
     clks_log(CLKS_LOG_INFO, "USER", "KERNEL USER SYSTEM ONLINE");
     clks_log_hex(CLKS_LOG_INFO, "USER", "DISK_LOGIN_REQUIRED",
                  (clks_user_disk_login_required == CLKS_TRUE) ? 1ULL : 0ULL);
+#endif
 }
 
 clks_bool clks_user_is_disk_boot(void) {
@@ -702,6 +731,17 @@ clks_bool clks_user_current_info(struct clks_user_public_info *out_info) {
 
     if (out_info == CLKS_NULL) {
         return CLKS_FALSE;
+    }
+
+    if (CLKS_CFG_USER_SYSTEM == 0) {
+        clks_memset(out_info, 0, sizeof(*out_info));
+        out_info->uid = CLKS_USER_UID_ROOT;
+        out_info->role = CLKS_USER_ROLE_ADMIN;
+        out_info->logged_in = 1ULL;
+        out_info->disk_login_required = 0ULL;
+        clks_user_copy(out_info->name, sizeof(out_info->name), "root");
+        clks_user_copy(out_info->home, sizeof(out_info->home), "/");
+        return CLKS_TRUE;
     }
 
     name[0] = '\0';
@@ -741,6 +781,10 @@ clks_bool clks_user_current_info(struct clks_user_public_info *out_info) {
 clks_bool clks_user_current_is_admin(void) {
     struct clks_user_public_info info;
 
+    if (CLKS_CFG_USER_SYSTEM == 0) {
+        return CLKS_TRUE;
+    }
+
     if (clks_user_disk_login_required == CLKS_FALSE) {
         return CLKS_TRUE;
     }
@@ -755,7 +799,7 @@ clks_bool clks_user_current_is_admin(void) {
 clks_bool clks_user_login(const char *name, const char *password, struct clks_user_public_info *out_info) {
     struct clks_user_record record;
 
-    if (clks_user_disk_login_required == CLKS_FALSE) {
+    if (CLKS_CFG_USER_SYSTEM == 0 || clks_user_disk_login_required == CLKS_FALSE) {
         struct clks_user_record root_record;
         clks_memset(&root_record, 0, sizeof(root_record));
         root_record.uid = CLKS_USER_UID_ROOT;
@@ -797,7 +841,7 @@ u64 clks_user_count(void) {
     u64 i;
     u64 count = 0ULL;
 
-    if (clks_user_read_db(db, sizeof(db), &len) == CLKS_FALSE) {
+    if (CLKS_CFG_USER_SYSTEM == 0 || clks_user_read_db(db, sizeof(db), &len) == CLKS_FALSE) {
         return 0ULL;
     }
 
@@ -831,7 +875,8 @@ clks_bool clks_user_at(u64 index, struct clks_user_public_info *out_info) {
     u64 i;
     u64 current = 0ULL;
 
-    if (out_info == CLKS_NULL || clks_user_read_db(db, sizeof(db), &len) == CLKS_FALSE) {
+    if (CLKS_CFG_USER_SYSTEM == 0 || out_info == CLKS_NULL ||
+        clks_user_read_db(db, sizeof(db), &len) == CLKS_FALSE) {
         return CLKS_FALSE;
     }
 
@@ -868,8 +913,8 @@ clks_bool clks_user_create(const char *name, const char *password, u64 role) {
     struct clks_fs_node_info home_info;
     char line[CLKS_USER_RECORD_MAX];
 
-    if (clks_user_current_is_admin() == CLKS_FALSE || clks_user_name_valid(name) == CLKS_FALSE || password == CLKS_NULL ||
-        password[0] == '\0') {
+    if (CLKS_CFG_USER_SYSTEM == 0 || clks_user_current_is_admin() == CLKS_FALSE ||
+        clks_user_name_valid(name) == CLKS_FALSE || password == CLKS_NULL || password[0] == '\0') {
         return CLKS_FALSE;
     }
 
@@ -904,9 +949,9 @@ clks_bool clks_user_change_password(const char *name, const char *old_password, 
     struct clks_user_record record;
     struct clks_user_public_info current;
 
-    if (clks_user_name_valid(name) == CLKS_FALSE || new_password == CLKS_NULL || new_password[0] == '\0' ||
-        clks_user_find(name, &record) == CLKS_FALSE || clks_user_current_info(&current) == CLKS_FALSE ||
-        current.logged_in == 0ULL) {
+    if (CLKS_CFG_USER_SYSTEM == 0 || clks_user_name_valid(name) == CLKS_FALSE || new_password == CLKS_NULL ||
+        new_password[0] == '\0' || clks_user_find(name, &record) == CLKS_FALSE ||
+        clks_user_current_info(&current) == CLKS_FALSE || current.logged_in == 0ULL) {
         return CLKS_FALSE;
     }
 
@@ -923,8 +968,8 @@ clks_bool clks_user_change_password(const char *name, const char *old_password, 
 clks_bool clks_user_set_role(const char *name, u64 role) {
     struct clks_user_record record;
 
-    if (clks_user_current_is_admin() == CLKS_FALSE || clks_user_find(name, &record) == CLKS_FALSE ||
-        clks_user_streq(name, "root") == CLKS_TRUE) {
+    if (CLKS_CFG_USER_SYSTEM == 0 || clks_user_current_is_admin() == CLKS_FALSE ||
+        clks_user_find(name, &record) == CLKS_FALSE || clks_user_streq(name, "root") == CLKS_TRUE) {
         return CLKS_FALSE;
     }
 
@@ -933,8 +978,8 @@ clks_bool clks_user_set_role(const char *name, u64 role) {
 }
 
 clks_bool clks_user_remove(const char *name) {
-    if (clks_user_current_is_admin() == CLKS_FALSE || clks_user_name_valid(name) == CLKS_FALSE ||
-        clks_user_streq(name, "root") == CLKS_TRUE) {
+    if (CLKS_CFG_USER_SYSTEM == 0 || clks_user_current_is_admin() == CLKS_FALSE ||
+        clks_user_name_valid(name) == CLKS_FALSE || clks_user_streq(name, "root") == CLKS_TRUE) {
         return CLKS_FALSE;
     }
 
@@ -949,7 +994,8 @@ clks_bool clks_user_path_read_allowed(const char *path) {
         return CLKS_FALSE;
     }
 
-    if (clks_user_disk_login_required == CLKS_FALSE) {
+    if (CLKS_CFG_USER_SYSTEM == 0 || CLKS_CFG_USER_READ_POLICY == 0 ||
+        clks_user_disk_login_required == CLKS_FALSE) {
         return CLKS_TRUE;
     }
 
@@ -990,7 +1036,8 @@ clks_bool clks_user_path_write_allowed(const char *path) {
         return CLKS_FALSE;
     }
 
-    if (clks_user_disk_login_required == CLKS_FALSE) {
+    if (CLKS_CFG_USER_SYSTEM == 0 || CLKS_CFG_USER_WRITE_POLICY == 0 ||
+        clks_user_disk_login_required == CLKS_FALSE) {
         return CLKS_TRUE;
     }
 
@@ -1017,5 +1064,9 @@ clks_bool clks_user_path_write_allowed(const char *path) {
 }
 
 clks_bool clks_user_privileged_operation_allowed(void) {
+    if (CLKS_CFG_USER_SYSTEM == 0 || CLKS_CFG_USER_PRIVILEGE_POLICY == 0) {
+        return CLKS_TRUE;
+    }
+
     return clks_user_current_is_admin();
 }

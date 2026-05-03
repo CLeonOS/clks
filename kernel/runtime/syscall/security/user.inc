@@ -73,14 +73,23 @@ static u64 clks_syscall_user_logout(void) {
 }
 
 static u64 clks_syscall_user_count(void) {
+#if CLKS_CFG_USER_SYSTEM == 0
+    return 0ULL;
+#else
     if (clks_user_current_is_admin() == CLKS_FALSE) {
         return (u64)-1;
     }
 
     return clks_user_count();
+#endif
 }
 
 static u64 clks_syscall_user_at(u64 arg0, u64 arg1) {
+#if CLKS_CFG_USER_SYSTEM == 0
+    (void)arg0;
+    (void)arg1;
+    return 0ULL;
+#else
     struct clks_user_public_info info;
 
     if (clks_user_current_is_admin() == CLKS_FALSE) {
@@ -92,9 +101,14 @@ static u64 clks_syscall_user_at(u64 arg0, u64 arg1) {
     }
 
     return clks_syscall_user_copy_info_to_user(arg1, &info);
+#endif
 }
 
 static u64 clks_syscall_user_add(u64 arg0) {
+#if CLKS_CFG_USER_SYSTEM == 0
+    (void)arg0;
+    return 0ULL;
+#else
     struct clks_syscall_user_add_req req;
     char name[CLKS_USER_NAME_MAX];
     char password[96];
@@ -111,9 +125,14 @@ static u64 clks_syscall_user_add(u64 arg0) {
     }
 
     return (clks_user_create(name, password, req.role) == CLKS_TRUE) ? 1ULL : 0ULL;
+#endif
 }
 
 static u64 clks_syscall_user_passwd(u64 arg0) {
+#if CLKS_CFG_USER_SYSTEM == 0
+    (void)arg0;
+    return 0ULL;
+#else
     struct clks_syscall_user_passwd_req req;
     char name[CLKS_USER_NAME_MAX];
     char old_password[96];
@@ -132,9 +151,15 @@ static u64 clks_syscall_user_passwd(u64 arg0) {
     }
 
     return (clks_user_change_password(name, old_password, new_password) == CLKS_TRUE) ? 1ULL : 0ULL;
+#endif
 }
 
 static u64 clks_syscall_user_set_role(u64 arg0, u64 arg1) {
+#if CLKS_CFG_USER_SYSTEM == 0
+    (void)arg0;
+    (void)arg1;
+    return 0ULL;
+#else
     char name[CLKS_USER_NAME_MAX];
 
     if (clks_syscall_copy_user_string(arg0, name, sizeof(name)) == CLKS_FALSE) {
@@ -142,9 +167,14 @@ static u64 clks_syscall_user_set_role(u64 arg0, u64 arg1) {
     }
 
     return (clks_user_set_role(name, arg1) == CLKS_TRUE) ? 1ULL : 0ULL;
+#endif
 }
 
 static u64 clks_syscall_user_remove(u64 arg0) {
+#if CLKS_CFG_USER_SYSTEM == 0
+    (void)arg0;
+    return 0ULL;
+#else
     char name[CLKS_USER_NAME_MAX];
 
     if (clks_syscall_copy_user_string(arg0, name, sizeof(name)) == CLKS_FALSE) {
@@ -152,6 +182,7 @@ static u64 clks_syscall_user_remove(u64 arg0) {
     }
 
     return (clks_user_remove(name) == CLKS_TRUE) ? 1ULL : 0ULL;
+#endif
 }
 
 static u64 clks_syscall_user_is_admin(void) {
