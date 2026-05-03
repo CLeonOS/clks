@@ -117,7 +117,6 @@ static u8 clks_disk_ata_drive_select = CLKS_DISK_ATA_DRIVE_MASTER;
 static u8 clks_disk_ata_drive_lba = CLKS_DISK_ATA_DRIVE_LBA_MASTER;
 #endif
 
-
 #include "disk/byteorder.inc"
 #include "disk/ata.inc"
 #include "disk/cache_io.inc"

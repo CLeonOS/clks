@@ -126,8 +126,8 @@ static i32 clks_driver_find(const char *name_or_path) {
 }
 
 static clks_bool clks_driver_push(const char *name, const char *path, enum clks_driver_kind kind,
-                                  enum clks_driver_class driver_class, enum clks_driver_state state,
-                                  clks_bool from_elf, u64 image_size, u64 elf_entry, u64 owner_pid) {
+                                  enum clks_driver_class driver_class, enum clks_driver_state state, clks_bool from_elf,
+                                  u64 image_size, u64 elf_entry, u64 owner_pid) {
     struct clks_driver_info *slot;
 
     if (clks_driver_table_count >= CLKS_DRIVER_MAX) {
@@ -157,8 +157,7 @@ static clks_bool clks_driver_push(const char *name, const char *path, enum clks_
     return CLKS_TRUE;
 }
 
-static void clks_driver_metadata_for_elf(const char *path, const char **out_name,
-                                         enum clks_driver_class *out_class) {
+static void clks_driver_metadata_for_elf(const char *path, const char **out_name, enum clks_driver_class *out_class) {
     const char *base = clks_driver_basename(path);
     const char *name = base;
     enum clks_driver_class driver_class = CLKS_DRIVER_CLASS_OTHER;
@@ -217,7 +216,8 @@ u64 clks_driver_load_path(const char *path) {
 
     clks_driver_metadata_for_elf(path, &name, &driver_class);
 
-    if (clks_driver_find(path) >= 0 || clks_driver_find(name) >= 0 || clks_driver_find(clks_driver_basename(path)) >= 0) {
+    if (clks_driver_find(path) >= 0 || clks_driver_find(name) >= 0 ||
+        clks_driver_find(clks_driver_basename(path)) >= 0) {
         return 0ULL;
     }
 
@@ -241,8 +241,8 @@ u64 clks_driver_load_path(const char *path) {
         return 0ULL;
     }
 
-    if (clks_driver_push(name, path, CLKS_DRIVER_KIND_ELF, driver_class, CLKS_DRIVER_STATE_LOADED,
-                         CLKS_TRUE, image_size, info.entry, owner_pid) == CLKS_FALSE) {
+    if (clks_driver_push(name, path, CLKS_DRIVER_KIND_ELF, driver_class, CLKS_DRIVER_STATE_LOADED, CLKS_TRUE,
+                         image_size, info.entry, owner_pid) == CLKS_FALSE) {
         (void)clks_exec_proc_kill(owner_pid, CLKS_EXEC_SIGNAL_TERM);
         return 0ULL;
     }
@@ -278,8 +278,8 @@ u64 clks_driver_reload_elf_dir(void) {
         }
 
         if (clks_driver_build_path(child_name, full_path, sizeof(full_path)) == CLKS_FALSE) {
-            clks_driver_push(child_name, "", CLKS_DRIVER_KIND_ELF, CLKS_DRIVER_CLASS_OTHER,
-                             CLKS_DRIVER_STATE_FAILED, CLKS_TRUE, 0ULL, 0ULL, 0ULL);
+            clks_driver_push(child_name, "", CLKS_DRIVER_KIND_ELF, CLKS_DRIVER_CLASS_OTHER, CLKS_DRIVER_STATE_FAILED,
+                             CLKS_TRUE, 0ULL, 0ULL, 0ULL);
             continue;
         }
 
@@ -302,7 +302,6 @@ void clks_driver_init(void) {
     clks_driver_next_load_id = 1ULL;
 
     clks_driver_probe_driver_dir();
-
 }
 
 u64 clks_driver_count(void) {

@@ -2635,8 +2635,8 @@ u64 clks_exec_fd_open(const char *path, u64 flags, u64 mode) {
 
         clks_memset(entry, 0, sizeof(*entry));
         entry->used = CLKS_TRUE;
-        entry->kind = (clks_exec_path_is_dev_tty0(path) == CLKS_TRUE) ? CLKS_EXEC_FD_KIND_DEV_TTY0
-                                                                      : CLKS_EXEC_FD_KIND_TTY;
+        entry->kind =
+            (clks_exec_path_is_dev_tty0(path) == CLKS_TRUE) ? CLKS_EXEC_FD_KIND_DEV_TTY0 : CLKS_EXEC_FD_KIND_TTY;
         entry->flags = flags;
         entry->offset = 0ULL;
         entry->tty_index = (clks_exec_path_is_dev_tty0(path) == CLKS_TRUE) ? 0U : proc->tty_index;
@@ -3200,8 +3200,8 @@ u64 clks_exec_vm_free(u64 addr, u64 size) {
             continue;
         }
 
-        if (begin == addr && (size == 0ULL || size == proc->user_vm_areas[i].requested_size ||
-                              size == proc->user_vm_areas[i].size)) {
+        if (begin == addr &&
+            (size == 0ULL || size == proc->user_vm_areas[i].requested_size || size == proc->user_vm_areas[i].size)) {
             u64 area_size = proc->user_vm_areas[i].size;
             u64 pages = (u64)proc->user_vm_areas[i].page_count;
             u64 page;
@@ -3328,8 +3328,7 @@ void clks_exec_current_clear_user(clks_bool disk_login_required) {
 }
 
 clks_bool clks_exec_current_user_info(u64 *out_uid, u64 *out_role, char *out_name, usize name_size, char *out_home,
-                                      usize home_size, clks_bool *out_logged_in,
-                                      clks_bool *out_disk_login_required) {
+                                      usize home_size, clks_bool *out_logged_in, clks_bool *out_disk_login_required) {
     const struct clks_exec_proc_record *proc = clks_exec_current_proc();
 
     if (proc == CLKS_NULL) {

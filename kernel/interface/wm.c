@@ -142,7 +142,6 @@ static struct clks_wm_timing clks_wm_timing;
 
 static void clks_wm_reap_dead_owners(void);
 
-
 #include "wm/window_list.inc"
 #include "wm/timing.inc"
 #include "wm/rect_damage.inc"
