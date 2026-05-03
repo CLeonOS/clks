@@ -94,7 +94,6 @@ static void clks_tty_redraw_active(void);
 static void clks_tty_write_n_internal(u32 tty_index, const char *text, usize len);
 static void clks_tty_status_invalidate(void);
 
-
 #include "tty/draw_dirty.inc"
 #include "tty/scrollback_search.inc"
 #include "tty/status.inc"
