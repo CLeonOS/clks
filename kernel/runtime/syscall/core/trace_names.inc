@@ -279,6 +279,19 @@ static const char *clks_syscall_name(u64 id) {
     }
 }
 
+static clks_bool clks_syscall_trace_suppressed(u64 id) {
+    switch (id) {
+    case CLKS_SYSCALL_DRIVER_COUNT:
+    case CLKS_SYSCALL_DRIVER_INFO:
+    case CLKS_SYSCALL_DRIVER_LOAD:
+    case CLKS_SYSCALL_DRIVER_UNLOAD:
+    case CLKS_SYSCALL_DRIVER_RELOAD:
+        return CLKS_TRUE;
+    default:
+        return CLKS_FALSE;
+    }
+}
+
 static void clks_syscall_trace_user_call(clks_bool trace_enabled, u64 pid, u64 id, u64 arg0, u64 arg1, u64 arg2) {
     const char *name;
 
@@ -287,6 +300,10 @@ static void clks_syscall_trace_user_call(clks_bool trace_enabled, u64 pid, u64 i
     }
 
     if (trace_enabled == CLKS_FALSE) {
+        return;
+    }
+
+    if (clks_syscall_trace_suppressed(id) == CLKS_TRUE) {
         return;
     }
 
@@ -319,6 +336,10 @@ static void clks_syscall_trace_user_return(clks_bool trace_enabled, u64 pid, u64
     }
 
     if (trace_enabled == CLKS_FALSE) {
+        return;
+    }
+
+    if (clks_syscall_trace_suppressed(id) == CLKS_TRUE) {
         return;
     }
 

@@ -21,6 +21,11 @@ static u64 clks_syscall_log_write(u64 arg0, u64 arg1) {
     }
 
     buf[len] = '\0';
+    if (buf[0] == '[' && buf[1] == 'D' && buf[2] == 'R' && buf[3] == 'I' && buf[4] == 'V' && buf[5] == 'E' &&
+        buf[6] == 'R' && buf[7] == ']') {
+        return len;
+    }
+
     clks_log(CLKS_LOG_INFO, "SYSCALL", buf);
 
     return len;
@@ -194,4 +199,3 @@ static u64 clks_syscall_fb_blit(u64 arg0) {
 
     return 1ULL;
 }
-

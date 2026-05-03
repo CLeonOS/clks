@@ -247,11 +247,6 @@ u64 clks_driver_load_path(const char *path) {
         return 0ULL;
     }
 
-    clks_log(CLKS_LOG_INFO, "DRV", "DRIVER ELF LOADED");
-    clks_log(CLKS_LOG_INFO, "DRV", path);
-    clks_log_hex(CLKS_LOG_INFO, "DRV", "ENTRY", info.entry);
-    clks_log_hex(CLKS_LOG_INFO, "DRV", "PID", owner_pid);
-
     return clks_driver_table[clks_driver_table_count - 1ULL].load_id;
 }
 
@@ -308,9 +303,6 @@ void clks_driver_init(void) {
 
     clks_driver_probe_driver_dir();
 
-    clks_log(CLKS_LOG_INFO, "DRV", "DRIVER MANAGER ONLINE");
-    clks_log_hex(CLKS_LOG_INFO, "DRV", "REGISTERED", clks_driver_table_count);
-    clks_log_hex(CLKS_LOG_INFO, "DRV", "ELF_DRIVERS", clks_driver_table_elf_count);
 }
 
 u64 clks_driver_count(void) {
@@ -357,7 +349,5 @@ clks_bool clks_driver_unload(const char *name_or_path) {
         clks_driver_table_elf_count--;
     }
 
-    clks_log(CLKS_LOG_INFO, "DRV", "DRIVER ELF UNLOADED");
-    clks_log(CLKS_LOG_INFO, "DRV", slot->path);
     return CLKS_TRUE;
 }

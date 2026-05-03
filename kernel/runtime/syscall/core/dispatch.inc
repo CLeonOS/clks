@@ -29,6 +29,10 @@ static void clks_syscall_trace_user_program(u64 id) {
     }
 
     if (clks_syscall_user_trace_budget > 0ULL) {
+        if (clks_syscall_trace_suppressed(id) == CLKS_TRUE) {
+            return;
+        }
+
         clks_serial_write("[DEBUG][SYSCALL] USER_ID: 0X");
         clks_syscall_serial_write_hex64(id);
         clks_serial_write("\n");
