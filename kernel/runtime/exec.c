@@ -17,6 +17,7 @@
 #include <clks/string.h>
 #include <clks/types.h>
 #include <clks/tty.h>
+#include <clks/user.h>
 #include <clks/vm.h>
 
 /* Process runtime core: this is where tiny mistakes become giant explosions. */
@@ -43,13 +44,6 @@ typedef u64 (*clks_exec_entry_fn)(void);
 #define CLKS_EXEC_DEFAULT_KILL_SIGNAL CLKS_EXEC_SIGNAL_TERM
 #define CLKS_EXEC_KERNEL_ADDR_BASE 0xFFFF800000000000ULL
 #define CLKS_EXEC_UNWIND_CTX_BYTES 56ULL
-#define CLKS_EXEC_FD_ACCESS_MASK 0x3ULL
-#define CLKS_EXEC_O_RDONLY 0x0000ULL
-#define CLKS_EXEC_O_WRONLY 0x0001ULL
-#define CLKS_EXEC_O_RDWR 0x0002ULL
-#define CLKS_EXEC_O_CREAT 0x0040ULL
-#define CLKS_EXEC_O_TRUNC 0x0200ULL
-#define CLKS_EXEC_O_APPEND 0x0400ULL
 #define CLKS_EXEC_FD_INHERIT ((u64) - 1)
 #define CLKS_EXEC_DYNLIB_MAX 32U
 #define CLKS_EXEC_INTERNAL_SUSPEND_STATUS 0x434C4B5353555350ULL
@@ -58,6 +52,11 @@ typedef u64 (*clks_exec_entry_fn)(void);
 #define CLKS_EXEC_USER_VM_ALIGN 4096ULL
 #define CLKS_EXEC_USER_VM_BASE 0x0000004000000000ULL
 #define CLKS_EXEC_USER_VM_LIMIT 0x0000007000000000ULL
+#define CLKS_EXEC_USER_NAME_MAX 32U
+#define CLKS_EXEC_USER_HOME_MAX 96U
+#define CLKS_EXEC_USER_ROLE_USER 0ULL
+#define CLKS_EXEC_USER_ROLE_ADMIN 1ULL
+#define CLKS_EXEC_USER_UID_NOBODY 65534ULL
 
 #ifndef CLKS_CFG_EXEC_SERIAL_LOG
 #define CLKS_CFG_EXEC_SERIAL_LOG 1
@@ -179,6 +178,12 @@ struct clks_exec_proc_record {
     u64 address_space_cr3;
     u64 user_vm_bytes;
     struct clks_exec_user_vm_area user_vm_areas[CLKS_EXEC_USER_VM_AREA_MAX];
+    u64 uid;
+    u64 user_role;
+    clks_bool user_logged_in;
+    clks_bool disk_login_required;
+    char username[CLKS_EXEC_USER_NAME_MAX];
+    char user_home[CLKS_EXEC_USER_HOME_MAX];
     clks_bool saved_frame_valid;
     struct clks_exec_saved_interrupt_frame saved_frame;
 };
@@ -539,6 +544,38 @@ static void clks_exec_copy_line(char *dst, usize dst_size, const char *src) {
     }
 
     dst[i] = '\0';
+}
+
+static void clks_exec_proc_set_default_user(struct clks_exec_proc_record *proc) {
+    if (proc == CLKS_NULL) {
+        return;
+    }
+
+    proc->uid = CLKS_EXEC_USER_UID_NOBODY;
+    proc->user_role = CLKS_EXEC_USER_ROLE_USER;
+    proc->user_logged_in = CLKS_FALSE;
+    proc->disk_login_required = CLKS_FALSE;
+    clks_exec_copy_line(proc->username, sizeof(proc->username), "nobody");
+    clks_exec_copy_line(proc->user_home, sizeof(proc->user_home), "/");
+}
+
+static void clks_exec_proc_inherit_user(struct clks_exec_proc_record *child,
+                                        const struct clks_exec_proc_record *parent) {
+    if (child == CLKS_NULL) {
+        return;
+    }
+
+    if (parent == CLKS_NULL) {
+        clks_exec_proc_set_default_user(child);
+        return;
+    }
+
+    child->uid = parent->uid;
+    child->user_role = parent->user_role;
+    child->user_logged_in = parent->user_logged_in;
+    child->disk_login_required = parent->disk_login_required;
+    clks_exec_copy_line(child->username, sizeof(child->username), parent->username);
+    clks_exec_copy_line(child->user_home, sizeof(child->user_home), parent->user_home);
 }
 
 static clks_bool clks_exec_range_ok(u64 off, u64 len, u64 total) {
@@ -1696,6 +1733,10 @@ static u64 clks_exec_fd_file_read(struct clks_exec_fd_entry *entry, void *out_bu
         return 0ULL;
     }
 
+    if (clks_user_path_read_allowed(entry->path) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
     file_data = clks_fs_read_all(entry->path, &file_size);
 
     if (file_data == CLKS_NULL) {
@@ -1726,6 +1767,10 @@ static u64 clks_exec_fd_file_write(struct clks_exec_fd_entry *entry, const void 
     clks_bool ok;
 
     if (entry == CLKS_NULL) {
+        return (u64)-1;
+    }
+
+    if (clks_user_path_write_allowed(entry->path) == CLKS_FALSE) {
         return (u64)-1;
     }
 
@@ -1858,6 +1903,7 @@ static void clks_exec_proc_release_address_space(struct clks_exec_proc_record *p
 static struct clks_exec_proc_record *clks_exec_prepare_proc_record(i32 slot, u64 pid, const char *path,
                                                                    const char *argv_line, const char *env_line,
                                                                    enum clks_exec_proc_state state) {
+    const struct clks_exec_proc_record *parent_proc = clks_exec_current_proc();
     struct clks_exec_proc_record *proc;
 
     if (slot < 0 || path == CLKS_NULL) {
@@ -1896,6 +1942,7 @@ static struct clks_exec_proc_record *clks_exec_prepare_proc_record(i32 slot, u64
     proc->last_fault_vector = 0ULL;
     proc->last_fault_error = 0ULL;
     proc->last_fault_rip = 0ULL;
+    clks_exec_proc_inherit_user(proc, parent_proc);
     clks_exec_fd_init_defaults(proc);
 
     if (proc->argc < CLKS_EXEC_MAX_ARGS) {
@@ -2559,6 +2606,16 @@ u64 clks_exec_fd_open(const char *path, u64 flags, u64 mode) {
     }
 
     if (clks_exec_fd_access_mode_valid(flags) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    if (clks_exec_fd_can_read(flags) == CLKS_TRUE && clks_user_path_read_allowed(path) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    if ((clks_exec_fd_can_write(flags) == CLKS_TRUE || (flags & CLKS_EXEC_O_CREAT) != 0ULL ||
+         (flags & CLKS_EXEC_O_TRUNC) != 0ULL || (flags & CLKS_EXEC_O_APPEND) != 0ULL) &&
+        clks_user_path_write_allowed(path) == CLKS_FALSE) {
         return (u64)-1;
     }
 
@@ -3242,6 +3299,80 @@ static struct clks_exec_proc_record *clks_exec_current_proc(void) {
     return &clks_exec_proc_table[(u32)slot];
 }
 
+clks_bool clks_exec_current_set_user(u64 uid, u64 role, const char *name, const char *home, clks_bool logged_in,
+                                     clks_bool disk_login_required) {
+    struct clks_exec_proc_record *proc = clks_exec_current_proc();
+
+    if (proc == CLKS_NULL || name == CLKS_NULL || home == CLKS_NULL || name[0] == '\0' || home[0] != '/') {
+        return CLKS_FALSE;
+    }
+
+    proc->uid = uid;
+    proc->user_role = (role == CLKS_EXEC_USER_ROLE_ADMIN) ? CLKS_EXEC_USER_ROLE_ADMIN : CLKS_EXEC_USER_ROLE_USER;
+    proc->user_logged_in = logged_in;
+    proc->disk_login_required = disk_login_required;
+    clks_exec_copy_line(proc->username, sizeof(proc->username), name);
+    clks_exec_copy_line(proc->user_home, sizeof(proc->user_home), home);
+    return CLKS_TRUE;
+}
+
+void clks_exec_current_clear_user(clks_bool disk_login_required) {
+    struct clks_exec_proc_record *proc = clks_exec_current_proc();
+
+    if (proc == CLKS_NULL) {
+        return;
+    }
+
+    clks_exec_proc_set_default_user(proc);
+    proc->disk_login_required = disk_login_required;
+}
+
+clks_bool clks_exec_current_user_info(u64 *out_uid, u64 *out_role, char *out_name, usize name_size, char *out_home,
+                                      usize home_size, clks_bool *out_logged_in,
+                                      clks_bool *out_disk_login_required) {
+    const struct clks_exec_proc_record *proc = clks_exec_current_proc();
+
+    if (proc == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    if (out_uid != CLKS_NULL) {
+        *out_uid = proc->uid;
+    }
+    if (out_role != CLKS_NULL) {
+        *out_role = proc->user_role;
+    }
+    if (out_logged_in != CLKS_NULL) {
+        *out_logged_in = proc->user_logged_in;
+    }
+    if (out_disk_login_required != CLKS_NULL) {
+        *out_disk_login_required = proc->disk_login_required;
+    }
+    if (out_name != CLKS_NULL && name_size > 0U) {
+        clks_exec_copy_line(out_name, name_size, proc->username);
+    }
+    if (out_home != CLKS_NULL && home_size > 0U) {
+        clks_exec_copy_line(out_home, home_size, proc->user_home);
+    }
+
+    return CLKS_TRUE;
+}
+
+u64 clks_exec_current_uid(void) {
+    const struct clks_exec_proc_record *proc = clks_exec_current_proc();
+    return (proc != CLKS_NULL) ? proc->uid : CLKS_EXEC_USER_UID_NOBODY;
+}
+
+u64 clks_exec_current_role(void) {
+    const struct clks_exec_proc_record *proc = clks_exec_current_proc();
+    return (proc != CLKS_NULL) ? proc->user_role : CLKS_EXEC_USER_ROLE_USER;
+}
+
+clks_bool clks_exec_current_logged_in(void) {
+    const struct clks_exec_proc_record *proc = clks_exec_current_proc();
+    return (proc != CLKS_NULL) ? proc->user_logged_in : CLKS_FALSE;
+}
+
 u64 clks_exec_current_argc(void) {
     const struct clks_exec_proc_record *proc = clks_exec_current_proc();
 
@@ -3426,6 +3557,8 @@ clks_bool clks_exec_proc_snapshot(u64 pid, struct clks_exec_proc_snapshot *out_s
     out_snapshot->last_fault_vector = proc->last_fault_vector;
     out_snapshot->last_fault_error = proc->last_fault_error;
     out_snapshot->last_fault_rip = proc->last_fault_rip;
+    out_snapshot->uid = proc->uid;
+    out_snapshot->role = proc->user_role;
     clks_exec_copy_path(out_snapshot->path, sizeof(out_snapshot->path), proc->path);
 
     return CLKS_TRUE;

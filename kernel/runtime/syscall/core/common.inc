@@ -17,7 +17,7 @@
 #define CLKS_SYSCALL_KDBG_STACK_WINDOW_BYTES (128ULL * 1024ULL)
 #define CLKS_SYSCALL_KERNEL_SYMBOL_FILE "/system/kernel.sym"
 #define CLKS_SYSCALL_KERNEL_ADDR_BASE 0xFFFF800000000000ULL
-#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_VM_FREE
+#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_USER_IS_ADMIN
 #define CLKS_SYSCALL_DISK_SECTOR_BYTES 512U
 #define CLKS_SYSCALL_NET_UDP_PAYLOAD_MAX 1472U
 #define CLKS_SYSCALL_NET_TCP_IO_MAX 65536U
@@ -199,6 +199,33 @@ struct clks_syscall_mouse_state_user {
     u64 buttons;
     u64 packet_count;
     u64 ready;
+};
+
+struct clks_syscall_user_info_user {
+    u64 uid;
+    u64 role;
+    u64 logged_in;
+    u64 disk_login_required;
+    char name[CLKS_USER_NAME_MAX];
+    char home[CLKS_USER_HOME_MAX];
+};
+
+struct clks_syscall_user_login_req {
+    u64 name_ptr;
+    u64 password_ptr;
+    u64 out_info_ptr;
+};
+
+struct clks_syscall_user_add_req {
+    u64 name_ptr;
+    u64 password_ptr;
+    u64 role;
+};
+
+struct clks_syscall_user_passwd_req {
+    u64 name_ptr;
+    u64 old_password_ptr;
+    u64 new_password_ptr;
 };
 
 struct clks_syscall_wm_create_req {

@@ -19,6 +19,7 @@
 #include <clks/syscall.h>
 #include <clks/tty.h>
 #include <clks/types.h>
+#include <clks/user.h>
 #include <clks/userland.h>
 #include <clks/version.h>
 #include <clks/wm.h>
@@ -38,5 +39,6 @@
 #include "syscall/core/journal.inc"
 #include "syscall/core/trace_names.inc"
 #include "syscall/security/usc.inc"
+#include "syscall/security/user.inc"
 #include "syscall/core/stats.inc"
 #include "syscall/core/dispatch.inc"

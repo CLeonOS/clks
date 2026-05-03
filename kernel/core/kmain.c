@@ -25,6 +25,7 @@
 #include <clks/syscall.h>
 #include <clks/tty.h>
 #include <clks/types.h>
+#include <clks/user.h>
 #include <clks/userland.h>
 #include <clks/vm.h>
 #include <clks/wm.h>
@@ -326,6 +327,7 @@ void clks_kernel_main(void) {
     }
 
     clks_exec_init();
+    clks_user_init();
 #if CLKS_CFG_AUDIO
     clks_audio_init();
 #else

@@ -16,6 +16,14 @@
 #define CLKS_EXEC_SIGNAL_CONT 18ULL
 #define CLKS_EXEC_SIGNAL_STOP 19ULL
 
+#define CLKS_EXEC_FD_ACCESS_MASK 0x3ULL
+#define CLKS_EXEC_O_RDONLY 0x0000ULL
+#define CLKS_EXEC_O_WRONLY 0x0001ULL
+#define CLKS_EXEC_O_RDWR 0x0002ULL
+#define CLKS_EXEC_O_CREAT 0x0040ULL
+#define CLKS_EXEC_O_TRUNC 0x0200ULL
+#define CLKS_EXEC_O_APPEND 0x0400ULL
+
 struct clks_exec_proc_snapshot {
     u64 pid;
     u64 ppid;
@@ -30,6 +38,8 @@ struct clks_exec_proc_snapshot {
     u64 last_fault_vector;
     u64 last_fault_error;
     u64 last_fault_rip;
+    u64 uid;
+    u64 role;
     char path[CLKS_EXEC_PROC_PATH_MAX];
 };
 
@@ -56,6 +66,15 @@ u64 clks_exec_vm_alloc(u64 size, u64 flags);
 u64 clks_exec_vm_free(u64 addr, u64 size);
 u64 clks_exec_current_pid(void);
 u32 clks_exec_current_tty(void);
+clks_bool clks_exec_current_set_user(u64 uid, u64 role, const char *name, const char *home, clks_bool logged_in,
+                                     clks_bool disk_login_required);
+void clks_exec_current_clear_user(clks_bool disk_login_required);
+clks_bool clks_exec_current_user_info(u64 *out_uid, u64 *out_role, char *out_name, usize name_size, char *out_home,
+                                      usize home_size, clks_bool *out_logged_in,
+                                      clks_bool *out_disk_login_required);
+u64 clks_exec_current_uid(void);
+u64 clks_exec_current_role(void);
+clks_bool clks_exec_current_logged_in(void);
 u64 clks_exec_current_argc(void);
 clks_bool clks_exec_copy_current_argv(u64 index, char *out_value, usize out_size);
 u64 clks_exec_current_envc(void);

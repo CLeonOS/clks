@@ -7,6 +7,13 @@ static u64 clks_syscall_fd_open(u64 arg0, u64 arg1, u64 arg2) {
         return (u64)-1;
     }
 
+    if ((((arg1 & CLKS_EXEC_FD_ACCESS_MASK) == CLKS_EXEC_O_WRONLY) ||
+         ((arg1 & CLKS_EXEC_FD_ACCESS_MASK) == CLKS_EXEC_O_RDWR) || ((arg1 & CLKS_EXEC_O_CREAT) != 0ULL) ||
+         ((arg1 & CLKS_EXEC_O_TRUNC) != 0ULL) || ((arg1 & CLKS_EXEC_O_APPEND) != 0ULL)) &&
+        clks_user_path_write_allowed(path) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
     return clks_exec_fd_open(path, arg1, arg2);
 }
 
@@ -119,6 +126,10 @@ static u64 clks_syscall_driver_info(u64 arg0, u64 arg1, u64 arg2) {
 static u64 clks_syscall_driver_load(u64 arg0) {
     char path[CLKS_SYSCALL_PATH_MAX];
 
+    if (clks_user_privileged_operation_allowed() == CLKS_FALSE) {
+        return 0ULL;
+    }
+
     if (clks_syscall_copy_user_string(arg0, path, sizeof(path)) == CLKS_FALSE) {
         return 0ULL;
     }
@@ -129,6 +140,10 @@ static u64 clks_syscall_driver_load(u64 arg0) {
 static u64 clks_syscall_driver_unload(u64 arg0) {
     char name_or_path[CLKS_SYSCALL_PATH_MAX];
 
+    if (clks_user_privileged_operation_allowed() == CLKS_FALSE) {
+        return 0ULL;
+    }
+
     if (clks_syscall_copy_user_string(arg0, name_or_path, sizeof(name_or_path)) == CLKS_FALSE) {
         return 0ULL;
     }
@@ -137,6 +152,10 @@ static u64 clks_syscall_driver_unload(u64 arg0) {
 }
 
 static u64 clks_syscall_driver_reload(void) {
+    if (clks_user_privileged_operation_allowed() == CLKS_FALSE) {
+        return 0ULL;
+    }
+
     return clks_driver_reload_elf_dir();
 }
 

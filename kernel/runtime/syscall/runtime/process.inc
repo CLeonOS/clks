@@ -232,6 +232,10 @@ static u64 clks_syscall_proc_snapshot(u64 arg0, u64 arg1, u64 arg2) {
 }
 
 static u64 clks_syscall_proc_kill(u64 arg0, u64 arg1) {
+    if (arg0 != clks_exec_current_pid() && clks_user_privileged_operation_allowed() == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
     return clks_exec_proc_kill(arg0, arg1);
 }
 
@@ -332,6 +336,10 @@ static u64 clks_syscall_yield(struct clks_syscall_frame *frame) {
 }
 
 static u64 clks_syscall_shutdown(void) {
+    if (clks_user_privileged_operation_allowed() == CLKS_FALSE) {
+        return 0ULL;
+    }
+
     clks_log(CLKS_LOG_WARN, "SYSCALL", "SHUTDOWN REQUESTED BY USERLAND");
     clks_serial_write("[WARN][SYSCALL] SHUTDOWN REQUESTED\n");
 #if defined(CLKS_ARCH_X86_64)
@@ -342,6 +350,10 @@ static u64 clks_syscall_shutdown(void) {
 }
 
 static u64 clks_syscall_restart(void) {
+    if (clks_user_privileged_operation_allowed() == CLKS_FALSE) {
+        return 0ULL;
+    }
+
     clks_log(CLKS_LOG_WARN, "SYSCALL", "RESTART REQUESTED BY USERLAND");
     clks_serial_write("[WARN][SYSCALL] RESTART REQUESTED\n");
 #if defined(CLKS_ARCH_X86_64)
@@ -350,4 +362,3 @@ static u64 clks_syscall_restart(void) {
     clks_cpu_halt_forever();
     return 1ULL;
 }
-

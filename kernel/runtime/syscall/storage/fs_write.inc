@@ -13,6 +13,10 @@ static u64 clks_syscall_fs_stat_type(u64 arg0) {
         return (u64)-1;
     }
 
+    if (clks_user_path_read_allowed(path) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
     if (CLKS_CFG_PROCFS != 0 && clks_syscall_procfs_is_root(path) == CLKS_TRUE) {
         return (u64)CLKS_FS_NODE_DIR;
     }
@@ -43,6 +47,10 @@ static u64 clks_syscall_fs_stat_size(u64 arg0) {
         return (u64)-1;
     }
 
+    if (clks_user_path_read_allowed(path) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
     if (CLKS_CFG_PROCFS != 0 && clks_syscall_procfs_is_root(path) == CLKS_TRUE) {
         return 0ULL;
     }
@@ -66,6 +74,10 @@ static u64 clks_syscall_fs_mkdir(u64 arg0) {
         return 0ULL;
     }
 
+    if (clks_user_path_write_allowed(path) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
     return (clks_fs_mkdir(path) == CLKS_TRUE) ? 1ULL : 0ULL;
 }
 
@@ -78,6 +90,10 @@ static u64 clks_syscall_fs_write_common(u64 arg0, u64 arg1, u64 arg2, clks_bool 
     clks_bool ok;
 
     if (clks_syscall_copy_user_string(arg0, path, sizeof(path)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    if (clks_user_path_write_allowed(path) == CLKS_FALSE) {
         return 0ULL;
     }
 
@@ -181,6 +197,10 @@ static u64 clks_syscall_fs_remove(u64 arg0) {
     char path[CLKS_SYSCALL_PATH_MAX];
 
     if (clks_syscall_copy_user_string(arg0, path, sizeof(path)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    if (clks_user_path_write_allowed(path) == CLKS_FALSE) {
         return 0ULL;
     }
 

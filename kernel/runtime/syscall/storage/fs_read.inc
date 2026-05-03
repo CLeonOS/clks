@@ -6,6 +6,10 @@ static u64 clks_syscall_fs_child_count(u64 arg0) {
         return (u64)-1;
     }
 
+    if (clks_user_path_read_allowed(path) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
     if (CLKS_CFG_PROCFS != 0 && clks_syscall_procfs_is_root(path) == CLKS_TRUE) {
         return 2ULL + clks_exec_proc_count();
     }
@@ -36,6 +40,10 @@ static u64 clks_syscall_fs_get_child_name(u64 arg0, u64 arg1, u64 arg2) {
     }
 
     if (clks_syscall_copy_user_string(arg0, path, sizeof(path)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    if (clks_user_path_read_allowed(path) == CLKS_FALSE) {
         return 0ULL;
     }
 
@@ -114,6 +122,10 @@ static u64 clks_syscall_fs_read(u64 arg0, u64 arg1, u64 arg2) {
         return 0ULL;
     }
 
+    if (clks_user_path_read_allowed(path) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
     if (CLKS_CFG_PROCFS != 0 &&
         (clks_syscall_procfs_is_list(path) == CLKS_TRUE || clks_syscall_procfs_is_self(path) == CLKS_TRUE ||
          clks_syscall_procfs_parse_pid(path, &file_size) == CLKS_TRUE)) {
@@ -144,4 +156,3 @@ static u64 clks_syscall_fs_read(u64 arg0, u64 arg1, u64 arg2) {
     clks_memcpy((void *)arg1, data, (usize)copy_len);
     return copy_len;
 }
-

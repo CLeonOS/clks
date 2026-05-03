@@ -339,6 +339,26 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
         CLKS_SYSCALL_DISPATCH_RETURN(clks_exec_vm_alloc(frame->rbx, frame->rcx));
     case CLKS_SYSCALL_VM_FREE:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_exec_vm_free(frame->rbx, frame->rcx));
+    case CLKS_SYSCALL_USER_CURRENT:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_user_current(frame->rbx));
+    case CLKS_SYSCALL_USER_LOGIN:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_user_login(frame->rbx));
+    case CLKS_SYSCALL_USER_LOGOUT:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_user_logout());
+    case CLKS_SYSCALL_USER_COUNT:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_user_count());
+    case CLKS_SYSCALL_USER_AT:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_user_at(frame->rbx, frame->rcx));
+    case CLKS_SYSCALL_USER_ADD:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_user_add(frame->rbx));
+    case CLKS_SYSCALL_USER_PASSWD:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_user_passwd(frame->rbx));
+    case CLKS_SYSCALL_USER_SET_ROLE:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_user_set_role(frame->rbx, frame->rcx));
+    case CLKS_SYSCALL_USER_REMOVE:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_user_remove(frame->rbx));
+    case CLKS_SYSCALL_USER_IS_ADMIN:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_user_is_admin());
     case CLKS_SYSCALL_MOUSE_STATE:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_mouse_state(frame->rbx));
     case CLKS_SYSCALL_WM_CREATE:

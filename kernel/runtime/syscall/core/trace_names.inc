@@ -236,6 +236,26 @@ static const char *clks_syscall_name(u64 id) {
         return "VM_ALLOC";
     case CLKS_SYSCALL_VM_FREE:
         return "VM_FREE";
+    case CLKS_SYSCALL_USER_CURRENT:
+        return "USER_CURRENT";
+    case CLKS_SYSCALL_USER_LOGIN:
+        return "USER_LOGIN";
+    case CLKS_SYSCALL_USER_LOGOUT:
+        return "USER_LOGOUT";
+    case CLKS_SYSCALL_USER_COUNT:
+        return "USER_COUNT";
+    case CLKS_SYSCALL_USER_AT:
+        return "USER_AT";
+    case CLKS_SYSCALL_USER_ADD:
+        return "USER_ADD";
+    case CLKS_SYSCALL_USER_PASSWD:
+        return "USER_PASSWD";
+    case CLKS_SYSCALL_USER_SET_ROLE:
+        return "USER_SET_ROLE";
+    case CLKS_SYSCALL_USER_REMOVE:
+        return "USER_REMOVE";
+    case CLKS_SYSCALL_USER_IS_ADMIN:
+        return "USER_IS_ADMIN";
     case CLKS_SYSCALL_MOUSE_STATE:
         return "MOUSE_STATE";
     case CLKS_SYSCALL_WM_CREATE:
