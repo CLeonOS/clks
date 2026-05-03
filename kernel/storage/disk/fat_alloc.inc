@@ -120,6 +120,25 @@ static clks_bool clks_disk_alloc_cluster(u32 *out_cluster) {
     return CLKS_TRUE;
 }
 
+static clks_bool clks_disk_alloc_cluster_no_zero(u32 *out_cluster) {
+    u32 cluster;
+
+    if (out_cluster == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_disk_find_free_cluster(&cluster) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_disk_fat_write_entry(cluster, CLKS_DISK_FAT32_EOC) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    *out_cluster = cluster;
+    return CLKS_TRUE;
+}
+
 static clks_bool clks_disk_alloc_chain(u32 needed_clusters, u32 *out_first_cluster) {
     u32 first = CLKS_DISK_INVALID_CLUSTER;
     u32 prev = CLKS_DISK_INVALID_CLUSTER;
@@ -137,7 +156,7 @@ static clks_bool clks_disk_alloc_chain(u32 needed_clusters, u32 *out_first_clust
     for (i = 0U; i < needed_clusters; i++) {
         u32 current;
 
-        if (clks_disk_alloc_cluster(&current) == CLKS_FALSE) {
+        if (clks_disk_alloc_cluster_no_zero(&current) == CLKS_FALSE) {
             if (first != CLKS_DISK_INVALID_CLUSTER) {
                 clks_disk_free_chain(first);
             }
@@ -175,4 +194,3 @@ static clks_bool clks_disk_cluster_first_byte_offset(u32 cluster, u64 *out_offse
     *out_offset = lba * CLKS_DISK_SECTOR_SIZE;
     return CLKS_TRUE;
 }
-

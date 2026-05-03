@@ -1,5 +1,7 @@
 static clks_bool clks_disk_parse_fat32_layout(void) {
     const u8 *boot;
+    u64 volume_lba = 0ULL;
+    u64 boot_offset = 0ULL;
     u16 bytes_per_sector;
     u8 sectors_per_cluster;
     u16 reserved_sectors;
@@ -25,6 +27,26 @@ static clks_bool clks_disk_parse_fat32_layout(void) {
     }
 
     boot = clks_disk_bytes;
+
+    if (boot[CLKS_DISK_FAT32_BOOT_SIG_OFFSET] != 0x55U ||
+        boot[CLKS_DISK_FAT32_BOOT_SIG_OFFSET + 1U] != 0xAAU ||
+        clks_disk_bytes_equal(boot + CLKS_DISK_FAT32_TYPE_OFFSET, fat32_sig, CLKS_DISK_FAT32_TYPE_LEN) ==
+            CLKS_FALSE) {
+        u64 shifted_offset = CLKS_DISK_FAT32_PARTITION_LBA * CLKS_DISK_SECTOR_SIZE;
+
+        if (shifted_offset > clks_disk_bytes_len ||
+            (CLKS_DISK_SECTOR_SIZE > (clks_disk_bytes_len - shifted_offset))) {
+            return CLKS_FALSE;
+        }
+
+        if (clks_disk_ensure_loaded_range(shifted_offset, CLKS_DISK_SECTOR_SIZE) == CLKS_FALSE) {
+            return CLKS_FALSE;
+        }
+
+        volume_lba = CLKS_DISK_FAT32_PARTITION_LBA;
+        boot_offset = shifted_offset;
+        boot = clks_disk_bytes + (usize)boot_offset;
+    }
 
     if (boot[CLKS_DISK_FAT32_BOOT_SIG_OFFSET] != 0x55U || boot[CLKS_DISK_FAT32_BOOT_SIG_OFFSET + 1U] != 0xAAU) {
         return CLKS_FALSE;
@@ -60,7 +82,7 @@ static clks_bool clks_disk_parse_fat32_layout(void) {
         return CLKS_FALSE;
     }
 
-    if ((u64)total_sectors > clks_disk_sector_total) {
+    if ((u64)total_sectors > (clks_disk_sector_total - volume_lba)) {
         return CLKS_FALSE;
     }
 
@@ -90,8 +112,9 @@ static clks_bool clks_disk_parse_fat32_layout(void) {
     clks_disk_fat32.cluster_count = (u32)cluster_count;
     clks_disk_fat32.cluster_size_bytes = (u32)((u32)sectors_per_cluster * (u32)CLKS_DISK_SECTOR_SIZE);
     clks_disk_fat32.entries_per_cluster = clks_disk_fat32.cluster_size_bytes / CLKS_DISK_DIRENT_SIZE;
-    clks_disk_fat32.fat_lba = (u64)reserved_sectors;
-    clks_disk_fat32.data_lba = (u64)reserved_sectors + ((u64)fat_count * (u64)sectors_per_fat);
+    clks_disk_fat32.volume_lba = volume_lba;
+    clks_disk_fat32.fat_lba = volume_lba + (u64)reserved_sectors;
+    clks_disk_fat32.data_lba = volume_lba + (u64)reserved_sectors + ((u64)fat_count * (u64)sectors_per_fat);
 
     return CLKS_TRUE;
 }
@@ -231,4 +254,3 @@ static clks_bool clks_disk_fat_next_cluster(u32 cluster, u32 *out_next, clks_boo
     *out_next = value & 0x0FFFFFFFU;
     return CLKS_TRUE;
 }
-

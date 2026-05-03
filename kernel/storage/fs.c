@@ -138,7 +138,10 @@ static clks_bool clks_fs_external_path_equals(const char *path, const char *expe
 }
 
 static clks_bool clks_fs_is_dynamic_dev_dir(const char *path) {
-    return (clks_fs_external_path_equals(path, "/dev/input") == CLKS_TRUE) ? CLKS_TRUE : CLKS_FALSE;
+    return (clks_fs_external_path_equals(path, "/dev") == CLKS_TRUE ||
+            clks_fs_external_path_equals(path, "/dev/input") == CLKS_TRUE)
+               ? CLKS_TRUE
+               : CLKS_FALSE;
 }
 
 static clks_bool clks_fs_is_dynamic_dev_file(const char *path) {
@@ -471,7 +474,25 @@ static clks_bool clks_fs_ensure_dir_hierarchy(const char *internal_dir_path) {
 }
 
 static clks_bool clks_fs_require_directory(const char *external_path) {
-    i32 node_index = clks_fs_find_node_by_external(external_path);
+    i32 node_index;
+
+    if (clks_fs_is_dynamic_dev_dir(external_path) == CLKS_TRUE) {
+        return CLKS_TRUE;
+    }
+
+    if (clks_disk_path_in_mount(external_path) == CLKS_TRUE) {
+        u64 disk_type = 0ULL;
+        u64 disk_size = 0ULL;
+        if (clks_disk_stat(external_path, &disk_type, &disk_size) == CLKS_FALSE || disk_type != CLKS_DISK_NODE_DIR) {
+            clks_log(CLKS_LOG_ERROR, "FS", "MISSING REQUIRED DISK DIRECTORY");
+            clks_log(CLKS_LOG_ERROR, "FS", external_path);
+            return CLKS_FALSE;
+        }
+        (void)disk_size;
+        return CLKS_TRUE;
+    }
+
+    node_index = clks_fs_find_node_by_external(external_path);
 
     if (node_index < 0) {
         clks_log(CLKS_LOG_ERROR, "FS", "MISSING REQUIRED DIRECTORY");
@@ -568,6 +589,7 @@ void clks_fs_init(void) {
     const struct limine_file *module;
     struct clks_fs_build_stats stats;
     u64 module_count;
+    clks_bool ramdisk_online = CLKS_FALSE;
 
     clks_fs_ready = CLKS_FALSE;
     clks_fs_nodes_used = 0U;
@@ -581,32 +603,36 @@ void clks_fs_init(void) {
 
     module_count = clks_boot_get_module_count();
 
-    if (module_count == 0ULL) {
-        clks_log(CLKS_LOG_ERROR, "FS", "NO RAMDISK MODULE FROM LIMINE");
-        return;
+    if (module_count != 0ULL) {
+        module = clks_boot_get_module(0ULL);
+
+        if (module == CLKS_NULL || module->address == CLKS_NULL || module->size == 0ULL) {
+            clks_log(CLKS_LOG_ERROR, "FS", "INVALID RAMDISK MODULE");
+            return;
+        }
+
+        if (clks_ramdisk_iterate(module->address, module->size, clks_fs_ramdisk_visit, &stats) == CLKS_FALSE) {
+            clks_log(CLKS_LOG_ERROR, "FS", "RAMDISK TAR PARSE FAILED");
+            return;
+        }
+
+        ramdisk_online = CLKS_TRUE;
+        clks_log(CLKS_LOG_INFO, "FS", "RAMDISK VFS ONLINE");
+        clks_log_hex(CLKS_LOG_INFO, "FS", "MODULE_SIZE", module->size);
+        clks_log_hex(CLKS_LOG_INFO, "FS", "NODE_COUNT", (u64)clks_fs_nodes_used);
+        clks_log_hex(CLKS_LOG_INFO, "FS", "FILE_COUNT", stats.file_count);
+    } else {
+        clks_log(CLKS_LOG_WARN, "FS", "NO RAMDISK MODULE FROM LIMINE");
     }
-
-    module = clks_boot_get_module(0ULL);
-
-    if (module == CLKS_NULL || module->address == CLKS_NULL || module->size == 0ULL) {
-        clks_log(CLKS_LOG_ERROR, "FS", "INVALID RAMDISK MODULE");
-        return;
-    }
-
-    if (clks_ramdisk_iterate(module->address, module->size, clks_fs_ramdisk_visit, &stats) == CLKS_FALSE) {
-        clks_log(CLKS_LOG_ERROR, "FS", "RAMDISK TAR PARSE FAILED");
-        return;
-    }
-
-    clks_log(CLKS_LOG_INFO, "FS", "RAMDISK VFS ONLINE");
-    clks_log_hex(CLKS_LOG_INFO, "FS", "MODULE_SIZE", module->size);
-    clks_log_hex(CLKS_LOG_INFO, "FS", "NODE_COUNT", (u64)clks_fs_nodes_used);
-    clks_log_hex(CLKS_LOG_INFO, "FS", "FILE_COUNT", stats.file_count);
 
     clks_disk_init();
     if (clks_disk_present() == CLKS_TRUE) {
         clks_log_hex(CLKS_LOG_INFO, "FS", "DISK_BYTES", clks_disk_size_bytes());
         clks_log_hex(CLKS_LOG_INFO, "FS", "DISK_FAT32", (clks_disk_is_formatted_fat32() == CLKS_TRUE) ? 1ULL : 0ULL);
+        if (ramdisk_online == CLKS_FALSE && clks_disk_is_formatted_fat32() == CLKS_TRUE &&
+            clks_disk_mount("/") == CLKS_TRUE) {
+            clks_log(CLKS_LOG_INFO, "FS", "DISK ROOT VFS ONLINE");
+        }
     } else {
         clks_log(CLKS_LOG_WARN, "FS", "DISK BACKEND NOT PRESENT");
     }
@@ -648,6 +674,12 @@ clks_bool clks_fs_stat(const char *path, struct clks_fs_node_info *out_info) {
         return CLKS_FALSE;
     }
 
+    if (clks_fs_is_dynamic_dev_dir(path) == CLKS_TRUE) {
+        out_info->type = CLKS_FS_NODE_DIR;
+        out_info->size = 0ULL;
+        return CLKS_TRUE;
+    }
+
     if (clks_disk_path_in_mount(path) == CLKS_TRUE) {
         if (clks_disk_stat(path, &disk_type, &disk_size) == CLKS_FALSE) {
             return CLKS_FALSE;
@@ -655,12 +687,6 @@ clks_bool clks_fs_stat(const char *path, struct clks_fs_node_info *out_info) {
 
         out_info->type = (disk_type == CLKS_DISK_NODE_DIR) ? CLKS_FS_NODE_DIR : CLKS_FS_NODE_FILE;
         out_info->size = disk_size;
-        return CLKS_TRUE;
-    }
-
-    if (clks_fs_is_dynamic_dev_dir(path) == CLKS_TRUE) {
-        out_info->type = CLKS_FS_NODE_DIR;
-        out_info->size = 0ULL;
         return CLKS_TRUE;
     }
 
@@ -724,12 +750,12 @@ u64 clks_fs_count_children(const char *dir_path) {
         return 0ULL;
     }
 
-    if (clks_disk_path_in_mount(dir_path) == CLKS_TRUE) {
-        return clks_disk_count_children(dir_path);
-    }
-
     if (clks_fs_is_dynamic_dev_dir(dir_path) == CLKS_TRUE) {
         return clks_fs_dynamic_dev_child_count(dir_path);
+    }
+
+    if (clks_disk_path_in_mount(dir_path) == CLKS_TRUE) {
+        return clks_disk_count_children(dir_path);
     }
 
     dir_index = clks_fs_find_node_by_external(dir_path);
@@ -769,12 +795,12 @@ clks_bool clks_fs_get_child_name(const char *dir_path, u64 index, char *out_name
         return CLKS_FALSE;
     }
 
-    if (clks_disk_path_in_mount(dir_path) == CLKS_TRUE) {
-        return clks_disk_get_child_name(dir_path, index, out_name, out_name_size);
-    }
-
     if (clks_fs_is_dynamic_dev_dir(dir_path) == CLKS_TRUE) {
         return clks_fs_dynamic_dev_child_name(dir_path, index, out_name, out_name_size);
+    }
+
+    if (clks_disk_path_in_mount(dir_path) == CLKS_TRUE) {
+        return clks_disk_get_child_name(dir_path, index, out_name, out_name_size);
     }
 
     dir_index = clks_fs_find_node_by_external(dir_path);

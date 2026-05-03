@@ -41,7 +41,10 @@ static void clks_disk_label_to_boot_field(char *out_label, const char *label) {
 }
 
 static clks_bool clks_disk_write_fat32_boot_sector(const char *label) {
-    u8 *boot = clks_disk_bytes;
+    u64 volume_lba = CLKS_DISK_FAT32_PARTITION_LBA;
+    u64 volume_offset;
+    u64 reserved_bytes;
+    u8 *boot;
     u8 *fsinfo;
     u8 *backup_boot;
     u8 *backup_fsinfo;
@@ -60,7 +63,17 @@ static clks_bool clks_disk_write_fat32_boot_sector(const char *label) {
         return CLKS_FALSE;
     }
 
-    total_sectors = (u32)clks_disk_sector_total;
+    if (clks_disk_sector_total <= volume_lba) {
+        return CLKS_FALSE;
+    }
+
+    volume_offset = volume_lba * CLKS_DISK_SECTOR_SIZE;
+    if (clks_disk_bytes_range_valid(volume_offset, CLKS_DISK_SECTOR_SIZE) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    boot = clks_disk_bytes + (usize)volume_offset;
+    total_sectors = (u32)(clks_disk_sector_total - volume_lba);
     if (clks_disk_format_choose_spc(total_sectors, &sectors_per_cluster) == CLKS_FALSE) {
         return CLKS_FALSE;
     }
@@ -96,7 +109,19 @@ static clks_bool clks_disk_write_fat32_boot_sector(const char *label) {
         return CLKS_FALSE;
     }
 
-    clks_memset(boot, 0, CLKS_DISK_SECTOR_SIZE);
+    if (clks_disk_bytes_range_valid(0ULL, CLKS_DISK_SECTOR_SIZE) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+    clks_memset(clks_disk_bytes, 0, CLKS_DISK_SECTOR_SIZE);
+    clks_disk_loaded_mark_range(0ULL, 1ULL);
+
+    reserved_bytes = (u64)reserved * CLKS_DISK_SECTOR_SIZE;
+    if (clks_disk_bytes_range_valid(volume_offset, reserved_bytes) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+    clks_memset(clks_disk_bytes + (usize)volume_offset, 0, (usize)reserved_bytes);
+    clks_disk_loaded_mark_range(volume_lba, (u64)reserved);
+
     boot[0U] = 0xEBU;
     boot[1U] = 0x58U;
     boot[2U] = 0x90U;
@@ -111,7 +136,7 @@ static clks_bool clks_disk_write_fat32_boot_sector(const char *label) {
     clks_disk_write_u16(boot + 22U, 0U);
     clks_disk_write_u16(boot + 24U, 63U);
     clks_disk_write_u16(boot + 26U, 255U);
-    clks_disk_write_u32(boot + 28U, 0U);
+    clks_disk_write_u32(boot + 28U, (u32)volume_lba);
     clks_disk_write_u32(boot + 32U, total_sectors);
     clks_disk_write_u32(boot + 36U, fat_sectors);
     clks_disk_write_u16(boot + 40U, 0U);
@@ -128,7 +153,7 @@ static clks_bool clks_disk_write_fat32_boot_sector(const char *label) {
     boot[CLKS_DISK_FAT32_BOOT_SIG_OFFSET] = 0x55U;
     boot[CLKS_DISK_FAT32_BOOT_SIG_OFFSET + 1U] = 0xAAU;
 
-    fsinfo = clks_disk_bytes + (usize)CLKS_DISK_SECTOR_SIZE;
+    fsinfo = clks_disk_bytes + (usize)((volume_lba + 1ULL) * CLKS_DISK_SECTOR_SIZE);
     clks_memset(fsinfo, 0, CLKS_DISK_SECTOR_SIZE);
     clks_disk_write_u32(fsinfo + 0U, 0x41615252U);
     clks_disk_write_u32(fsinfo + 484U, 0x61417272U);
@@ -137,12 +162,12 @@ static clks_bool clks_disk_write_fat32_boot_sector(const char *label) {
     fsinfo[CLKS_DISK_FAT32_BOOT_SIG_OFFSET] = 0x55U;
     fsinfo[CLKS_DISK_FAT32_BOOT_SIG_OFFSET + 1U] = 0xAAU;
 
-    backup_boot = clks_disk_bytes + (usize)(6ULL * CLKS_DISK_SECTOR_SIZE);
-    backup_fsinfo = clks_disk_bytes + (usize)(7ULL * CLKS_DISK_SECTOR_SIZE);
+    backup_boot = clks_disk_bytes + (usize)((volume_lba + 6ULL) * CLKS_DISK_SECTOR_SIZE);
+    backup_fsinfo = clks_disk_bytes + (usize)((volume_lba + 7ULL) * CLKS_DISK_SECTOR_SIZE);
     clks_memcpy(backup_boot, boot, CLKS_DISK_SECTOR_SIZE);
     clks_memcpy(backup_fsinfo, fsinfo, CLKS_DISK_SECTOR_SIZE);
 
-    fat_region_lba = (u64)reserved;
+    fat_region_lba = volume_lba + (u64)reserved;
     for (fat_index = 0U; fat_index < fats; fat_index++) {
         u64 fat_lba = fat_region_lba + ((u64)fat_index * (u64)fat_sectors);
         u64 fat_offset = fat_lba * CLKS_DISK_SECTOR_SIZE;
@@ -155,6 +180,7 @@ static clks_bool clks_disk_write_fat32_boot_sector(const char *label) {
 
         fat_ptr = clks_disk_bytes + (usize)fat_offset;
         clks_memset(fat_ptr, 0, (usize)fat_bytes);
+        clks_disk_loaded_mark_range(fat_lba, (u64)fat_sectors);
         clks_disk_write_u32(fat_ptr + 0U, 0x0FFFFFF8U);
         clks_disk_write_u32(fat_ptr + 4U, 0x0FFFFFFFU);
         clks_disk_write_u32(fat_ptr + 8U, CLKS_DISK_FAT32_EOC);
@@ -168,5 +194,20 @@ static clks_bool clks_disk_write_fat32_boot_sector(const char *label) {
         return CLKS_FALSE;
     }
 
-    return clks_disk_sync_bytes_to_hw((u64)clks_disk_fat32.total_sectors * CLKS_DISK_SECTOR_SIZE);
+    if (clks_disk_sync_sector_range(0ULL, 1ULL) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_disk_sync_sector_range(volume_lba, (u64)reserved) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    for (fat_index = 0U; fat_index < fats; fat_index++) {
+        u64 fat_lba = fat_region_lba + ((u64)fat_index * (u64)fat_sectors);
+        if (clks_disk_sync_sector_range(fat_lba, (u64)fat_sectors) == CLKS_FALSE) {
+            return CLKS_FALSE;
+        }
+    }
+
+    return CLKS_TRUE;
 }

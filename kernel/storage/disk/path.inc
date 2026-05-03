@@ -204,6 +204,15 @@ static clks_bool clks_disk_path_to_relative(const char *path, char *out_relative
 
     mount_len = clks_strlen(clks_disk_mount_path_buf);
 
+    if (clks_strcmp(clks_disk_mount_path_buf, "/") == 0) {
+        if (clks_strcmp(normalized, "/") == 0) {
+            out_relative[0] = '\0';
+            return CLKS_TRUE;
+        }
+
+        return clks_disk_normalize_relative_path(normalized + 1U, out_relative, out_size);
+    }
+
     if (clks_strcmp(normalized, clks_disk_mount_path_buf) == 0) {
         out_relative[0] = '\0';
         return CLKS_TRUE;
@@ -223,4 +232,3 @@ static clks_bool clks_disk_path_to_relative(const char *path, char *out_relative
 
     return clks_disk_normalize_relative_path(normalized + mount_len + 1U, out_relative, out_size);
 }
-

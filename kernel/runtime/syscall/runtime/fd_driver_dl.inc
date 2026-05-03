@@ -1,3 +1,5 @@
+static u8 clks_syscall_fd_io_bounce[CLKS_SYSCALL_FS_IO_CHUNK_LEN];
+
 static u64 clks_syscall_fd_open(u64 arg0, u64 arg1, u64 arg2) {
     char path[CLKS_SYSCALL_PATH_MAX];
 
@@ -9,15 +11,50 @@ static u64 clks_syscall_fd_open(u64 arg0, u64 arg1, u64 arg2) {
 }
 
 static u64 clks_syscall_fd_read(u64 arg0, u64 arg1, u64 arg2) {
+    u64 done = 0ULL;
+
     if (arg2 > 0ULL && arg1 == 0ULL) {
         return (u64)-1;
     }
 
-    if (arg2 > 0ULL && clks_syscall_user_ptr_writable(arg1, arg2) == CLKS_FALSE) {
-        return (u64)-1;
+    if (arg2 == 0ULL) {
+        return 0ULL;
     }
 
-    return clks_exec_fd_read(arg0, (void *)arg1, arg2);
+    while (done < arg2) {
+        u64 chunk_len = arg2 - done;
+        u64 got;
+
+        if (chunk_len > CLKS_SYSCALL_FS_IO_CHUNK_LEN) {
+            chunk_len = CLKS_SYSCALL_FS_IO_CHUNK_LEN;
+        }
+
+        if (arg1 + done < arg1 || clks_syscall_user_ptr_writable(arg1 + done, chunk_len) == CLKS_FALSE) {
+            return (done > 0ULL) ? done : (u64)-1;
+        }
+
+        got = clks_exec_fd_read(arg0, clks_syscall_fd_io_bounce, chunk_len);
+        if (got == (u64)-1) {
+            return (done > 0ULL) ? done : (u64)-1;
+        }
+
+        if (got == 0ULL) {
+            break;
+        }
+
+        if (got > chunk_len) {
+            return (done > 0ULL) ? done : (u64)-1;
+        }
+
+        clks_memcpy((void *)(usize)(arg1 + done), clks_syscall_fd_io_bounce, (usize)got);
+        done += got;
+
+        if (got < chunk_len) {
+            break;
+        }
+    }
+
+    return done;
 }
 
 static u64 clks_syscall_fd_write(u64 arg0, u64 arg1, u64 arg2) {
@@ -126,4 +163,3 @@ static u64 clks_syscall_dl_sym(u64 arg0, u64 arg1) {
 
     return clks_exec_dl_sym(arg0, symbol);
 }
-

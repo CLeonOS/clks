@@ -240,8 +240,6 @@ clks_bool clks_disk_format_fat32(const char *label) {
         return CLKS_FALSE;
     }
 
-    clks_memset(clks_disk_bytes, 0, (usize)clks_disk_bytes_len);
-
     if (clks_disk_write_fat32_boot_sector(label) == CLKS_FALSE) {
         clks_log(CLKS_LOG_WARN, "DISK", "FAT32 FORMAT FAILED: BOOT/FAT INIT");
         clks_log_hex(CLKS_LOG_WARN, "DISK", "BYTES", clks_disk_bytes_len);
@@ -269,10 +267,6 @@ clks_bool clks_disk_mount(const char *mount_path) {
     }
 
     if (clks_disk_normalize_absolute_path(mount_path, normalized, sizeof(normalized)) == CLKS_FALSE) {
-        return CLKS_FALSE;
-    }
-
-    if (clks_strcmp(normalized, "/") == 0) {
         return CLKS_FALSE;
     }
 
@@ -406,7 +400,7 @@ u64 clks_disk_count_children(const char *dir_path) {
             }
 
             if (entry[0] == 0x00U) {
-                return count;
+                continue;
             }
 
             if (clks_disk_dirent_is_visible(entry) == CLKS_FALSE) {
@@ -477,23 +471,63 @@ clks_bool clks_disk_get_child_name(const char *dir_path, u64 index, char *out_na
     cluster = dir_cluster;
     while (clks_disk_cluster_valid(cluster) == CLKS_TRUE && guard < clks_disk_fat32.cluster_count) {
         u32 entry_index;
+        char lfn_name[CLKS_DISK_PATH_MAX];
+        u8 lfn_checksum = 0U;
+        u8 lfn_expected_seq = 0U;
+        clks_bool lfn_active = CLKS_FALSE;
+
+        lfn_name[0] = '\0';
 
         for (entry_index = 0U; entry_index < clks_disk_fat32.entries_per_cluster; entry_index++) {
             u8 *entry = clks_disk_dir_entry_ptr(cluster, entry_index, CLKS_NULL);
+            u8 attr;
 
             if (entry == CLKS_NULL) {
                 return CLKS_FALSE;
             }
 
             if (entry[0] == 0x00U) {
-                return CLKS_FALSE;
+                lfn_active = CLKS_FALSE;
+                lfn_name[0] = '\0';
+                continue;
+            }
+
+            attr = entry[11U];
+            if (attr == CLKS_DISK_ATTR_LFN) {
+                u8 order = (u8)(entry[0U] & 0x1FU);
+                u8 checksum = entry[13U];
+
+                if ((entry[0U] & 0x40U) != 0U) {
+                    lfn_active = CLKS_TRUE;
+                    lfn_expected_seq = order;
+                    lfn_checksum = checksum;
+                    lfn_name[0] = '\0';
+                } else if (lfn_active == CLKS_FALSE || order + 1U != lfn_expected_seq ||
+                           checksum != lfn_checksum) {
+                    lfn_active = CLKS_FALSE;
+                    lfn_name[0] = '\0';
+                    continue;
+                }
+
+                if (order == 0U || clks_disk_lfn_prepend_part(entry, lfn_name, sizeof(lfn_name)) == CLKS_FALSE) {
+                    lfn_active = CLKS_FALSE;
+                    lfn_name[0] = '\0';
+                    continue;
+                }
+
+                lfn_expected_seq = order;
+                continue;
             }
 
             if (clks_disk_dirent_is_visible(entry) == CLKS_FALSE) {
+                lfn_active = CLKS_FALSE;
+                lfn_name[0] = '\0';
                 continue;
             }
 
             if (clks_disk_dirent_is_dot_like(entry) == CLKS_TRUE) {
+                lfn_active = CLKS_FALSE;
+                lfn_name[0] = '\0';
                 continue;
             }
 
@@ -502,7 +536,18 @@ clks_bool clks_disk_get_child_name(const char *dir_path, u64 index, char *out_na
                 continue;
             }
 
-            clks_disk_sfn_to_text(entry, out_name, out_name_size);
+            {
+                if (lfn_active == CLKS_TRUE && lfn_checksum == clks_disk_lfn_checksum(entry) &&
+                    lfn_name[0] != '\0') {
+                    usize name_len = clks_strlen(lfn_name);
+                    if (name_len + 1U > out_name_size) {
+                        return CLKS_FALSE;
+                    }
+                    clks_memcpy(out_name, lfn_name, name_len + 1U);
+                } else {
+                    clks_disk_sfn_to_text(entry, out_name, out_name_size);
+                }
+            }
             return (out_name[0] != '\0') ? CLKS_TRUE : CLKS_FALSE;
         }
 
@@ -528,9 +573,9 @@ clks_bool clks_disk_get_child_name(const char *dir_path, u64 index, char *out_na
 
 clks_bool clks_disk_mkdir(const char *path) {
     char relative[CLKS_DISK_PATH_MAX];
+    const char *name;
     struct clks_disk_path_lookup lookup;
     struct clks_disk_dir_slot free_slot;
-    u8 entry[CLKS_DISK_DIRENT_SIZE];
     u32 new_cluster;
 
     if (clks_disk_path_to_relative(path, relative, sizeof(relative)) == CLKS_FALSE) {
@@ -557,10 +602,6 @@ clks_bool clks_disk_mkdir(const char *path) {
         return CLKS_FALSE;
     }
 
-    if (clks_disk_dir_find_free_slot(lookup.parent_cluster, &free_slot) == CLKS_FALSE) {
-        return CLKS_FALSE;
-    }
-
     if (clks_disk_alloc_cluster(&new_cluster) == CLKS_FALSE) {
         return CLKS_FALSE;
     }
@@ -570,9 +611,9 @@ clks_bool clks_disk_mkdir(const char *path) {
         return CLKS_FALSE;
     }
 
-    clks_disk_build_dir_entry(entry, lookup.sfn, CLKS_DISK_ATTR_DIRECTORY, new_cluster, 0U);
-
-    if (clks_disk_write_dir_entry(&free_slot, entry) == CLKS_FALSE) {
+    name = clks_disk_relative_basename(relative);
+    if (clks_disk_write_named_dir_entry(lookup.parent_cluster, name, CLKS_DISK_ATTR_DIRECTORY, new_cluster, 0U,
+                                        &free_slot) == CLKS_FALSE) {
         clks_disk_free_chain(new_cluster);
         return CLKS_FALSE;
     }
@@ -582,6 +623,7 @@ clks_bool clks_disk_mkdir(const char *path) {
 
 clks_bool clks_disk_write_all(const char *path, const void *data, u64 size) {
     char relative[CLKS_DISK_PATH_MAX];
+    const char *name;
     struct clks_disk_path_lookup lookup;
     struct clks_disk_dir_slot target_slot;
     u32 old_cluster = CLKS_DISK_INVALID_CLUSTER;
@@ -590,22 +632,35 @@ clks_bool clks_disk_write_all(const char *path, const void *data, u64 size) {
     u8 entry[CLKS_DISK_DIRENT_SIZE];
 
     if (clks_disk_path_to_relative(path, relative, sizeof(relative)) == CLKS_FALSE) {
+        clks_log(CLKS_LOG_WARN, "DISK", "WRITE_ALL FAILED: PATH");
+        if (path != CLKS_NULL) {
+            clks_log(CLKS_LOG_WARN, "DISK", path);
+        }
         return CLKS_FALSE;
     }
 
     if (clks_disk_ready == CLKS_FALSE || clks_disk_formatted == CLKS_FALSE || relative[0] == '\0') {
+        clks_log(CLKS_LOG_WARN, "DISK", "WRITE_ALL FAILED: NOT READY");
+        clks_log_hex(CLKS_LOG_WARN, "DISK", "READY", (clks_disk_ready == CLKS_TRUE) ? 1ULL : 0ULL);
+        clks_log_hex(CLKS_LOG_WARN, "DISK", "FAT32", (clks_disk_formatted == CLKS_TRUE) ? 1ULL : 0ULL);
         return CLKS_FALSE;
     }
 
     if (size > 0ULL && data == CLKS_NULL) {
+        clks_log(CLKS_LOG_WARN, "DISK", "WRITE_ALL FAILED: NULL DATA");
+        clks_log_hex(CLKS_LOG_WARN, "DISK", "SIZE", size);
         return CLKS_FALSE;
     }
 
     if (clks_disk_lookup_relative_path(relative, &lookup) == CLKS_FALSE) {
+        clks_log(CLKS_LOG_WARN, "DISK", "WRITE_ALL FAILED: LOOKUP");
+        clks_log(CLKS_LOG_WARN, "DISK", relative);
         return CLKS_FALSE;
     }
 
     if (lookup.found == CLKS_TRUE && (lookup.info.attr & CLKS_DISK_ATTR_DIRECTORY) != 0U) {
+        clks_log(CLKS_LOG_WARN, "DISK", "WRITE_ALL FAILED: IS DIR");
+        clks_log(CLKS_LOG_WARN, "DISK", relative);
         return CLKS_FALSE;
     }
 
@@ -614,17 +669,22 @@ clks_bool clks_disk_write_all(const char *path, const void *data, u64 size) {
         old_cluster = lookup.info.first_cluster;
     } else {
         if (clks_disk_cluster_valid(lookup.parent_cluster) == CLKS_FALSE) {
+            clks_log(CLKS_LOG_WARN, "DISK", "WRITE_ALL FAILED: BAD PARENT");
+            clks_log(CLKS_LOG_WARN, "DISK", relative);
+            clks_log_hex(CLKS_LOG_WARN, "DISK", "PARENT_CLUSTER", lookup.parent_cluster);
             return CLKS_FALSE;
         }
-        if (clks_disk_dir_find_free_slot(lookup.parent_cluster, &target_slot) == CLKS_FALSE) {
-            return CLKS_FALSE;
-        }
+        clks_memset(&target_slot, 0, sizeof(target_slot));
     }
 
     if (size > 0ULL) {
         u64 cluster_size = (u64)clks_disk_fat32.cluster_size_bytes;
         u64 need64 = (size + cluster_size - 1ULL) / cluster_size;
         if (need64 == 0ULL || need64 > (u64)clks_disk_fat32.cluster_count) {
+            clks_log(CLKS_LOG_WARN, "DISK", "WRITE_ALL FAILED: SIZE");
+            clks_log_hex(CLKS_LOG_WARN, "DISK", "SIZE", size);
+            clks_log_hex(CLKS_LOG_WARN, "DISK", "NEED_CLUSTERS", need64);
+            clks_log_hex(CLKS_LOG_WARN, "DISK", "CLUSTER_COUNT", (u64)clks_disk_fat32.cluster_count);
             return CLKS_FALSE;
         }
         needed_clusters = (u32)need64;
@@ -636,18 +696,41 @@ clks_bool clks_disk_write_all(const char *path, const void *data, u64 size) {
 
     if (needed_clusters > 0U) {
         if (clks_disk_alloc_chain(needed_clusters, &new_cluster) == CLKS_FALSE) {
+            clks_log(CLKS_LOG_WARN, "DISK", "WRITE_ALL FAILED: ALLOC_CHAIN");
+            clks_log(CLKS_LOG_WARN, "DISK", relative);
+            clks_log_hex(CLKS_LOG_WARN, "DISK", "SIZE", size);
+            clks_log_hex(CLKS_LOG_WARN, "DISK", "NEED_CLUSTERS", (u64)needed_clusters);
             return CLKS_FALSE;
         }
 
         if (clks_disk_write_file_chain(new_cluster, data, size) == CLKS_FALSE) {
+            clks_log(CLKS_LOG_WARN, "DISK", "WRITE_ALL FAILED: DATA_CHAIN");
+            clks_log(CLKS_LOG_WARN, "DISK", relative);
+            clks_log_hex(CLKS_LOG_WARN, "DISK", "SIZE", size);
+            clks_log_hex(CLKS_LOG_WARN, "DISK", "FIRST_CLUSTER", (u64)new_cluster);
             clks_disk_free_chain(new_cluster);
             return CLKS_FALSE;
         }
     }
 
-    clks_disk_build_dir_entry(entry, lookup.sfn, CLKS_DISK_ATTR_ARCHIVE, new_cluster, (u32)size);
-
-    if (clks_disk_write_dir_entry(&target_slot, entry) == CLKS_FALSE) {
+    if (lookup.found == CLKS_TRUE) {
+        clks_disk_build_dir_entry(entry, lookup.sfn, CLKS_DISK_ATTR_ARCHIVE, new_cluster, (u32)size);
+        if (clks_disk_write_dir_entry(&target_slot, entry) == CLKS_FALSE) {
+            clks_log(CLKS_LOG_WARN, "DISK", "WRITE_ALL FAILED: UPDATE DIRENT");
+            clks_log(CLKS_LOG_WARN, "DISK", relative);
+            if (new_cluster != CLKS_DISK_INVALID_CLUSTER) {
+                clks_disk_free_chain(new_cluster);
+            }
+            return CLKS_FALSE;
+        }
+    } else if ((name = clks_disk_relative_basename(relative)) == CLKS_NULL ||
+               clks_disk_write_named_dir_entry(lookup.parent_cluster, name, CLKS_DISK_ATTR_ARCHIVE, new_cluster,
+                                               (u32)size, &target_slot) == CLKS_FALSE) {
+        clks_log(CLKS_LOG_WARN, "DISK", "WRITE_ALL FAILED: CREATE DIRENT");
+        clks_log(CLKS_LOG_WARN, "DISK", relative);
+        clks_log_hex(CLKS_LOG_WARN, "DISK", "PARENT_CLUSTER", lookup.parent_cluster);
+        clks_log_hex(CLKS_LOG_WARN, "DISK", "FIRST_CLUSTER", (u64)new_cluster);
+        clks_log_hex(CLKS_LOG_WARN, "DISK", "SIZE", size);
         if (new_cluster != CLKS_DISK_INVALID_CLUSTER) {
             clks_disk_free_chain(new_cluster);
         }
@@ -659,25 +742,33 @@ clks_bool clks_disk_write_all(const char *path, const void *data, u64 size) {
 
 clks_bool clks_disk_append(const char *path, const void *data, u64 size) {
     char relative[CLKS_DISK_PATH_MAX];
-    const void *old_data;
     u64 old_size = 0ULL;
     u64 new_size;
-    void *merged;
     struct clks_disk_path_lookup lookup;
+    u8 entry[CLKS_DISK_DIRENT_SIZE];
+    u32 first_cluster;
 
     if (clks_disk_path_to_relative(path, relative, sizeof(relative)) == CLKS_FALSE) {
+        clks_log(CLKS_LOG_WARN, "DISK", "APPEND FAILED: PATH");
+        if (path != CLKS_NULL) {
+            clks_log(CLKS_LOG_WARN, "DISK", path);
+        }
         return CLKS_FALSE;
     }
 
     if (clks_disk_ready == CLKS_FALSE || clks_disk_formatted == CLKS_FALSE || relative[0] == '\0') {
+        clks_log(CLKS_LOG_WARN, "DISK", "APPEND FAILED: NOT READY");
         return CLKS_FALSE;
     }
 
     if (size > 0ULL && data == CLKS_NULL) {
+        clks_log(CLKS_LOG_WARN, "DISK", "APPEND FAILED: NULL DATA");
         return CLKS_FALSE;
     }
 
     if (clks_disk_lookup_relative_path(relative, &lookup) == CLKS_FALSE) {
+        clks_log(CLKS_LOG_WARN, "DISK", "APPEND FAILED: LOOKUP");
+        clks_log(CLKS_LOG_WARN, "DISK", relative);
         return CLKS_FALSE;
     }
 
@@ -686,15 +777,15 @@ clks_bool clks_disk_append(const char *path, const void *data, u64 size) {
     }
 
     if ((lookup.info.attr & CLKS_DISK_ATTR_DIRECTORY) != 0U) {
+        clks_log(CLKS_LOG_WARN, "DISK", "APPEND FAILED: IS DIR");
+        clks_log(CLKS_LOG_WARN, "DISK", relative);
         return CLKS_FALSE;
     }
 
-    old_data = clks_disk_read_all(path, &old_size);
-    if (old_data == CLKS_NULL) {
-        return CLKS_FALSE;
-    }
+    old_size = (u64)lookup.info.size;
 
     if (old_size > (0xFFFFFFFFFFFFFFFFULL - size)) {
+        clks_log(CLKS_LOG_WARN, "DISK", "APPEND FAILED: OVERFLOW");
         return CLKS_FALSE;
     }
 
@@ -703,24 +794,29 @@ clks_bool clks_disk_append(const char *path, const void *data, u64 size) {
         return clks_disk_write_all(path, clks_disk_empty_file_data, 0ULL);
     }
 
-    merged = clks_kmalloc((usize)new_size);
-    if (merged == CLKS_NULL) {
+    if (new_size > 0xFFFFFFFFULL) {
+        clks_log(CLKS_LOG_WARN, "DISK", "APPEND FAILED: TOO LARGE");
+        clks_log_hex(CLKS_LOG_WARN, "DISK", "NEW_SIZE", new_size);
         return CLKS_FALSE;
     }
 
-    if (old_size > 0ULL) {
-        clks_memcpy(merged, old_data, (usize)old_size);
-    }
-    if (size > 0ULL) {
-        clks_memcpy((u8 *)merged + (usize)old_size, data, (usize)size);
-    }
-
-    if (clks_disk_write_all(path, merged, new_size) == CLKS_FALSE) {
-        clks_kfree(merged);
+    first_cluster = lookup.info.first_cluster;
+    if (clks_disk_append_file_chain(first_cluster, old_size, data, size, &first_cluster) == CLKS_FALSE) {
+        clks_log(CLKS_LOG_WARN, "DISK", "APPEND FAILED: FILE_CHAIN");
+        clks_log(CLKS_LOG_WARN, "DISK", relative);
+        clks_log_hex(CLKS_LOG_WARN, "DISK", "OLD_SIZE", old_size);
+        clks_log_hex(CLKS_LOG_WARN, "DISK", "APPEND_SIZE", size);
+        clks_log_hex(CLKS_LOG_WARN, "DISK", "FIRST_CLUSTER", (u64)first_cluster);
         return CLKS_FALSE;
     }
 
-    clks_kfree(merged);
+    clks_disk_build_dir_entry(entry, lookup.sfn, CLKS_DISK_ATTR_ARCHIVE, first_cluster, (u32)new_size);
+    if (clks_disk_write_dir_entry(&lookup.slot, entry) == CLKS_FALSE) {
+        clks_log(CLKS_LOG_WARN, "DISK", "APPEND FAILED: UPDATE DIRENT");
+        clks_log(CLKS_LOG_WARN, "DISK", relative);
+        return CLKS_FALSE;
+    }
+
     return CLKS_TRUE;
 }
 
@@ -790,7 +886,7 @@ static u64 clks_disk_count_nodes_recursive(u32 dir_cluster, u32 depth) {
             }
 
             if (entry[0] == 0x00U) {
-                return count;
+                continue;
             }
 
             if (clks_disk_dirent_is_visible(entry) == CLKS_FALSE) {

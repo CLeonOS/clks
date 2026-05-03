@@ -12,6 +12,8 @@ struct clks_fb_state {
     clks_bool shadow_ready;
     struct clks_framebuffer_info info;
     const struct clks_psf_font *font;
+    u8 *external_font_blob;
+    u64 external_font_blob_size;
     struct clks_psf_font external_font;
     clks_bool external_font_active;
     u32 glyph_width;
@@ -26,6 +28,8 @@ static struct clks_fb_state clks_fb = {
     .shadow_ready = CLKS_FALSE,
     .info = {0, 0, 0, 0},
     .font = CLKS_NULL,
+    .external_font_blob = CLKS_NULL,
+    .external_font_blob_size = 0ULL,
     .external_font = {0, 0, 0, 0, 0, CLKS_NULL},
     .external_font_active = CLKS_FALSE,
     .glyph_width = 8U,
@@ -214,6 +218,11 @@ void clks_fb_init(const struct limine_framebuffer *fb) {
     }
 
     clks_fb.external_font_active = CLKS_FALSE;
+    if (clks_fb.external_font_blob != CLKS_NULL) {
+        clks_kfree(clks_fb.external_font_blob);
+        clks_fb.external_font_blob = CLKS_NULL;
+        clks_fb.external_font_blob_size = 0ULL;
+    }
     clks_fb_apply_font(clks_psf_default_font());
 
     clks_fb.ready = CLKS_TRUE;
@@ -578,12 +587,30 @@ void clks_fb_draw_char(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb) {
 }
 
 clks_bool clks_fb_load_psf_font(const void *blob, u64 blob_size) {
+    u8 *font_copy;
     struct clks_psf_font parsed = {0, 0, 0, 0, 0, CLKS_NULL};
 
-    if (clks_psf_parse_font(blob, blob_size, &parsed) == CLKS_FALSE) {
+    if (blob == CLKS_NULL || blob_size == 0ULL || blob_size > (8ULL * 1024ULL * 1024ULL)) {
         return CLKS_FALSE;
     }
 
+    font_copy = (u8 *)clks_kmalloc((usize)blob_size);
+    if (font_copy == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    clks_memcpy(font_copy, blob, (usize)blob_size);
+    if (clks_psf_parse_font(font_copy, blob_size, &parsed) == CLKS_FALSE) {
+        clks_kfree(font_copy);
+        return CLKS_FALSE;
+    }
+
+    if (clks_fb.external_font_blob != CLKS_NULL) {
+        clks_kfree(clks_fb.external_font_blob);
+    }
+
+    clks_fb.external_font_blob = font_copy;
+    clks_fb.external_font_blob_size = blob_size;
     clks_fb.external_font = parsed;
     clks_fb.external_font_active = CLKS_TRUE;
     clks_fb_apply_font(&clks_fb.external_font);

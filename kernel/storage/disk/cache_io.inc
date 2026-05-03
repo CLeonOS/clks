@@ -148,6 +148,50 @@ static clks_bool clks_disk_sync_sector_range(u64 start_lba, u64 sector_count) {
     return clks_disk_ata_cache_flush_hw();
 }
 
+static clks_bool clks_disk_sync_sector_range_no_flush(u64 start_lba, u64 sector_count) {
+    u64 remaining;
+    u64 lba;
+
+    if (sector_count == 0ULL) {
+        return CLKS_TRUE;
+    }
+
+    if (clks_disk_hw_backed == CLKS_FALSE) {
+        return CLKS_TRUE;
+    }
+
+    if (start_lba >= clks_disk_sector_total) {
+        return CLKS_FALSE;
+    }
+
+    if (sector_count > (clks_disk_sector_total - start_lba)) {
+        return CLKS_FALSE;
+    }
+
+    remaining = sector_count;
+    lba = start_lba;
+    while (remaining > 0ULL) {
+        u16 batch = (remaining > (u64)CLKS_DISK_ATA_BATCH_SECTORS) ? (u16)CLKS_DISK_ATA_BATCH_SECTORS : (u16)remaining;
+        const u8 *batch_ptr = clks_disk_bytes + (usize)(lba * CLKS_DISK_SECTOR_SIZE);
+        if (clks_disk_ata_write_sectors_hw(lba, batch, batch_ptr) == CLKS_FALSE) {
+            return CLKS_FALSE;
+        }
+        clks_disk_loaded_mark_range(lba, (u64)batch);
+        lba += (u64)batch;
+        remaining -= (u64)batch;
+    }
+
+    return CLKS_TRUE;
+}
+
+static clks_bool clks_disk_flush_hw(void) {
+    if (clks_disk_hw_backed == CLKS_FALSE) {
+        return CLKS_TRUE;
+    }
+
+    return clks_disk_ata_cache_flush_hw();
+}
+
 static clks_bool clks_disk_sync_bytes_to_hw(u64 used_bytes) {
     u64 sectors_to_sync;
     u64 remaining;
@@ -193,4 +237,3 @@ static clks_bool clks_disk_sync_bytes_to_hw(u64 used_bytes) {
 
     return CLKS_TRUE;
 }
-

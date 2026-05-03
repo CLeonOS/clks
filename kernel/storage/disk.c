@@ -4,8 +4,9 @@
 #include <clks/string.h>
 #include <clks/types.h>
 
-/* FAT32 needs at least 65525 clusters; 66581 sectors (512B) is the practical floor for our formatter. */
-#define CLKS_DISK_MIN_BYTES (66581ULL * 512ULL)
+/* FAT32 needs at least 65525 clusters; keep an MBR gap so Limine BIOS stage2 does not overlap the volume. */
+#define CLKS_DISK_FAT32_PARTITION_LBA 2048ULL
+#define CLKS_DISK_MIN_BYTES ((66581ULL + CLKS_DISK_FAT32_PARTITION_LBA) * 512ULL)
 #define CLKS_DISK_CACHE_MAX_BYTES (256ULL * 1024ULL * 1024ULL)
 #define CLKS_DISK_ALLOC_RETRY_STEP_BYTES (8ULL * 1024ULL * 1024ULL)
 #define CLKS_DISK_HEAP_RESERVE_BYTES (16ULL * 1024ULL * 1024ULL)
@@ -21,6 +22,7 @@
 
 #define CLKS_DISK_DIRENT_SIZE 32U
 #define CLKS_DISK_DIRENT_NAME_LEN 11U
+#define CLKS_DISK_LFN_MAX_ENTRIES 15U
 
 #define CLKS_DISK_ATTR_READ_ONLY 0x01U
 #define CLKS_DISK_ATTR_HIDDEN 0x02U
@@ -67,6 +69,7 @@ struct clks_disk_fat32_layout {
     u32 cluster_count;
     u32 cluster_size_bytes;
     u32 entries_per_cluster;
+    u64 volume_lba;
     u64 fat_lba;
     u64 data_lba;
 };
