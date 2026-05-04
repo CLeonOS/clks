@@ -146,6 +146,33 @@
 #define CLKS_SYSCALL_USER_REMOVE 140ULL
 #define CLKS_SYSCALL_USER_IS_ADMIN 141ULL
 #define CLKS_SYSCALL_DISK_FSCK_FAT32 142ULL
+#define CLKS_SYSCALL_SYSINFO 143ULL
+
+#define CLKS_SYSINFO_TEXT_MAX 32U
+#define CLKS_SYSINFO_BOOT_MODE_MAX 16U
+
+struct clks_sysinfo {
+    char kernel_name[CLKS_SYSINFO_TEXT_MAX];
+    char kernel_version[CLKS_SYSINFO_TEXT_MAX];
+    char arch[CLKS_SYSINFO_TEXT_MAX];
+    char build_date[CLKS_SYSINFO_TEXT_MAX];
+    char build_time[CLKS_SYSINFO_TEXT_MAX];
+    char boot_mode[CLKS_SYSINFO_BOOT_MODE_MAX];
+    u64 uptime_ms;
+    u64 timer_ticks;
+    u64 timer_hz;
+    u64 managed_pages;
+    u64 free_pages;
+    u64 used_pages;
+    u64 dropped_pages;
+    u64 heap_total_bytes;
+    u64 heap_used_bytes;
+    u64 heap_free_bytes;
+    u64 fs_nodes;
+    u64 task_count;
+    u64 service_count;
+    u64 service_ready_count;
+};
 
 void clks_syscall_init(void);
 u64 clks_syscall_dispatch(void *frame_ptr);

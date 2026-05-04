@@ -17,7 +17,7 @@
 #define CLKS_SYSCALL_KDBG_STACK_WINDOW_BYTES (128ULL * 1024ULL)
 #define CLKS_SYSCALL_KERNEL_SYMBOL_FILE "/system/kernel.sym"
 #define CLKS_SYSCALL_KERNEL_ADDR_BASE 0xFFFF800000000000ULL
-#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_DISK_FSCK_FAT32
+#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_SYSINFO
 #define CLKS_SYSCALL_DISK_SECTOR_BYTES 512U
 #define CLKS_SYSCALL_NET_UDP_PAYLOAD_MAX 1472U
 #define CLKS_SYSCALL_NET_TCP_IO_MAX 65536U
@@ -254,6 +254,29 @@ struct clks_syscall_wm_resize_req {
     u64 window_id;
     u64 width;
     u64 height;
+};
+
+struct clks_syscall_sysinfo_user {
+    char kernel_name[CLKS_SYSINFO_TEXT_MAX];
+    char kernel_version[CLKS_SYSINFO_TEXT_MAX];
+    char arch[CLKS_SYSINFO_TEXT_MAX];
+    char build_date[CLKS_SYSINFO_TEXT_MAX];
+    char build_time[CLKS_SYSINFO_TEXT_MAX];
+    char boot_mode[CLKS_SYSINFO_BOOT_MODE_MAX];
+    u64 uptime_ms;
+    u64 timer_ticks;
+    u64 timer_hz;
+    u64 managed_pages;
+    u64 free_pages;
+    u64 used_pages;
+    u64 dropped_pages;
+    u64 heap_total_bytes;
+    u64 heap_used_bytes;
+    u64 heap_free_bytes;
+    u64 fs_nodes;
+    u64 task_count;
+    u64 service_count;
+    u64 service_ready_count;
 };
 
 static clks_bool clks_syscall_ready = CLKS_FALSE;

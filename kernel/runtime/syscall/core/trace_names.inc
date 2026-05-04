@@ -258,6 +258,8 @@ static const char *clks_syscall_name(u64 id) {
         return "USER_IS_ADMIN";
     case CLKS_SYSCALL_DISK_FSCK_FAT32:
         return "DISK_FSCK_FAT32";
+    case CLKS_SYSCALL_SYSINFO:
+        return "SYSINFO";
     case CLKS_SYSCALL_MOUSE_STATE:
         return "MOUSE_STATE";
     case CLKS_SYSCALL_WM_CREATE:

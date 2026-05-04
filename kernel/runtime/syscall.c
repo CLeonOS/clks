@@ -12,6 +12,7 @@
 #include <clks/log.h>
 #include <clks/mouse.h>
 #include <clks/net.h>
+#include <clks/pmm.h>
 #include <clks/serial.h>
 #include <clks/scheduler.h>
 #include <clks/service.h>
