@@ -14,6 +14,7 @@
 #define CLKS_SC_F2 0x3CU
 #define CLKS_SC_F3 0x3DU
 #define CLKS_SC_F4 0x3EU
+#define CLKS_SC_R 0x13U
 #define CLKS_SC_C 0x2EU
 #define CLKS_SC_EXT_PREFIX 0xE0U
 
@@ -212,6 +213,9 @@ static clks_bool clks_keyboard_try_emit_ctrl_shortcut(u8 code, u32 tty_index) {
         break;
     case 0x2FU:
         shortcut = CLKS_KEY_PASTE;
+        break;
+    case CLKS_SC_R:
+        shortcut = CLKS_KEY_REVERSE_SEARCH;
         break;
     default:
         return CLKS_FALSE;

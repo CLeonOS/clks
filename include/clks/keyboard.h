@@ -17,6 +17,7 @@
 #define CLKS_KEY_SHIFT_RIGHT ((char)0x14)
 #define CLKS_KEY_SHIFT_HOME ((char)0x15)
 #define CLKS_KEY_SHIFT_END ((char)0x16)
+#define CLKS_KEY_REVERSE_SEARCH ((char)0x17)
 
 void clks_keyboard_init(void);
 void clks_keyboard_flush(void);
