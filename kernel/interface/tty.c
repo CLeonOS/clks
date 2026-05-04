@@ -20,7 +20,8 @@
 #define CLKS_TTY_STYLE_NONE 0U
 #define CLKS_TTY_STYLE_BOLD ((u8)CLKS_FB_STYLE_BOLD)
 #define CLKS_TTY_STYLE_UNDERLINE ((u8)CLKS_FB_STYLE_UNDERLINE)
-#define CLKS_TTY_CELL_CONTINUATION ((char)0)
+#define CLKS_TTY_CELL_CONTINUATION 0U
+#define CLKS_TTY_UTF8_REPLACEMENT 0xFFFDU
 #define CLKS_TTY_FONT_SCALE_MIN 1U
 #define CLKS_TTY_FONT_SCALE_MAX 3U
 #define CLKS_TTY_STATUS_BG 0x00202020U
@@ -44,7 +45,13 @@ typedef struct clks_tty_ansi_state {
     char params[CLKS_TTY_ANSI_MAX_LEN + 1U];
 } clks_tty_ansi_state;
 
-static char clks_tty_cells[CLKS_TTY_COUNT][CLKS_TTY_MAX_ROWS][CLKS_TTY_MAX_COLS];
+typedef struct clks_tty_utf8_state {
+    u32 codepoint;
+    u8 remaining;
+    u8 expected;
+} clks_tty_utf8_state;
+
+static u32 clks_tty_cells[CLKS_TTY_COUNT][CLKS_TTY_MAX_ROWS][CLKS_TTY_MAX_COLS];
 static u32 clks_tty_cell_fg[CLKS_TTY_COUNT][CLKS_TTY_MAX_ROWS][CLKS_TTY_MAX_COLS];
 static u32 clks_tty_cell_bg[CLKS_TTY_COUNT][CLKS_TTY_MAX_ROWS][CLKS_TTY_MAX_COLS];
 static u8 clks_tty_cell_style[CLKS_TTY_COUNT][CLKS_TTY_MAX_ROWS][CLKS_TTY_MAX_COLS];
@@ -54,8 +61,9 @@ static u32 clks_tty_cursor_col[CLKS_TTY_COUNT];
 static u32 clks_tty_current_fg[CLKS_TTY_COUNT];
 static u32 clks_tty_current_bg[CLKS_TTY_COUNT];
 static clks_tty_ansi_state clks_tty_ansi[CLKS_TTY_COUNT];
+static clks_tty_utf8_state clks_tty_utf8[CLKS_TTY_COUNT];
 static u8 clks_tty_line_scale[CLKS_TTY_COUNT];
-static char clks_tty_scrollback_cells[CLKS_TTY_COUNT][CLKS_TTY_SCROLLBACK_LINES][CLKS_TTY_MAX_COLS];
+static u32 clks_tty_scrollback_cells[CLKS_TTY_COUNT][CLKS_TTY_SCROLLBACK_LINES][CLKS_TTY_MAX_COLS];
 static u32 clks_tty_scrollback_fg[CLKS_TTY_COUNT][CLKS_TTY_SCROLLBACK_LINES][CLKS_TTY_MAX_COLS];
 static u32 clks_tty_scrollback_bg[CLKS_TTY_COUNT][CLKS_TTY_SCROLLBACK_LINES][CLKS_TTY_MAX_COLS];
 static u8 clks_tty_scrollback_style[CLKS_TTY_COUNT][CLKS_TTY_SCROLLBACK_LINES][CLKS_TTY_MAX_COLS];
@@ -93,6 +101,8 @@ static clks_bool clks_tty_scrollback_is_active(u32 tty_index);
 static void clks_tty_redraw_active(void);
 static void clks_tty_write_n_internal(u32 tty_index, const char *text, usize len);
 static void clks_tty_status_invalidate(void);
+static void clks_tty_put_codepoint_raw(u32 tty_index, u32 codepoint);
+static u32 clks_tty_codepoint_width(u32 codepoint);
 
 #include "tty/draw_dirty.inc"
 #include "tty/scrollback_search.inc"

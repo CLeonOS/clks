@@ -12,13 +12,36 @@ static void clks_tty_reset_ansi_state(u32 tty_index) {
     clks_tty_ansi[tty_index].saw_csi = CLKS_FALSE;
     clks_tty_ansi[tty_index].len = 0U;
     clks_tty_ansi[tty_index].params[0] = '\0';
+    clks_tty_utf8[tty_index].codepoint = 0U;
+    clks_tty_utf8[tty_index].remaining = 0U;
+    clks_tty_utf8[tty_index].expected = 0U;
 }
 
-static void clks_tty_fill_row(u32 tty_index, u32 row, char ch) {
+static u32 clks_tty_codepoint_width(u32 codepoint) {
+    if (codepoint == 0U) {
+        return 0U;
+    }
+
+    if (codepoint < 0x1100U) {
+        return 1U;
+    }
+
+    if ((codepoint >= 0x1100U && codepoint <= 0x115FU) || codepoint == 0x2329U || codepoint == 0x232AU ||
+        (codepoint >= 0x2E80U && codepoint <= 0xA4CFU) || (codepoint >= 0xAC00U && codepoint <= 0xD7A3U) ||
+        (codepoint >= 0xF900U && codepoint <= 0xFAFFU) || (codepoint >= 0xFE10U && codepoint <= 0xFE19U) ||
+        (codepoint >= 0xFE30U && codepoint <= 0xFE6FU) || (codepoint >= 0xFF00U && codepoint <= 0xFF60U) ||
+        (codepoint >= 0xFFE0U && codepoint <= 0xFFE6U) || (codepoint >= 0x20000U && codepoint <= 0x3FFFDUL)) {
+        return 2U;
+    }
+
+    return 1U;
+}
+
+static void clks_tty_fill_row(u32 tty_index, u32 row, u32 codepoint) {
     u32 col;
 
     for (col = 0; col < clks_tty_cols; col++) {
-        clks_tty_cells[tty_index][row][col] = ch;
+        clks_tty_cells[tty_index][row][col] = codepoint;
         clks_tty_cell_fg[tty_index][row][col] = CLKS_TTY_FG;
         clks_tty_cell_bg[tty_index][row][col] = CLKS_TTY_BG;
         clks_tty_cell_style[tty_index][row][col] = CLKS_TTY_STYLE_NONE;
@@ -76,7 +99,7 @@ static void clks_tty_draw_cursor(void) {
     u32 fg;
     u32 bg;
     u8 style;
-    char ch;
+    u32 codepoint;
 
     if (clks_tty_is_ready == CLKS_FALSE) {
         return;
@@ -100,12 +123,13 @@ static void clks_tty_draw_cursor(void) {
         return;
     }
 
-    ch = clks_tty_cells[clks_tty_active_index][row][col];
+    codepoint = clks_tty_cells[clks_tty_active_index][row][col];
     fg = clks_tty_cell_fg[clks_tty_active_index][row][col];
     bg = clks_tty_cell_bg[clks_tty_active_index][row][col];
     style = clks_tty_cell_style[clks_tty_active_index][row][col];
 
-    clks_tty_draw_cell_with_colors(row, col, ch, bg, fg, style, clks_tty_cell_scale[clks_tty_active_index][row][col]);
+    clks_tty_draw_cell_with_colors(row, col, codepoint, bg, fg, style,
+                                   clks_tty_cell_scale[clks_tty_active_index][row][col]);
     clks_tty_cursor_visible = CLKS_TRUE;
 }
 
@@ -225,7 +249,8 @@ static void clks_tty_scroll_up(u32 tty_index) {
     clks_tty_scrollback_push_row(tty_index, 0U);
 
     for (row = 1; row < clks_tty_content_rows(); row++) {
-        clks_memcpy(clks_tty_cells[tty_index][row - 1U], clks_tty_cells[tty_index][row], clks_tty_cols);
+        clks_memcpy(clks_tty_cells[tty_index][row - 1U], clks_tty_cells[tty_index][row],
+                    (usize)clks_tty_cols * sizeof(u32));
         clks_memcpy(clks_tty_cell_fg[tty_index][row - 1U], clks_tty_cell_fg[tty_index][row],
                     (usize)clks_tty_cols * sizeof(u32));
         clks_memcpy(clks_tty_cell_bg[tty_index][row - 1U], clks_tty_cell_bg[tty_index][row],
@@ -258,17 +283,22 @@ static void clks_tty_scroll_up(u32 tty_index) {
         }
     }
 }
-static void clks_tty_put_visible(u32 tty_index, u32 row, u32 col, char ch) {
+static void clks_tty_put_visible(u32 tty_index, u32 row, u32 col, u32 codepoint) {
     u32 fg = clks_tty_current_fg[tty_index];
     u32 bg = clks_tty_current_bg[tty_index];
     u32 scale = clks_tty_clamp_scale((u32)clks_tty_ansi[tty_index].font_scale);
+    u32 code_width = clks_tty_codepoint_width(codepoint);
     u32 span_rows = scale;
-    u32 span_cols = scale;
+    u32 span_cols = scale * code_width;
     u32 rr;
     u32 cc;
     u8 style = CLKS_TTY_STYLE_NONE;
 
     if (row >= clks_tty_content_rows() || col >= clks_tty_cols) {
+        return;
+    }
+
+    if (code_width == 0U) {
         return;
     }
 
@@ -301,7 +331,7 @@ static void clks_tty_put_visible(u32 tty_index, u32 row, u32 col, char ch) {
     for (rr = 0U; rr < span_rows; rr++) {
         for (cc = 0U; cc < span_cols; cc++) {
             clks_tty_cells[tty_index][row + rr][col + cc] =
-                (rr == 0U && cc == 0U) ? ch : CLKS_TTY_CELL_CONTINUATION;
+                (rr == 0U && cc == 0U) ? codepoint : CLKS_TTY_CELL_CONTINUATION;
             clks_tty_cell_fg[tty_index][row + rr][col + cc] = fg;
             clks_tty_cell_bg[tty_index][row + rr][col + cc] = bg;
             clks_tty_cell_style[tty_index][row + rr][col + cc] = style;
@@ -329,7 +359,6 @@ static void clks_tty_advance_after_visible(u32 tty_index, u32 width_cells) {
     u32 row;
     u32 col;
 
-    width_cells = clks_tty_clamp_scale(width_cells);
     clks_tty_cursor_col[tty_index] += width_cells;
 
     if (clks_tty_cursor_col[tty_index] < clks_tty_cols) {
@@ -349,17 +378,19 @@ static void clks_tty_advance_after_visible(u32 tty_index, u32 width_cells) {
     clks_tty_line_scale[tty_index] = 1U;
 }
 
-static void clks_tty_put_char_raw(u32 tty_index, char ch) {
+static void clks_tty_put_codepoint_raw(u32 tty_index, u32 codepoint) {
     u32 row = clks_tty_cursor_row[tty_index];
     u32 col = clks_tty_cursor_col[tty_index];
     u32 scale = clks_tty_clamp_scale((u32)clks_tty_ansi[tty_index].font_scale);
+    u32 char_width = clks_tty_codepoint_width(codepoint);
+    u32 advance_width = scale * char_width;
 
-    if (ch == '\r') {
+    if (codepoint == (u32)'\r') {
         clks_tty_cursor_col[tty_index] = 0U;
         return;
     }
 
-    if (ch == '\n') {
+    if (codepoint == (u32)'\n') {
         clks_tty_cursor_col[tty_index] = 0U;
         clks_tty_cursor_row[tty_index] += clks_tty_line_scale[tty_index];
         clks_tty_line_scale[tty_index] = 1U;
@@ -374,7 +405,7 @@ static void clks_tty_put_char_raw(u32 tty_index, char ch) {
         return;
     }
 
-    if (ch == '\b') {
+    if (codepoint == (u32)'\b') {
         u8 saved_scale = clks_tty_ansi[tty_index].font_scale;
         clks_tty_ansi[tty_index].font_scale = 1U;
 
@@ -397,15 +428,19 @@ static void clks_tty_put_char_raw(u32 tty_index, char ch) {
         return;
     }
 
-    if (ch == '\t') {
-        clks_tty_put_char_raw(tty_index, ' ');
-        clks_tty_put_char_raw(tty_index, ' ');
-        clks_tty_put_char_raw(tty_index, ' ');
-        clks_tty_put_char_raw(tty_index, ' ');
+    if (codepoint == (u32)'\t') {
+        clks_tty_put_codepoint_raw(tty_index, (u32)' ');
+        clks_tty_put_codepoint_raw(tty_index, (u32)' ');
+        clks_tty_put_codepoint_raw(tty_index, (u32)' ');
+        clks_tty_put_codepoint_raw(tty_index, (u32)' ');
         return;
     }
 
-    if (scale > 1U) {
+    if (advance_width == 0U) {
+        return;
+    }
+
+    if (scale > 1U || char_width > 1U) {
         while ((clks_tty_cursor_row[tty_index] + scale) > clks_tty_content_rows()) {
             clks_tty_scroll_up(tty_index);
             if (clks_tty_cursor_row[tty_index] > 0U) {
@@ -417,7 +452,7 @@ static void clks_tty_put_char_raw(u32 tty_index, char ch) {
 
         row = clks_tty_cursor_row[tty_index];
 
-        if (col + scale > clks_tty_cols) {
+        if (col + advance_width > clks_tty_cols) {
             clks_tty_cursor_col[tty_index] = 0U;
             clks_tty_cursor_row[tty_index] += clks_tty_line_scale[tty_index];
             clks_tty_line_scale[tty_index] = 1U;
@@ -445,7 +480,6 @@ static void clks_tty_put_char_raw(u32 tty_index, char ch) {
         }
     }
 
-    clks_tty_put_visible(tty_index, row, col, ch);
-    clks_tty_advance_after_visible(tty_index, scale);
+    clks_tty_put_visible(tty_index, row, col, codepoint);
+    clks_tty_advance_after_visible(tty_index, advance_width);
 }
-

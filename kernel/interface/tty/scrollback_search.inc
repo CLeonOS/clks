@@ -26,7 +26,8 @@ static void clks_tty_scrollback_push_row(u32 tty_index, u32 row) {
     u32 slot = clks_tty_scrollback_head[tty_index];
 
     /* Save the line before scroll nukes it, because users always want it back. */
-    clks_memcpy(clks_tty_scrollback_cells[tty_index][slot], clks_tty_cells[tty_index][row], clks_tty_cols);
+    clks_memcpy(clks_tty_scrollback_cells[tty_index][slot], clks_tty_cells[tty_index][row],
+                (usize)clks_tty_cols * sizeof(u32));
     clks_memcpy(clks_tty_scrollback_fg[tty_index][slot], clks_tty_cell_fg[tty_index][row],
                 (usize)clks_tty_cols * sizeof(u32));
     clks_memcpy(clks_tty_scrollback_bg[tty_index][slot], clks_tty_cell_bg[tty_index][row],
@@ -117,28 +118,28 @@ static void clks_tty_status_invalidate(void) {
     clks_tty_status_cache_valid = CLKS_FALSE;
 }
 
-static char clks_tty_ascii_tolower(char ch) {
-    if (ch >= 'A' && ch <= 'Z') {
-        return (char)(ch + ('a' - 'A'));
+static u32 clks_tty_ascii_tolower(u32 codepoint) {
+    if (codepoint >= (u32)'A' && codepoint <= (u32)'Z') {
+        return codepoint + ((u32)'a' - (u32)'A');
     }
 
-    return ch;
+    return codepoint;
 }
 
-static char clks_tty_doc_char_at(u32 tty_index, u32 doc_index, u32 col) {
+static u32 clks_tty_doc_char_at(u32 tty_index, u32 doc_index, u32 col) {
     u32 scroll_count;
     u32 phys;
     u32 row;
 
     if (tty_index >= CLKS_TTY_COUNT || col >= clks_tty_cols) {
-        return ' ';
+        return (u32)' ';
     }
 
     scroll_count = clks_tty_scrollback_count[tty_index];
     if (doc_index < scroll_count) {
         phys = clks_tty_scrollback_logical_to_physical(tty_index, doc_index);
         if (clks_tty_scrollback_cells[tty_index][phys][col] == CLKS_TTY_CELL_CONTINUATION) {
-            return ' ';
+            return (u32)' ';
         }
         return clks_tty_scrollback_cells[tty_index][phys][col];
     }
@@ -146,12 +147,12 @@ static char clks_tty_doc_char_at(u32 tty_index, u32 doc_index, u32 col) {
     row = doc_index - scroll_count;
     if (row < clks_tty_content_rows()) {
         if (clks_tty_cells[tty_index][row][col] == CLKS_TTY_CELL_CONTINUATION) {
-            return ' ';
+            return (u32)' ';
         }
         return clks_tty_cells[tty_index][row][col];
     }
 
-    return ' ';
+    return (u32)' ';
 }
 
 static clks_bool clks_tty_doc_row_contains_query(u32 tty_index, u32 doc_index) {
@@ -172,8 +173,8 @@ static clks_bool clks_tty_doc_row_contains_query(u32 tty_index, u32 doc_index) {
         clks_bool same = CLKS_TRUE;
 
         for (q = 0U; q < query_len; q++) {
-            char left = clks_tty_ascii_tolower(clks_tty_doc_char_at(tty_index, doc_index, col + q));
-            char right = clks_tty_ascii_tolower(clks_tty_search_query[tty_index][q]);
+            u32 left = clks_tty_ascii_tolower(clks_tty_doc_char_at(tty_index, doc_index, col + q));
+            u32 right = clks_tty_ascii_tolower((u32)(u8)clks_tty_search_query[tty_index][q]);
 
             if (left != right) {
                 same = CLKS_FALSE;
@@ -262,4 +263,3 @@ static clks_bool clks_tty_search_find(u32 tty_index, clks_bool reverse) {
     clks_tty_search_not_found[tty_index] = CLKS_TRUE;
     return CLKS_FALSE;
 }
-

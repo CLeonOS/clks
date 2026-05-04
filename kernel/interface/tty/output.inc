@@ -9,7 +9,7 @@ void clks_tty_init(void) {
 
     /* If framebuffer lies here, the whole UI goes to hell immediately. */
     info = clks_fb_info();
-    clks_tty_cell_width = clks_fb_cell_width();
+    clks_tty_cell_width = clks_fb_half_cell_width();
     clks_tty_cell_height = clks_fb_cell_height();
 
     if (clks_tty_cell_width == 0U) {
@@ -75,6 +75,73 @@ void clks_tty_write(const char *text) {
     clks_tty_write_n(text, clks_strlen(text));
 }
 
+static void clks_tty_utf8_reset(u32 tty_index) {
+    clks_tty_utf8[tty_index].codepoint = 0U;
+    clks_tty_utf8[tty_index].remaining = 0U;
+    clks_tty_utf8[tty_index].expected = 0U;
+}
+
+static clks_bool clks_tty_utf8_emit_byte(u32 tty_index, u8 byte) {
+    clks_tty_utf8_state *state = &clks_tty_utf8[tty_index];
+
+    if (state->remaining == 0U) {
+        if (byte < 0x80U) {
+            clks_tty_put_codepoint_raw(tty_index, (u32)byte);
+            return CLKS_TRUE;
+        }
+
+        if ((byte & 0xE0U) == 0xC0U) {
+            state->codepoint = (u32)(byte & 0x1FU);
+            state->remaining = 1U;
+            state->expected = 2U;
+            return CLKS_TRUE;
+        }
+
+        if ((byte & 0xF0U) == 0xE0U) {
+            state->codepoint = (u32)(byte & 0x0FU);
+            state->remaining = 2U;
+            state->expected = 3U;
+            return CLKS_TRUE;
+        }
+
+        if ((byte & 0xF8U) == 0xF0U) {
+            state->codepoint = (u32)(byte & 0x07U);
+            state->remaining = 3U;
+            state->expected = 4U;
+            return CLKS_TRUE;
+        }
+
+        clks_tty_put_codepoint_raw(tty_index, CLKS_TTY_UTF8_REPLACEMENT);
+        return CLKS_FALSE;
+    }
+
+    if ((byte & 0xC0U) != 0x80U) {
+        clks_tty_utf8_reset(tty_index);
+        clks_tty_put_codepoint_raw(tty_index, CLKS_TTY_UTF8_REPLACEMENT);
+        return CLKS_FALSE;
+    }
+
+    state->codepoint = (state->codepoint << 6U) | (u32)(byte & 0x3FU);
+    state->remaining--;
+
+    if (state->remaining == 0U) {
+        u32 codepoint = state->codepoint;
+        u8 expected = state->expected;
+        clks_bool valid = CLKS_TRUE;
+
+        if ((expected == 2U && codepoint < 0x80U) || (expected == 3U && codepoint < 0x800U) ||
+            (expected == 4U && codepoint < 0x10000U) || codepoint > 0x10FFFFU ||
+            (codepoint >= 0xD800U && codepoint <= 0xDFFFU)) {
+            valid = CLKS_FALSE;
+        }
+
+        clks_tty_utf8_reset(tty_index);
+        clks_tty_put_codepoint_raw(tty_index, (valid == CLKS_TRUE) ? codepoint : CLKS_TTY_UTF8_REPLACEMENT);
+    }
+
+    return CLKS_TRUE;
+}
+
 static void clks_tty_write_n_internal(u32 tty_index, const char *text, usize len) {
     usize i = 0U;
     clks_bool target_active;
@@ -103,7 +170,7 @@ static void clks_tty_write_n_internal(u32 tty_index, const char *text, usize len
 
     while (i < len) {
         if (clks_tty_ansi_process_byte(tty_index, text[i]) == CLKS_FALSE) {
-            clks_tty_put_char_raw(tty_index, text[i]);
+            (void)clks_tty_utf8_emit_byte(tty_index, (u8)text[i]);
         }
 
         i++;

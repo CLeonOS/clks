@@ -27,14 +27,25 @@ static u32 clks_tty_clamp_scale(u32 scale) {
     return scale;
 }
 
-static void clks_tty_draw_cell_with_colors(u32 row, u32 col, char ch, u32 fg, u32 bg, u8 style, u8 scale) {
-    if (ch == CLKS_TTY_CELL_CONTINUATION) {
+static void clks_tty_draw_cell_with_colors(u32 row, u32 col, u32 codepoint, u32 fg, u32 bg, u8 style, u8 scale) {
+    u32 width_cells;
+    u32 area_w;
+    u32 area_h;
+    u32 glyph_scale_x;
+
+    if (codepoint == CLKS_TTY_CELL_CONTINUATION) {
         return;
     }
 
     scale = (u8)clks_tty_clamp_scale((u32)scale);
-    clks_fb_draw_char_scaled(col * clks_tty_cell_width, row * clks_tty_cell_height, ch, fg, bg, (u32)style,
-                             (u32)scale);
+    width_cells = clks_tty_codepoint_width(codepoint);
+    area_w = clks_tty_cell_width * width_cells * (u32)scale;
+    area_h = clks_tty_cell_height * (u32)scale;
+    glyph_scale_x = (u32)scale;
+
+    clks_fb_fill_rect(col * clks_tty_cell_width, row * clks_tty_cell_height, area_w, area_h, bg);
+    clks_fb_draw_codepoint_scaled_clip(col * clks_tty_cell_width, row * clks_tty_cell_height, codepoint, fg, bg,
+                                       (u32)style, glyph_scale_x, (u32)scale, area_w, area_h);
 }
 
 static void clks_tty_draw_cell(u32 tty_index, u32 row, u32 col) {
@@ -165,4 +176,3 @@ static void clks_tty_flush_dirty(void) {
 
     clks_tty_dirty_reset();
 }
-

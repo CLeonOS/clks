@@ -12,6 +12,9 @@
 
 #define CLKS_PSF2_MAGIC 0x864AB572U
 #define CLKS_PSF2_HEADER_MIN_SIZE 32U
+#define CLKS_PSF2_HAS_UNICODE_TABLE 0x01U
+#define CLKS_PSF_UNICODE_SEPARATOR 0xFFU
+#define CLKS_PSF_UNICODE_STARTSEQ 0xFEU
 
 struct clks_psf1_header {
     u8 magic[2];
@@ -64,7 +67,7 @@ static const struct clks_psf_seed_glyph clks_psf_seed_table[] = {
 };
 
 static u8 clks_psf_default_blob[CLKS_PSF1_BLOB_SIZE];
-static struct clks_psf_font clks_psf_default = {8U, 8U, 0U, 0U, 1U, CLKS_NULL};
+static struct clks_psf_font clks_psf_default = {8U, 8U, 0U, 0U, 1U, CLKS_NULL, CLKS_NULL, 0ULL};
 static clks_bool clks_psf_default_ready = CLKS_FALSE;
 
 static clks_bool clks_psf_parse_psf1(const u8 *blob, usize blob_size, struct clks_psf_font *out_font) {
@@ -106,6 +109,8 @@ static clks_bool clks_psf_parse_psf1(const u8 *blob, usize blob_size, struct clk
     out_font->bytes_per_glyph = glyph_bytes;
     out_font->bytes_per_row = 1U;
     out_font->glyphs = blob + CLKS_PSF1_HEADER_SIZE;
+    out_font->unicode_table = CLKS_NULL;
+    out_font->unicode_table_size = 0ULL;
     return CLKS_TRUE;
 }
 
@@ -165,6 +170,17 @@ static clks_bool clks_psf_parse_psf2(const u8 *blob, usize blob_size, struct clk
     out_font->bytes_per_glyph = hdr->charsize;
     out_font->bytes_per_row = bytes_per_row;
     out_font->glyphs = blob + hdr->headersize;
+    out_font->unicode_table = CLKS_NULL;
+    out_font->unicode_table_size = 0ULL;
+
+    if ((hdr->flags & CLKS_PSF2_HAS_UNICODE_TABLE) != 0U) {
+        usize table_offset = (usize)hdr->headersize + payload_size;
+        if (table_offset < blob_size) {
+            out_font->unicode_table = blob + table_offset;
+            out_font->unicode_table_size = (u64)(blob_size - table_offset);
+        }
+    }
+
     return CLKS_TRUE;
 }
 
@@ -210,6 +226,8 @@ const struct clks_psf_font *clks_psf_default_font(void) {
             clks_psf_default.bytes_per_glyph = CLKS_PSF1_GLYPH_BYTES;
             clks_psf_default.bytes_per_row = 1U;
             clks_psf_default.glyphs = clks_psf_unknown;
+            clks_psf_default.unicode_table = CLKS_NULL;
+            clks_psf_default.unicode_table_size = 0ULL;
         }
 
         clks_psf_default_ready = CLKS_TRUE;
@@ -218,11 +236,123 @@ const struct clks_psf_font *clks_psf_default_font(void) {
     return &clks_psf_default;
 }
 
+static clks_bool clks_psf_decode_utf8_table_codepoint(const u8 *table, u64 table_size, u64 *io_offset,
+                                                      u32 *out_codepoint) {
+    u8 b0;
+    u32 value;
+    u32 need;
+    u64 offset;
+    u32 i;
+
+    if (table == CLKS_NULL || io_offset == CLKS_NULL || out_codepoint == CLKS_NULL || *io_offset >= table_size) {
+        return CLKS_FALSE;
+    }
+
+    offset = *io_offset;
+    b0 = table[offset++];
+
+    if (b0 < 0x80U) {
+        *io_offset = offset;
+        *out_codepoint = (u32)b0;
+        return CLKS_TRUE;
+    }
+
+    if ((b0 & 0xE0U) == 0xC0U) {
+        value = (u32)(b0 & 0x1FU);
+        need = 1U;
+    } else if ((b0 & 0xF0U) == 0xE0U) {
+        value = (u32)(b0 & 0x0FU);
+        need = 2U;
+    } else if ((b0 & 0xF8U) == 0xF0U) {
+        value = (u32)(b0 & 0x07U);
+        need = 3U;
+    } else {
+        *io_offset = offset;
+        return CLKS_FALSE;
+    }
+
+    if (offset + (u64)need > table_size) {
+        *io_offset = table_size;
+        return CLKS_FALSE;
+    }
+
+    for (i = 0U; i < need; i++) {
+        u8 bx = table[offset++];
+        if ((bx & 0xC0U) != 0x80U) {
+            *io_offset = offset;
+            return CLKS_FALSE;
+        }
+        value = (value << 6U) | (u32)(bx & 0x3FU);
+    }
+
+    if ((need == 1U && value < 0x80U) || (need == 2U && value < 0x800U) ||
+        (need == 3U && value < 0x10000U) || value > 0x10FFFFU || (value >= 0xD800U && value <= 0xDFFFU)) {
+        *io_offset = offset;
+        return CLKS_FALSE;
+    }
+
+    *io_offset = offset;
+    *out_codepoint = value;
+    return CLKS_TRUE;
+}
+
+static u32 clks_psf_unicode_lookup(const struct clks_psf_font *font, u32 codepoint) {
+    u64 offset = 0ULL;
+    u32 glyph = 0U;
+
+    if (font == CLKS_NULL || font->unicode_table == CLKS_NULL || font->unicode_table_size == 0ULL) {
+        return (u32)-1;
+    }
+
+    while (offset < font->unicode_table_size && glyph < font->glyph_count) {
+        u8 b = font->unicode_table[offset];
+
+        if (b == CLKS_PSF_UNICODE_SEPARATOR) {
+            offset++;
+            glyph++;
+            continue;
+        }
+
+        if (b == CLKS_PSF_UNICODE_STARTSEQ) {
+            offset++;
+            while (offset < font->unicode_table_size && font->unicode_table[offset] != CLKS_PSF_UNICODE_SEPARATOR) {
+                u32 ignored;
+                if (clks_psf_decode_utf8_table_codepoint(font->unicode_table, font->unicode_table_size, &offset,
+                                                         &ignored) == CLKS_FALSE) {
+                    break;
+                }
+            }
+            continue;
+        }
+
+        {
+            u32 mapped;
+            if (clks_psf_decode_utf8_table_codepoint(font->unicode_table, font->unicode_table_size, &offset,
+                                                     &mapped) == CLKS_FALSE) {
+                continue;
+            }
+
+            if (mapped == codepoint) {
+                return glyph;
+            }
+        }
+    }
+
+    return (u32)-1;
+}
+
 const u8 *clks_psf_glyph(const struct clks_psf_font *font, u32 codepoint) {
     u32 index = codepoint;
 
     if (font == CLKS_NULL || font->glyphs == CLKS_NULL || font->bytes_per_glyph == 0U) {
         return clks_psf_unknown;
+    }
+
+    if (font->unicode_table != CLKS_NULL && codepoint >= 128U) {
+        u32 mapped = clks_psf_unicode_lookup(font, codepoint);
+        if (mapped != (u32)-1) {
+            index = mapped;
+        }
     }
 
     if (index >= font->glyph_count) {

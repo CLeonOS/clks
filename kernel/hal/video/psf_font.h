@@ -10,6 +10,8 @@ struct clks_psf_font {
     u32 bytes_per_glyph;
     u32 bytes_per_row;
     const u8 *glyphs;
+    const u8 *unicode_table;
+    u64 unicode_table_size;
 };
 
 const struct clks_psf_font *clks_psf_default_font(void);

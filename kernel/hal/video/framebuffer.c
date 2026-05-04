@@ -30,7 +30,7 @@ static struct clks_fb_state clks_fb = {
     .font = CLKS_NULL,
     .external_font_blob = CLKS_NULL,
     .external_font_blob_size = 0ULL,
-    .external_font = {0, 0, 0, 0, 0, CLKS_NULL},
+    .external_font = {0, 0, 0, 0, 0, CLKS_NULL, CLKS_NULL, 0ULL},
     .external_font_active = CLKS_FALSE,
     .glyph_width = 8U,
     .glyph_height = 8U,
@@ -184,6 +184,39 @@ static void clks_fb_put_pixel(u32 x, u32 y, u32 rgb) {
     row = (u8 *)(void *)(clks_fb.address + ((usize)y * (usize)clks_fb.info.pitch));
     pixel = (u32 *)(void *)(row + ((usize)x * 4U));
     *pixel = rgb;
+}
+
+static u32 clks_fb_layout_cell_width(void) {
+    u32 width = clks_fb.glyph_width;
+    if (width == 0U) {
+        width = 8U;
+    }
+
+    if (width >= 16U) {
+        width /= 2U;
+    }
+
+    return width;
+}
+
+static u32 clks_fb_codepoint_width(u32 codepoint) {
+    if (codepoint == 0U) {
+        return 0U;
+    }
+
+    if (codepoint < 0x1100U) {
+        return 1U;
+    }
+
+    if ((codepoint >= 0x1100U && codepoint <= 0x115FU) || codepoint == 0x2329U || codepoint == 0x232AU ||
+        (codepoint >= 0x2E80U && codepoint <= 0xA4CFU) || (codepoint >= 0xAC00U && codepoint <= 0xD7A3U) ||
+        (codepoint >= 0xF900U && codepoint <= 0xFAFFU) || (codepoint >= 0xFE10U && codepoint <= 0xFE19U) ||
+        (codepoint >= 0xFE30U && codepoint <= 0xFE6FU) || (codepoint >= 0xFF00U && codepoint <= 0xFF60U) ||
+        (codepoint >= 0xFFE0U && codepoint <= 0xFFE6U) || (codepoint >= 0x20000U && codepoint <= 0x3FFFDUL)) {
+        return 2U;
+    }
+
+    return 1U;
 }
 
 void clks_fb_init(const struct limine_framebuffer *fb) {
@@ -453,7 +486,13 @@ void clks_fb_scroll_up(u32 pixel_rows, u32 fill_rgb) {
     clks_fb_fill_rows_color32(fb_base + tail_offset, row_bytes, pixel_rows, fill_rgb);
 }
 
-void clks_fb_draw_char_scaled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32 style_flags, u32 scale) {
+void clks_fb_draw_codepoint_scaled_xy(u32 x, u32 y, u32 codepoint, u32 fg_rgb, u32 bg_rgb, u32 style_flags,
+                                      u32 scale_x, u32 scale_y) {
+    clks_fb_draw_codepoint_scaled_clip(x, y, codepoint, fg_rgb, bg_rgb, style_flags, scale_x, scale_y, 0U, 0U);
+}
+
+void clks_fb_draw_codepoint_scaled_clip(u32 x, u32 y, u32 codepoint, u32 fg_rgb, u32 bg_rgb, u32 style_flags,
+                                        u32 scale_x, u32 scale_y, u32 clip_width, u32 clip_height) {
     const u8 *glyph;
     u32 row;
     u32 col;
@@ -480,15 +519,23 @@ void clks_fb_draw_char_scaled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32
         return;
     }
 
-    if (scale == 0U) {
-        scale = 1U;
+    if (scale_x == 0U) {
+        scale_x = 1U;
     }
 
-    if (scale > 3U) {
-        scale = 3U;
+    if (scale_y == 0U) {
+        scale_y = 1U;
     }
 
-    glyph = clks_psf_glyph(clks_fb.font, (u32)(u8)ch);
+    if (scale_x > 6U) {
+        scale_x = 6U;
+    }
+
+    if (scale_y > 3U) {
+        scale_y = 3U;
+    }
+
+    glyph = clks_psf_glyph(clks_fb.font, codepoint);
 
     cols = clks_fb.glyph_width;
     rows = clks_fb.glyph_height;
@@ -515,29 +562,35 @@ void clks_fb_draw_char_scaled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32
         return;
     }
 
-    out_cols = cols * scale;
-    out_rows = rows * scale;
+    out_cols = cols * scale_x;
+    out_rows = rows * scale_y;
 
     if (out_cols == 0U || out_rows == 0U) {
         return;
     }
 
     draw_cols = out_cols;
+    if (clip_width > 0U && draw_cols > clip_width) {
+        draw_cols = clip_width;
+    }
     if (x + draw_cols > clks_fb.info.width) {
         draw_cols = clks_fb.info.width - x;
     }
 
     draw_rows = out_rows;
+    if (clip_height > 0U && draw_rows > clip_height) {
+        draw_rows = clip_height;
+    }
     if (y + draw_rows > clks_fb.info.height) {
         draw_rows = clks_fb.info.height - y;
     }
 
     style_bold = ((style_flags & CLKS_FB_STYLE_BOLD) != 0U) ? CLKS_TRUE : CLKS_FALSE;
     style_underline = ((style_flags & CLKS_FB_STYLE_UNDERLINE) != 0U) ? CLKS_TRUE : CLKS_FALSE;
-    underline_row = (out_rows > scale) ? (out_rows - (2U * scale)) : 0U;
+    underline_row = (out_rows > scale_y) ? (out_rows - (2U * scale_y)) : 0U;
 
     for (row = 0U; row < draw_rows; row++) {
-        u32 glyph_row = row / scale;
+        u32 glyph_row = row / scale_y;
         const u8 *row_bits = glyph + ((usize)glyph_row * (usize)row_stride);
         u32 *dst_row =
             (u32 *)(void *)(clks_fb.address + ((usize)(y + row) * (usize)clks_fb.info.pitch) + ((usize)x * 4U));
@@ -547,7 +600,7 @@ void clks_fb_draw_char_scaled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32
                 : CLKS_NULL;
 
         for (col = 0U; col < draw_cols; col++) {
-            u32 glyph_col = col / scale;
+            u32 glyph_col = col / scale_x;
             u8 bits = row_bits[glyph_col >> 3U];
             u8 mask = (u8)(0x80U >> (glyph_col & 7U));
             clks_bool pixel_on = ((bits & mask) != 0U) ? CLKS_TRUE : CLKS_FALSE;
@@ -578,6 +631,19 @@ void clks_fb_draw_char_scaled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32
     }
 }
 
+void clks_fb_draw_codepoint_scaled(u32 x, u32 y, u32 codepoint, u32 fg_rgb, u32 bg_rgb, u32 style_flags, u32 scale) {
+    u32 width_cells = clks_fb_codepoint_width(codepoint);
+    u32 clip_width = clks_fb_layout_cell_width() * width_cells * scale;
+    u32 clip_height = clks_fb_cell_height() * scale;
+
+    clks_fb_draw_codepoint_scaled_clip(x, y, codepoint, fg_rgb, bg_rgb, style_flags, scale, scale, clip_width,
+                                       clip_height);
+}
+
+void clks_fb_draw_char_scaled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32 style_flags, u32 scale) {
+    clks_fb_draw_codepoint_scaled(x, y, (u32)(u8)ch, fg_rgb, bg_rgb, style_flags, scale);
+}
+
 void clks_fb_draw_char_styled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32 style_flags) {
     clks_fb_draw_char_scaled(x, y, ch, fg_rgb, bg_rgb, style_flags, 1U);
 }
@@ -588,7 +654,7 @@ void clks_fb_draw_char(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb) {
 
 clks_bool clks_fb_load_psf_font(const void *blob, u64 blob_size) {
     u8 *font_copy;
-    struct clks_psf_font parsed = {0, 0, 0, 0, 0, CLKS_NULL};
+    struct clks_psf_font parsed = {0, 0, 0, 0, 0, CLKS_NULL, CLKS_NULL, 0ULL};
 
     if (blob == CLKS_NULL || blob_size == 0ULL || blob_size > (8ULL * 1024ULL * 1024ULL)) {
         return CLKS_FALSE;
@@ -618,7 +684,11 @@ clks_bool clks_fb_load_psf_font(const void *blob, u64 blob_size) {
 }
 
 u32 clks_fb_cell_width(void) {
-    return clks_fb.glyph_width == 0U ? 8U : clks_fb.glyph_width;
+    return clks_fb_layout_cell_width();
+}
+
+u32 clks_fb_half_cell_width(void) {
+    return clks_fb_layout_cell_width();
 }
 
 u32 clks_fb_cell_height(void) {
