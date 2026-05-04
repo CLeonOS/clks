@@ -285,8 +285,8 @@ static clks_bool clks_psf_decode_utf8_table_codepoint(const u8 *table, u64 table
         value = (value << 6U) | (u32)(bx & 0x3FU);
     }
 
-    if ((need == 1U && value < 0x80U) || (need == 2U && value < 0x800U) ||
-        (need == 3U && value < 0x10000U) || value > 0x10FFFFU || (value >= 0xD800U && value <= 0xDFFFU)) {
+    if ((need == 1U && value < 0x80U) || (need == 2U && value < 0x800U) || (need == 3U && value < 0x10000U) ||
+        value > 0x10FFFFU || (value >= 0xD800U && value <= 0xDFFFU)) {
         *io_offset = offset;
         return CLKS_FALSE;
     }
@@ -327,8 +327,8 @@ static u32 clks_psf_unicode_lookup(const struct clks_psf_font *font, u32 codepoi
 
         {
             u32 mapped;
-            if (clks_psf_decode_utf8_table_codepoint(font->unicode_table, font->unicode_table_size, &offset,
-                                                     &mapped) == CLKS_FALSE) {
+            if (clks_psf_decode_utf8_table_codepoint(font->unicode_table, font->unicode_table_size, &offset, &mapped) ==
+                CLKS_FALSE) {
                 continue;
             }
 
