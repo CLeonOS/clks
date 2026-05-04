@@ -9,6 +9,7 @@
 #include <clks/interrupts.h>
 #include <clks/kelf.h>
 #include <clks/keyboard.h>
+#include <clks/locale.h>
 #include <clks/log.h>
 #include <clks/mouse.h>
 #include <clks/net.h>

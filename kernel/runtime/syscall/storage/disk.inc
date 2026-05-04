@@ -75,6 +75,35 @@ static u64 clks_syscall_sysinfo(u64 arg0, u64 arg1) {
     return 1ULL;
 }
 
+static u64 clks_syscall_locale_get(u64 arg0, u64 arg1) {
+    const char *locale = clks_locale_current();
+    usize len = clks_strlen(locale);
+    return clks_syscall_copy_text_to_user(arg0, arg1, locale, len);
+}
+
+static u64 clks_syscall_locale_set(u64 arg0) {
+    char locale[CLKS_LOCALE_TEXT_MAX];
+
+    if (clks_user_privileged_operation_allowed() == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    if (clks_syscall_copy_user_string(arg0, locale, sizeof(locale)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    if (clks_locale_is_valid(locale) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    if (clks_locale_set(locale, CLKS_TRUE) == CLKS_TRUE) {
+        return 1ULL;
+    }
+
+    (void)clks_locale_set(locale, CLKS_FALSE);
+    return 2ULL;
+}
+
 static u64 clks_syscall_disk_present(void) {
     return (clks_disk_present() == CLKS_TRUE) ? 1ULL : 0ULL;
 }

@@ -260,6 +260,10 @@ static const char *clks_syscall_name(u64 id) {
         return "DISK_FSCK_FAT32";
     case CLKS_SYSCALL_SYSINFO:
         return "SYSINFO";
+    case CLKS_SYSCALL_LOCALE_GET:
+        return "LOCALE_GET";
+    case CLKS_SYSCALL_LOCALE_SET:
+        return "LOCALE_SET";
     case CLKS_SYSCALL_MOUSE_STATE:
         return "MOUSE_STATE";
     case CLKS_SYSCALL_WM_CREATE:

@@ -14,6 +14,7 @@
 #include <clks/keyboard.h>
 #include <clks/kelf.h>
 #include <clks/kernel.h>
+#include <clks/locale.h>
 #include <clks/log.h>
 #include <clks/mouse.h>
 #include <clks/net.h>
@@ -289,6 +290,8 @@ void clks_kernel_main(void) {
         clks_log(CLKS_LOG_ERROR, "FS", "RAMDISK FS INIT FAILED");
         clks_cpu_halt_forever();
     }
+
+    clks_locale_init();
 
     fs_root_children = clks_fs_count_children("/");
 #if CLKS_CFG_FS_ROOT_LOG
