@@ -2,6 +2,7 @@
 #include <clks/exec.h>
 #include <clks/framebuffer.h>
 #include <clks/fs.h>
+#include <clks/locale.h>
 #include <clks/log.h>
 #include <clks/panic.h>
 #include <clks/panic_qr.h>
@@ -29,6 +30,7 @@
 #define CLKS_PANIC_SYMBOL_FILE "/system/kernel.sym"
 #define CLKS_PANIC_KERNEL_ADDR_BASE 0xFFFF800000000000ULL
 #define CLKS_PANIC_QR_HINT "\nSPACE toggles panic log QR. Full dump is also on serial.\n"
+#define CLKS_PANIC_QR_HINT_ZH "\nSPACE 切换 panic 日志 QR。完整转储也会输出到串口。\n"
 #define CLKS_PANIC_REASON_MAX 192U
 #define CLKS_PANIC_NAME_MAX 64U
 #define CLKS_PANIC_RECENT_LOG_LINES 10ULL
@@ -51,6 +53,8 @@
 #define CLKS_PANIC_SC_EXT_END 0x4FU
 #define CLKS_PANIC_SC_EXT_DOWN 0x50U
 #define CLKS_PANIC_SC_EXT_PAGE_DOWN 0x51U
+
+#define CLKS_PANIC_TEXT(en, zh) (clks_panic_locale_is_zh() == CLKS_TRUE ? (zh) : (en))
 
 struct clks_panic_console {
     u32 cols;
@@ -119,6 +123,11 @@ static u32 clks_panic_ui_bt_total = 0U;
 static u32 clks_panic_ui_log_visible = 0U;
 static u32 clks_panic_ui_bt_visible = 0U;
 static clks_bool clks_panic_ui_log_follow_tail = CLKS_TRUE;
+
+static clks_bool clks_panic_locale_is_zh(void);
+static u32 clks_panic_codepoint_width(u32 codepoint);
+static clks_bool clks_panic_utf8_next(const char *text, usize text_len, usize *io_index, u32 *out_codepoint);
+static void clks_panic_console_put_codepoint(struct clks_panic_console *console, u32 codepoint);
 
 static inline void clks_panic_disable_interrupts(void) {
 #if defined(CLKS_ARCH_X86_64)
@@ -329,22 +338,36 @@ static void clks_panic_console_newline(struct clks_panic_console *console) {
     }
 }
 
-static void clks_panic_console_put_char(struct clks_panic_console *console, char ch) {
+static void clks_panic_console_put_codepoint(struct clks_panic_console *console, u32 codepoint) {
     u32 x;
     u32 y;
+    u32 width_cells;
 
     if (console == CLKS_NULL) {
         return;
     }
 
-    if (ch == '\n') {
+    if (codepoint == (u32)'\n') {
         clks_panic_console_newline(console);
         return;
     }
 
-    if (ch == '\r') {
+    if (codepoint == (u32)'\r') {
         console->col = 0U;
         return;
+    }
+
+    width_cells = clks_panic_codepoint_width(codepoint);
+    if (width_cells == 0U) {
+        width_cells = 1U;
+    }
+
+    if (console->row >= console->rows) {
+        return;
+    }
+
+    if (console->col + width_cells > console->cols) {
+        clks_panic_console_newline(console);
     }
 
     if (console->row >= console->rows || console->col >= console->cols) {
@@ -353,9 +376,9 @@ static void clks_panic_console_put_char(struct clks_panic_console *console, char
 
     x = console->col * console->cell_w;
     y = console->row * console->cell_h;
-    clks_fb_draw_char(x, y, ch, CLKS_PANIC_FG, CLKS_PANIC_BG);
+    clks_fb_draw_codepoint_scaled(x, y, codepoint, CLKS_PANIC_FG, CLKS_PANIC_BG, 0U, 1U);
 
-    console->col++;
+    console->col += width_cells;
 
     if (console->col >= console->cols) {
         clks_panic_console_newline(console);
@@ -369,9 +392,13 @@ static void clks_panic_console_write_n(struct clks_panic_console *console, const
         return;
     }
 
-    while (i < len) {
-        clks_panic_console_put_char(console, text[i]);
-        i++;
+    while (i < len && text[i] != '\0') {
+        u32 codepoint;
+
+        if (clks_panic_utf8_next(text, len, &i, &codepoint) == CLKS_FALSE) {
+            break;
+        }
+        clks_panic_console_put_codepoint(console, codepoint);
     }
 }
 
@@ -916,9 +943,102 @@ static void clks_panic_ui_apply_scroll_action(enum clks_panic_key_action action)
     *target_scroll = clks_panic_ui_clamp_scroll(*target_scroll, total, visible);
 }
 
+static clks_bool clks_panic_locale_is_zh(void) {
+    const char *locale = clks_locale_current();
+
+    if (locale == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    return (locale[0] == 'z' && locale[1] == 'h') ? CLKS_TRUE : CLKS_FALSE;
+}
+
+static u32 clks_panic_codepoint_width(u32 codepoint) {
+    if (codepoint == 0U) {
+        return 0U;
+    }
+
+    if (codepoint < 0x1100U) {
+        return 1U;
+    }
+
+    if ((codepoint >= 0x1100U && codepoint <= 0x115FU) || codepoint == 0x2329U || codepoint == 0x232AU ||
+        (codepoint >= 0x2E80U && codepoint <= 0xA4CFU) || (codepoint >= 0xAC00U && codepoint <= 0xD7A3U) ||
+        (codepoint >= 0xF900U && codepoint <= 0xFAFFU) || (codepoint >= 0xFE10U && codepoint <= 0xFE19U) ||
+        (codepoint >= 0xFE30U && codepoint <= 0xFE6FU) || (codepoint >= 0xFF00U && codepoint <= 0xFF60U) ||
+        (codepoint >= 0xFFE0U && codepoint <= 0xFFE6U) || (codepoint >= 0x20000U && codepoint <= 0x3FFFDUL)) {
+        return 2U;
+    }
+
+    return 1U;
+}
+
+static clks_bool clks_panic_utf8_next(const char *text, usize text_len, usize *io_index, u32 *out_codepoint) {
+    u8 b0;
+    u32 value;
+    u32 need;
+    usize index;
+    u32 i;
+
+    if (text == CLKS_NULL || io_index == CLKS_NULL || out_codepoint == CLKS_NULL || *io_index >= text_len) {
+        return CLKS_FALSE;
+    }
+
+    index = *io_index;
+    b0 = (u8)text[index++];
+
+    if (b0 < 0x80U) {
+        *io_index = index;
+        *out_codepoint = (u32)b0;
+        return CLKS_TRUE;
+    }
+
+    if ((b0 & 0xE0U) == 0xC0U) {
+        value = (u32)(b0 & 0x1FU);
+        need = 1U;
+    } else if ((b0 & 0xF0U) == 0xE0U) {
+        value = (u32)(b0 & 0x0FU);
+        need = 2U;
+    } else if ((b0 & 0xF8U) == 0xF0U) {
+        value = (u32)(b0 & 0x07U);
+        need = 3U;
+    } else {
+        *io_index = index;
+        *out_codepoint = 0xFFFDU;
+        return CLKS_TRUE;
+    }
+
+    if (index + (usize)need > text_len) {
+        *io_index = text_len;
+        *out_codepoint = 0xFFFDU;
+        return CLKS_TRUE;
+    }
+
+    for (i = 0U; i < need; i++) {
+        u8 bx = (u8)text[index++];
+        if ((bx & 0xC0U) != 0x80U) {
+            *io_index = index;
+            *out_codepoint = 0xFFFDU;
+            return CLKS_TRUE;
+        }
+        value = (value << 6U) | (u32)(bx & 0x3FU);
+    }
+
+    if ((need == 1U && value < 0x80U) || (need == 2U && value < 0x800U) ||
+        (need == 3U && value < 0x10000U) || value > 0x10FFFFU || (value >= 0xD800U && value <= 0xDFFFU)) {
+        value = 0xFFFDU;
+    }
+
+    *io_index = index;
+    *out_codepoint = value;
+    return CLKS_TRUE;
+}
+
 static void clks_panic_ui_text_at(u32 x, u32 y, const char *text, u32 fg, u32 bg, u32 style) {
     u32 cell_w = clks_fb_cell_width();
-    u32 i = 0U;
+    u32 draw_x = x;
+    usize len;
+    usize i = 0U;
 
     if (text == CLKS_NULL) {
         return;
@@ -928,40 +1048,25 @@ static void clks_panic_ui_text_at(u32 x, u32 y, const char *text, u32 fg, u32 bg
         cell_w = 8U;
     }
 
-    while (text[i] != '\0') {
-        clks_fb_draw_char_styled(x + (i * cell_w), y, text[i], fg, bg, style);
-        i++;
+    len = clks_strlen(text);
+    while (i < len && text[i] != '\0') {
+        u32 codepoint;
+        u32 cells;
+
+        if (clks_panic_utf8_next(text, len, &i, &codepoint) == CLKS_FALSE) {
+            break;
+        }
+
+        cells = clks_panic_codepoint_width(codepoint);
+        clks_fb_draw_codepoint_scaled(x + (draw_x - x), y, codepoint, fg, bg, style, 1U);
+        draw_x += cell_w * ((cells == 0U) ? 1U : cells);
     }
 }
 
 static void clks_panic_ui_text_clip(u32 x, u32 y, u32 max_width, const char *text, u32 fg, u32 bg, u32 style) {
     u32 cell_w = clks_fb_cell_width();
-    u32 max_chars;
-    u32 i = 0U;
-
-    if (text == CLKS_NULL || max_width == 0U) {
-        return;
-    }
-
-    if (cell_w == 0U) {
-        cell_w = 8U;
-    }
-
-    max_chars = max_width / cell_w;
-    if (max_chars == 0U) {
-        return;
-    }
-
-    while (i < max_chars && text[i] != '\0') {
-        clks_fb_draw_char_styled(x + (i * cell_w), y, text[i], fg, bg, style);
-        i++;
-    }
-}
-
-static void clks_panic_ui_text_n_clip(u32 x, u32 y, u32 max_width, const char *text, usize len, u32 fg, u32 bg,
-                                      u32 style) {
-    u32 cell_w = clks_fb_cell_width();
-    u32 max_chars;
+    u32 used_width = 0U;
+    usize len;
     usize i = 0U;
 
     if (text == CLKS_NULL || max_width == 0U) {
@@ -972,14 +1077,58 @@ static void clks_panic_ui_text_n_clip(u32 x, u32 y, u32 max_width, const char *t
         cell_w = 8U;
     }
 
-    max_chars = max_width / cell_w;
-    if (max_chars == 0U) {
+    len = clks_strlen(text);
+    while (i < len && text[i] != '\0') {
+        u32 codepoint;
+        u32 cells;
+        u32 advance;
+
+        if (clks_panic_utf8_next(text, len, &i, &codepoint) == CLKS_FALSE) {
+            break;
+        }
+
+        cells = clks_panic_codepoint_width(codepoint);
+        advance = cell_w * ((cells == 0U) ? 1U : cells);
+        if (used_width + advance > max_width) {
+            break;
+        }
+
+        clks_fb_draw_codepoint_scaled(x + used_width, y, codepoint, fg, bg, style, 1U);
+        used_width += advance;
+    }
+}
+
+static void clks_panic_ui_text_n_clip(u32 x, u32 y, u32 max_width, const char *text, usize len, u32 fg, u32 bg,
+                                      u32 style) {
+    u32 cell_w = clks_fb_cell_width();
+    u32 used_width = 0U;
+    usize i = 0U;
+
+    if (text == CLKS_NULL || max_width == 0U) {
         return;
     }
 
-    while (i < len && i < (usize)max_chars && text[i] != '\0') {
-        clks_fb_draw_char_styled(x + ((u32)i * cell_w), y, text[i], fg, bg, style);
-        i++;
+    if (cell_w == 0U) {
+        cell_w = 8U;
+    }
+
+    while (i < len && text[i] != '\0') {
+        u32 codepoint;
+        u32 cells;
+        u32 advance;
+
+        if (clks_panic_utf8_next(text, len, &i, &codepoint) == CLKS_FALSE) {
+            break;
+        }
+
+        cells = clks_panic_codepoint_width(codepoint);
+        advance = cell_w * ((cells == 0U) ? 1U : cells);
+        if (used_width + advance > max_width) {
+            break;
+        }
+
+        clks_fb_draw_codepoint_scaled(x + used_width, y, codepoint, fg, bg, style, 1U);
+        used_width += advance;
     }
 }
 
@@ -1048,8 +1197,10 @@ static void clks_panic_ui_draw_scroll_status(u32 x, u32 y, u32 width, u32 scroll
     clks_panic_u32_to_dec(first, first_dec, sizeof(first_dec));
     clks_panic_u32_to_dec(total, total_dec, sizeof(total_dec));
 
-    clks_panic_ui_text_clip(x, y, width, active == CLKS_TRUE ? "[ACTIVE] " : "[pane]   ", color, CLKS_PANIC_UI_PANEL,
-                            CLKS_FB_STYLE_BOLD);
+    clks_panic_ui_text_clip(x, y, width,
+                            active == CLKS_TRUE ? CLKS_PANIC_TEXT("[ACTIVE] ", "[活动] ")
+                                                : CLKS_PANIC_TEXT("[pane]   ", "[面板] "),
+                            color, CLKS_PANIC_UI_PANEL, CLKS_FB_STYLE_BOLD);
     clks_panic_ui_text_clip(x + 72U, y, clks_panic_ui_sub_floor_u32(width, 72U), first_dec, color, CLKS_PANIC_UI_PANEL,
                             0U);
     clks_panic_ui_text_clip(x + 116U, y, clks_panic_ui_sub_floor_u32(width, 116U), "/", color, CLKS_PANIC_UI_PANEL,
@@ -1058,8 +1209,9 @@ static void clks_panic_ui_draw_scroll_status(u32 x, u32 y, u32 width, u32 scroll
                             CLKS_PANIC_UI_PANEL, 0U);
 
     if (total > visible && width > 230U) {
-        clks_panic_ui_text_clip(x + 188U, y, width - 188U, "use arrows/PgUp/PgDn", CLKS_PANIC_UI_DIM,
-                                CLKS_PANIC_UI_PANEL, 0U);
+        clks_panic_ui_text_clip(x + 188U, y, width - 188U,
+                                CLKS_PANIC_TEXT("use arrows/PgUp/PgDn", "方向键/PgUp/PgDn 滚动"),
+                                CLKS_PANIC_UI_DIM, CLKS_PANIC_UI_PANEL, 0U);
     }
 }
 
@@ -1083,8 +1235,9 @@ static void clks_panic_ui_emit_backtrace(u32 x, u32 y, u32 width, u32 height, u6
         clks_panic_ui_bt_total = 1U;
         clks_panic_ui_bt_visible = 1U;
         clks_panic_ui_bt_scroll = 0U;
-        clks_panic_ui_text_clip(x, row_y, width, "<no instruction pointer>", CLKS_PANIC_UI_DIM, CLKS_PANIC_UI_PANEL,
-                                0U);
+        clks_panic_ui_text_clip(x, row_y, width,
+                                CLKS_PANIC_TEXT("<no instruction pointer>", "<无指令指针 (no instruction pointer)>"),
+                                CLKS_PANIC_UI_DIM, CLKS_PANIC_UI_PANEL, 0U);
         if (serial_enabled == CLKS_TRUE) {
             clks_panic_serial_write_line("[PANIC][BT] END");
         }
@@ -1151,7 +1304,8 @@ static void clks_panic_ui_emit_backtrace(u32 x, u32 y, u32 width, u32 height, u6
                 clks_panic_ui_text_n_clip(sym_x, row_y, sym_w, sym_name, sym_name_len, CLKS_PANIC_UI_GOOD,
                                           CLKS_PANIC_UI_PANEL, 0U);
             } else {
-                clks_panic_ui_text_clip(x + 208U, row_y, width > 216U ? width - 216U : 0U, "<no symbol>",
+                clks_panic_ui_text_clip(x + 208U, row_y, width > 216U ? width - 216U : 0U,
+                                        CLKS_PANIC_TEXT("<no symbol>", "<无符号 (no symbol)>"),
                                         CLKS_PANIC_UI_DIM, CLKS_PANIC_UI_PANEL, 0U);
             }
             row_y += line_h;
@@ -1258,7 +1412,8 @@ static void clks_panic_ui_emit_logs(u32 x, u32 y, u32 width, u32 height, u32 scr
     }
 
     if (count == 0ULL) {
-        clks_panic_ui_text_clip(x, row_y, width, "<journal empty>", CLKS_PANIC_UI_DIM, CLKS_PANIC_UI_PANEL, 0U);
+        clks_panic_ui_text_clip(x, row_y, width, CLKS_PANIC_TEXT("<journal empty>", "<日志为空 (journal empty)>"),
+                                CLKS_PANIC_UI_DIM, CLKS_PANIC_UI_PANEL, 0U);
     }
 
     if (serial_enabled == CLKS_TRUE) {
@@ -1276,7 +1431,7 @@ static void clks_panic_ui_emit_process(u32 x, u32 y, u32 width, u32 height, clks
         clks_panic_serial_hex_field("[PANIC][PROC] PID: ", pid);
     }
 
-    row_y = clks_panic_ui_write_hex_pair(x, row_y, width, "PID", pid, CLKS_PANIC_UI_TEXT);
+    row_y = clks_panic_ui_write_hex_pair(x, row_y, width, CLKS_PANIC_TEXT("PID", "PID"), pid, CLKS_PANIC_UI_TEXT);
 
     if (pid != 0ULL && clks_exec_proc_snapshot(pid, &snap) == CLKS_TRUE) {
         if (serial_enabled == CLKS_TRUE) {
@@ -1289,22 +1444,28 @@ static void clks_panic_ui_emit_process(u32 x, u32 y, u32 width, u32 height, clks
         }
 
         if (row_y < y + height) {
-            row_y = clks_panic_ui_write_hex_pair(x, row_y, width, "PPID", snap.ppid, CLKS_PANIC_UI_TEXT);
+            row_y = clks_panic_ui_write_hex_pair(x, row_y, width, CLKS_PANIC_TEXT("PPID", "PPID"), snap.ppid,
+                                                 CLKS_PANIC_UI_TEXT);
         }
         if (row_y < y + height) {
-            row_y = clks_panic_ui_write_hex_pair(x, row_y, width, "STATE", snap.state, CLKS_PANIC_UI_TEXT);
+            row_y = clks_panic_ui_write_hex_pair(x, row_y, width, CLKS_PANIC_TEXT("STATE", "状态 (STATE)"),
+                                                 snap.state, CLKS_PANIC_UI_TEXT);
         }
         if (row_y < y + height) {
-            row_y = clks_panic_ui_write_hex_pair(x, row_y, width, "UID", snap.uid, CLKS_PANIC_UI_TEXT);
+            row_y = clks_panic_ui_write_hex_pair(x, row_y, width, CLKS_PANIC_TEXT("UID", "UID"), snap.uid,
+                                                 CLKS_PANIC_UI_TEXT);
         }
         if (row_y < y + height) {
-            (void)clks_panic_ui_write_pair(x, row_y, width, "PATH", snap.path, CLKS_PANIC_UI_TEXT);
+            (void)clks_panic_ui_write_pair(x, row_y, width, CLKS_PANIC_TEXT("PATH", "路径 (PATH)"), snap.path,
+                                           CLKS_PANIC_UI_TEXT);
         }
     } else if (row_y < y + height) {
         if (serial_enabled == CLKS_TRUE) {
             clks_panic_serial_write_line("[PANIC][PROC] no user process context");
         }
-        (void)clks_panic_ui_write_pair(x, row_y, width, "PATH", "<kernel/no process>", CLKS_PANIC_UI_DIM);
+        (void)clks_panic_ui_write_pair(x, row_y, width, CLKS_PANIC_TEXT("PATH", "路径 (PATH)"),
+                                       CLKS_PANIC_TEXT("<kernel/no process>", "<内核/无进程 (kernel/no process)>"),
+                                       CLKS_PANIC_UI_DIM);
     }
 
     if (serial_enabled == CLKS_TRUE) {
@@ -1321,7 +1482,7 @@ static void clks_panic_emit_current_process(struct clks_panic_console *console) 
     clks_panic_serial_hex_field("[PANIC][PROC] PID: ", pid);
 
     if (console != CLKS_NULL) {
-        clks_panic_console_write(console, "\nCURRENT PROCESS:\n");
+        clks_panic_console_write(console, CLKS_PANIC_TEXT("\nCURRENT PROCESS:\n", "\n当前进程 (CURRENT PROCESS):\n"));
         clks_panic_write_hex_field(console, "PID:    ", pid);
     }
 
@@ -1363,7 +1524,7 @@ static void clks_panic_emit_recent_logs(struct clks_panic_console *console) {
     }
 
     if (console != CLKS_NULL) {
-        clks_panic_console_write(console, "\nRECENT LOGS:\n");
+        clks_panic_console_write(console, CLKS_PANIC_TEXT("\nRECENT LOGS:\n", "\n最近日志 (RECENT LOGS):\n"));
     }
 
     for (i = start; i < count; i++) {
@@ -1384,7 +1545,7 @@ static void clks_panic_emit_recent_logs(struct clks_panic_console *console) {
     }
 
     if (count == 0ULL && console != CLKS_NULL) {
-        clks_panic_console_write(console, "<empty>\n");
+        clks_panic_console_write(console, CLKS_PANIC_TEXT("<empty>\n", "<空 (empty)>\n"));
     }
 
     clks_panic_serial_write_line("[PANIC][LOG] END");
@@ -1453,18 +1614,22 @@ static void clks_panic_render_snapshot_console(clks_bool serial_backtrace) {
         u32 log_panel_h;
         u32 bt_panel_h;
         u32 row_y;
-        const char *panic_kind = "KERNEL PANIC";
+        const char *panic_kind = CLKS_PANIC_TEXT("KERNEL PANIC", "内核 Panic (KERNEL PANIC)");
 
         if (info.width < CLKS_PANIC_UI_MIN_WIDTH || info.height < CLKS_PANIC_UI_MIN_HEIGHT) {
             clks_fb_clear(CLKS_PANIC_BG);
-            clks_panic_console_write(&console, "CLeonOS KERNEL PANIC\n");
+            clks_panic_console_write(&console,
+                                     CLKS_PANIC_TEXT("CLeonOS KERNEL PANIC\n",
+                                                     "CLeonOS 内核 Panic (KERNEL PANIC)\n"));
             clks_panic_console_write(&console, "====================\n\n");
 
             if (clks_panic_screen.kind == CLKS_PANIC_SCREEN_EXCEPTION) {
-                clks_panic_console_write(&console, "TYPE: CPU EXCEPTION\n");
+                clks_panic_console_write(&console,
+                                         CLKS_PANIC_TEXT("TYPE: CPU EXCEPTION\n",
+                                                         "类型 (TYPE): CPU 异常 (CPU EXCEPTION)\n"));
 
                 if (clks_panic_screen.has_name == CLKS_TRUE) {
-                    clks_panic_console_write(&console, "NAME: ");
+                    clks_panic_console_write(&console, CLKS_PANIC_TEXT("NAME: ", "名称 (NAME): "));
                     clks_panic_console_write(&console, clks_panic_screen.name);
                     clks_panic_console_write(&console, "\n");
                 }
@@ -1472,7 +1637,7 @@ static void clks_panic_render_snapshot_console(clks_bool serial_backtrace) {
                 clks_panic_write_hex_field(&console, "VECTOR: ", clks_panic_screen.vector);
                 clks_panic_write_hex_field(&console, "ERROR:  ", clks_panic_screen.error_code);
             } else if (clks_panic_screen.has_reason == CLKS_TRUE) {
-                clks_panic_console_write(&console, "REASON: ");
+                clks_panic_console_write(&console, CLKS_PANIC_TEXT("REASON: ", "原因 (REASON): "));
                 clks_panic_console_write(&console, clks_panic_screen.reason);
                 clks_panic_console_write(&console, "\n");
             }
@@ -1485,8 +1650,10 @@ static void clks_panic_render_snapshot_console(clks_bool serial_backtrace) {
             clks_panic_emit_backtrace(&console, clks_panic_screen.rip, clks_panic_screen.rbp, clks_panic_screen.rsp,
                                       serial_backtrace);
             clks_panic_emit_recent_logs(&console);
-            clks_panic_console_write(&console, "\nSystem halted. Please reboot the computer.\n");
-            clks_panic_console_write(&console, CLKS_PANIC_QR_HINT);
+            clks_panic_console_write(&console,
+                                     CLKS_PANIC_TEXT("\nSystem halted. Please reboot the computer.\n",
+                                                     "\n系统已停止。请重启计算机。\n"));
+            clks_panic_console_write(&console, CLKS_PANIC_TEXT(CLKS_PANIC_QR_HINT, CLKS_PANIC_QR_HINT_ZH));
             return;
         }
 
@@ -1523,34 +1690,42 @@ static void clks_panic_render_snapshot_console(clks_bool serial_backtrace) {
         clks_fb_fill_rect(10U, 0U, 4U, info.height, CLKS_PANIC_UI_ACCENT_DARK);
 
         if (clks_panic_screen.kind == CLKS_PANIC_SCREEN_EXCEPTION) {
-            panic_kind = "CPU EXCEPTION";
+            panic_kind = CLKS_PANIC_TEXT("CPU EXCEPTION", "CPU 异常 (CPU EXCEPTION)");
         }
 
-        clks_panic_ui_text_at(margin + 8U, margin + 8U, "CLeonKernelSystem", CLKS_PANIC_UI_MUTED, CLKS_PANIC_UI_BG_2,
-                              CLKS_FB_STYLE_BOLD);
+        clks_panic_ui_text_at(margin + 8U, margin + 8U,
+                              CLKS_PANIC_TEXT("CLeonKernelSystem", "CLeonKernelSystem / 内核系统"),
+                              CLKS_PANIC_UI_MUTED, CLKS_PANIC_UI_BG_2, CLKS_FB_STYLE_BOLD);
         clks_panic_ui_text_at(margin + 8U, margin + 34U, panic_kind, CLKS_PANIC_UI_TEXT, CLKS_PANIC_UI_BG_2,
                               CLKS_FB_STYLE_BOLD);
         clks_fb_fill_rect(info.width - margin - 210U, margin + 20U, 210U, 34U, CLKS_PANIC_UI_ACCENT_DARK);
-        clks_panic_ui_text_at(info.width - margin - 194U, margin + 30U, "SYSTEM HALTED", CLKS_PANIC_UI_TEXT,
+        clks_panic_ui_text_at(info.width - margin - 194U, margin + 30U,
+                              CLKS_PANIC_TEXT("SYSTEM HALTED", "系统已停止 (HALTED)"), CLKS_PANIC_UI_TEXT,
                               CLKS_PANIC_UI_ACCENT_DARK, CLKS_FB_STYLE_BOLD);
 
-        clks_panic_ui_panel(left_x, content_y, left_w, top_panel_h, "FAULT SUMMARY");
+        clks_panic_ui_panel(left_x, content_y, left_w, top_panel_h,
+                            CLKS_PANIC_TEXT("FAULT SUMMARY", "故障摘要 (FAULT SUMMARY)"));
         row_y = content_y + 32U;
         if (clks_panic_screen.kind == CLKS_PANIC_SCREEN_EXCEPTION) {
             if (clks_panic_screen.has_name == CLKS_TRUE) {
                 row_y = clks_panic_ui_write_pair(left_x + 16U, row_y, clks_panic_ui_sub_floor_u32(left_w, 32U),
-                                                 "NAME", clks_panic_screen.name, CLKS_PANIC_UI_WARN);
+                                                 CLKS_PANIC_TEXT("NAME", "名称 (NAME)"), clks_panic_screen.name,
+                                                 CLKS_PANIC_UI_WARN);
             }
             row_y = clks_panic_ui_write_hex_pair(left_x + 16U, row_y, clks_panic_ui_sub_floor_u32(left_w, 32U),
-                                                 "VECTOR", clks_panic_screen.vector, CLKS_PANIC_UI_TEXT);
+                                                 CLKS_PANIC_TEXT("VECTOR", "向量 (VECTOR)"),
+                                                 clks_panic_screen.vector, CLKS_PANIC_UI_TEXT);
             row_y = clks_panic_ui_write_hex_pair(left_x + 16U, row_y, clks_panic_ui_sub_floor_u32(left_w, 32U),
-                                                 "ERROR", clks_panic_screen.error_code, CLKS_PANIC_UI_TEXT);
+                                                 CLKS_PANIC_TEXT("ERROR", "错误码 (ERROR)"),
+                                                 clks_panic_screen.error_code, CLKS_PANIC_UI_TEXT);
         } else if (clks_panic_screen.has_reason == CLKS_TRUE) {
-            row_y = clks_panic_ui_write_pair(left_x + 16U, row_y, clks_panic_ui_sub_floor_u32(left_w, 32U), "REASON",
+            row_y = clks_panic_ui_write_pair(left_x + 16U, row_y, clks_panic_ui_sub_floor_u32(left_w, 32U),
+                                             CLKS_PANIC_TEXT("REASON", "原因 (REASON)"),
                                              clks_panic_screen.reason, CLKS_PANIC_UI_WARN);
         } else {
-            row_y = clks_panic_ui_write_pair(left_x + 16U, row_y, clks_panic_ui_sub_floor_u32(left_w, 32U), "REASON",
-                                             "<unknown>", CLKS_PANIC_UI_WARN);
+            row_y = clks_panic_ui_write_pair(left_x + 16U, row_y, clks_panic_ui_sub_floor_u32(left_w, 32U),
+                                             CLKS_PANIC_TEXT("REASON", "原因 (REASON)"),
+                                             CLKS_PANIC_TEXT("<unknown>", "<未知 (unknown)>"), CLKS_PANIC_UI_WARN);
         }
         row_y = clks_panic_ui_write_hex_pair(left_x + 16U, row_y, clks_panic_ui_sub_floor_u32(left_w, 32U), "RIP",
                                              clks_panic_screen.rip, CLKS_PANIC_UI_TEXT);
@@ -1562,7 +1737,8 @@ static void clks_panic_render_snapshot_console(clks_bool serial_backtrace) {
                                            clks_panic_screen.rsp, CLKS_PANIC_UI_TEXT);
 
         panel_y = content_y + top_panel_h + gap;
-        clks_panic_ui_panel(left_x, panel_y, left_w, proc_panel_h, "CURRENT PROCESS");
+        clks_panic_ui_panel(left_x, panel_y, left_w, proc_panel_h,
+                            CLKS_PANIC_TEXT("CURRENT PROCESS", "当前进程 (CURRENT PROCESS)"));
         clks_panic_ui_emit_process(left_x + 16U, panel_y + 32U, clks_panic_ui_sub_floor_u32(left_w, 32U),
                                    clks_panic_ui_sub_floor_u32(proc_panel_h, 44U), serial_backtrace);
 
@@ -1573,7 +1749,8 @@ static void clks_panic_render_snapshot_console(clks_bool serial_backtrace) {
         if (log_panel_h > 40U) {
             u32 log_body_h = clks_panic_ui_sub_floor_u32(log_panel_h, 64U);
 
-            clks_panic_ui_panel(left_x, panel_y, left_w, log_panel_h, "RECENT LOGS");
+            clks_panic_ui_panel(left_x, panel_y, left_w, log_panel_h,
+                                CLKS_PANIC_TEXT("RECENT LOGS", "最近日志 (RECENT LOGS)"));
             if (clks_panic_ui_log_follow_tail == CLKS_TRUE) {
                 u64 log_count = clks_log_journal_count();
 
@@ -1593,7 +1770,8 @@ static void clks_panic_render_snapshot_console(clks_bool serial_backtrace) {
             clks_panic_emit_recent_logs(CLKS_NULL);
         }
 
-        clks_panic_ui_panel(right_x, content_y, right_w, bt_panel_h, "BACKTRACE");
+        clks_panic_ui_panel(right_x, content_y, right_w, bt_panel_h,
+                            CLKS_PANIC_TEXT("BACKTRACE", "回溯 (BACKTRACE)"));
         clks_panic_ui_emit_backtrace(right_x + 16U, content_y + 32U, clks_panic_ui_sub_floor_u32(right_w, 32U),
                                      clks_panic_ui_sub_floor_u32(bt_panel_h, 64U), clks_panic_screen.rip,
                                      clks_panic_screen.rbp, clks_panic_screen.rsp, clks_panic_ui_bt_scroll,
@@ -1606,7 +1784,8 @@ static void clks_panic_render_snapshot_console(clks_bool serial_backtrace) {
 
         clks_fb_fill_rect(0U, info.height - footer_h, info.width, footer_h, CLKS_PANIC_UI_BG_2);
         clks_panic_ui_text_at(margin + 8U, info.height - footer_h + 12U,
-                              "Left/Right/Tab: pane   Up/Down/PgUp/PgDn/Home/End: scroll   Space: QR",
+                              CLKS_PANIC_TEXT("Left/Right/Tab: pane   Up/Down/PgUp/PgDn/Home/End: scroll   Space: QR",
+                                              "Left/Right/Tab: 切换面板   Up/Down/PgUp/PgDn/Home/End: 滚动   Space: QR"),
                               CLKS_PANIC_UI_MUTED, CLKS_PANIC_UI_BG_2, 0U);
     } else {
         clks_panic_serial_hex_field("[PANIC] RIP: ", clks_panic_screen.rip);
