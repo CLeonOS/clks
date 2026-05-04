@@ -99,10 +99,7 @@ enum clks_panic_key_action {
     CLKS_PANIC_KEY_END = 9
 };
 
-enum clks_panic_ui_pane {
-    CLKS_PANIC_UI_PANE_LOGS = 0,
-    CLKS_PANIC_UI_PANE_BACKTRACE = 1
-};
+enum clks_panic_ui_pane { CLKS_PANIC_UI_PANE_LOGS = 0, CLKS_PANIC_UI_PANE_BACKTRACE = 1 };
 
 struct clks_panic_input_state {
     clks_bool space_down;
@@ -145,24 +142,24 @@ static enum clks_panic_key_action clks_panic_action_from_scancode(u8 scancode, c
 #if defined(CLKS_ARCH_X86_64)
     if (extended == CLKS_TRUE) {
         switch (scancode) {
-            case CLKS_PANIC_SC_EXT_UP:
-                return CLKS_PANIC_KEY_SCROLL_UP;
-            case CLKS_PANIC_SC_EXT_DOWN:
-                return CLKS_PANIC_KEY_SCROLL_DOWN;
-            case CLKS_PANIC_SC_EXT_PAGE_UP:
-                return CLKS_PANIC_KEY_PAGE_UP;
-            case CLKS_PANIC_SC_EXT_PAGE_DOWN:
-                return CLKS_PANIC_KEY_PAGE_DOWN;
-            case CLKS_PANIC_SC_EXT_HOME:
-                return CLKS_PANIC_KEY_HOME;
-            case CLKS_PANIC_SC_EXT_END:
-                return CLKS_PANIC_KEY_END;
-            case CLKS_PANIC_SC_EXT_LEFT:
-                return CLKS_PANIC_KEY_FOCUS_PREV;
-            case CLKS_PANIC_SC_EXT_RIGHT:
-                return CLKS_PANIC_KEY_FOCUS_NEXT;
-            default:
-                break;
+        case CLKS_PANIC_SC_EXT_UP:
+            return CLKS_PANIC_KEY_SCROLL_UP;
+        case CLKS_PANIC_SC_EXT_DOWN:
+            return CLKS_PANIC_KEY_SCROLL_DOWN;
+        case CLKS_PANIC_SC_EXT_PAGE_UP:
+            return CLKS_PANIC_KEY_PAGE_UP;
+        case CLKS_PANIC_SC_EXT_PAGE_DOWN:
+            return CLKS_PANIC_KEY_PAGE_DOWN;
+        case CLKS_PANIC_SC_EXT_HOME:
+            return CLKS_PANIC_KEY_HOME;
+        case CLKS_PANIC_SC_EXT_END:
+            return CLKS_PANIC_KEY_END;
+        case CLKS_PANIC_SC_EXT_LEFT:
+            return CLKS_PANIC_KEY_FOCUS_PREV;
+        case CLKS_PANIC_SC_EXT_RIGHT:
+            return CLKS_PANIC_KEY_FOCUS_NEXT;
+        default:
+            break;
         }
     } else if (scancode == CLKS_PANIC_SC_TAB_MAKE) {
         return CLKS_PANIC_KEY_FOCUS_NEXT;
@@ -885,32 +882,32 @@ static void clks_panic_ui_apply_scroll_action(enum clks_panic_key_action action)
     page = (visible > 1U) ? (visible - 1U) : 1U;
 
     switch (action) {
-        case CLKS_PANIC_KEY_SCROLL_UP:
-            if (*target_scroll > 0U) {
-                (*target_scroll)--;
-            }
-            break;
-        case CLKS_PANIC_KEY_SCROLL_DOWN:
-            if (*target_scroll < clks_panic_ui_scroll_max(total, visible)) {
-                (*target_scroll)++;
-            }
-            break;
-        case CLKS_PANIC_KEY_PAGE_UP:
-            *target_scroll = (*target_scroll > page) ? (*target_scroll - page) : 0U;
-            break;
-        case CLKS_PANIC_KEY_PAGE_DOWN:
-            if (*target_scroll < clks_panic_ui_scroll_max(total, visible)) {
-                *target_scroll += page;
-            }
-            break;
-        case CLKS_PANIC_KEY_HOME:
-            *target_scroll = 0U;
-            break;
-        case CLKS_PANIC_KEY_END:
-            *target_scroll = clks_panic_ui_scroll_max(total, visible);
-            break;
-        default:
-            break;
+    case CLKS_PANIC_KEY_SCROLL_UP:
+        if (*target_scroll > 0U) {
+            (*target_scroll)--;
+        }
+        break;
+    case CLKS_PANIC_KEY_SCROLL_DOWN:
+        if (*target_scroll < clks_panic_ui_scroll_max(total, visible)) {
+            (*target_scroll)++;
+        }
+        break;
+    case CLKS_PANIC_KEY_PAGE_UP:
+        *target_scroll = (*target_scroll > page) ? (*target_scroll - page) : 0U;
+        break;
+    case CLKS_PANIC_KEY_PAGE_DOWN:
+        if (*target_scroll < clks_panic_ui_scroll_max(total, visible)) {
+            *target_scroll += page;
+        }
+        break;
+    case CLKS_PANIC_KEY_HOME:
+        *target_scroll = 0U;
+        break;
+    case CLKS_PANIC_KEY_END:
+        *target_scroll = clks_panic_ui_scroll_max(total, visible);
+        break;
+    default:
+        break;
     }
 
     *target_scroll = clks_panic_ui_clamp_scroll(*target_scroll, total, visible);
@@ -1052,8 +1049,7 @@ static void clks_panic_ui_draw_scroll_status(u32 x, u32 y, u32 width, u32 scroll
                             CLKS_FB_STYLE_BOLD);
     clks_panic_ui_text_clip(x + 72U, y, clks_panic_ui_sub_floor_u32(width, 72U), first_dec, color, CLKS_PANIC_UI_PANEL,
                             0U);
-    clks_panic_ui_text_clip(x + 116U, y, clks_panic_ui_sub_floor_u32(width, 116U), "/", color, CLKS_PANIC_UI_PANEL,
-                            0U);
+    clks_panic_ui_text_clip(x + 116U, y, clks_panic_ui_sub_floor_u32(width, 116U), "/", color, CLKS_PANIC_UI_PANEL, 0U);
     clks_panic_ui_text_clip(x + 128U, y, clks_panic_ui_sub_floor_u32(width, 128U), total_dec, color,
                             CLKS_PANIC_UI_PANEL, 0U);
 
@@ -1063,8 +1059,8 @@ static void clks_panic_ui_draw_scroll_status(u32 x, u32 y, u32 width, u32 scroll
     }
 }
 
-static void clks_panic_ui_emit_backtrace(u32 x, u32 y, u32 width, u32 height, u64 rip, u64 rbp, u64 rsp,
-                                         u32 scroll, clks_bool serial_enabled) {
+static void clks_panic_ui_emit_backtrace(u32 x, u32 y, u32 width, u32 height, u64 rip, u64 rbp, u64 rsp, u32 scroll,
+                                         clks_bool serial_enabled) {
     u64 current_rbp = 0ULL;
     u64 stack_low = 0ULL;
     u64 stack_high = 0ULL;
@@ -1538,13 +1534,13 @@ static void clks_panic_render_snapshot_console(clks_bool serial_backtrace) {
         row_y = content_y + 32U;
         if (clks_panic_screen.kind == CLKS_PANIC_SCREEN_EXCEPTION) {
             if (clks_panic_screen.has_name == CLKS_TRUE) {
-                row_y = clks_panic_ui_write_pair(left_x + 16U, row_y, clks_panic_ui_sub_floor_u32(left_w, 32U),
-                                                 "NAME", clks_panic_screen.name, CLKS_PANIC_UI_WARN);
+                row_y = clks_panic_ui_write_pair(left_x + 16U, row_y, clks_panic_ui_sub_floor_u32(left_w, 32U), "NAME",
+                                                 clks_panic_screen.name, CLKS_PANIC_UI_WARN);
             }
             row_y = clks_panic_ui_write_hex_pair(left_x + 16U, row_y, clks_panic_ui_sub_floor_u32(left_w, 32U),
                                                  "VECTOR", clks_panic_screen.vector, CLKS_PANIC_UI_TEXT);
-            row_y = clks_panic_ui_write_hex_pair(left_x + 16U, row_y, clks_panic_ui_sub_floor_u32(left_w, 32U),
-                                                 "ERROR", clks_panic_screen.error_code, CLKS_PANIC_UI_TEXT);
+            row_y = clks_panic_ui_write_hex_pair(left_x + 16U, row_y, clks_panic_ui_sub_floor_u32(left_w, 32U), "ERROR",
+                                                 clks_panic_screen.error_code, CLKS_PANIC_UI_TEXT);
         } else if (clks_panic_screen.has_reason == CLKS_TRUE) {
             row_y = clks_panic_ui_write_pair(left_x + 16U, row_y, clks_panic_ui_sub_floor_u32(left_w, 32U), "REASON",
                                              clks_panic_screen.reason, CLKS_PANIC_UI_WARN);
@@ -1579,16 +1575,14 @@ static void clks_panic_render_snapshot_console(clks_bool serial_backtrace) {
 
                 clks_panic_ui_log_total = (log_count == 0ULL) ? 1U : (u32)log_count;
                 clks_panic_ui_log_visible = log_body_h / (clks_fb_cell_height() + 3U);
-                clks_panic_ui_log_scroll =
-                    clks_panic_ui_scroll_max(clks_panic_ui_log_total, clks_panic_ui_log_visible);
+                clks_panic_ui_log_scroll = clks_panic_ui_scroll_max(clks_panic_ui_log_total, clks_panic_ui_log_visible);
             }
             clks_panic_ui_emit_logs(left_x + 16U, panel_y + 32U, clks_panic_ui_sub_floor_u32(left_w, 32U), log_body_h,
                                     clks_panic_ui_log_scroll, serial_backtrace);
-            clks_panic_ui_draw_scroll_status(left_x + 16U, panel_y + log_panel_h - 24U,
-                                             clks_panic_ui_sub_floor_u32(left_w, 32U), clks_panic_ui_log_scroll,
-                                             clks_panic_ui_log_total, clks_panic_ui_log_visible,
-                                             clks_panic_ui_active_pane == CLKS_PANIC_UI_PANE_LOGS ? CLKS_TRUE
-                                                                                                 : CLKS_FALSE);
+            clks_panic_ui_draw_scroll_status(
+                left_x + 16U, panel_y + log_panel_h - 24U, clks_panic_ui_sub_floor_u32(left_w, 32U),
+                clks_panic_ui_log_scroll, clks_panic_ui_log_total, clks_panic_ui_log_visible,
+                clks_panic_ui_active_pane == CLKS_PANIC_UI_PANE_LOGS ? CLKS_TRUE : CLKS_FALSE);
         } else {
             clks_panic_emit_recent_logs(CLKS_NULL);
         }
@@ -1598,11 +1592,10 @@ static void clks_panic_render_snapshot_console(clks_bool serial_backtrace) {
                                      clks_panic_ui_sub_floor_u32(bt_panel_h, 64U), clks_panic_screen.rip,
                                      clks_panic_screen.rbp, clks_panic_screen.rsp, clks_panic_ui_bt_scroll,
                                      serial_backtrace);
-        clks_panic_ui_draw_scroll_status(right_x + 16U, content_y + bt_panel_h - 24U,
-                                         clks_panic_ui_sub_floor_u32(right_w, 32U), clks_panic_ui_bt_scroll,
-                                         clks_panic_ui_bt_total, clks_panic_ui_bt_visible,
-                                         clks_panic_ui_active_pane == CLKS_PANIC_UI_PANE_BACKTRACE ? CLKS_TRUE
-                                                                                                   : CLKS_FALSE);
+        clks_panic_ui_draw_scroll_status(
+            right_x + 16U, content_y + bt_panel_h - 24U, clks_panic_ui_sub_floor_u32(right_w, 32U),
+            clks_panic_ui_bt_scroll, clks_panic_ui_bt_total, clks_panic_ui_bt_visible,
+            clks_panic_ui_active_pane == CLKS_PANIC_UI_PANE_BACKTRACE ? CLKS_TRUE : CLKS_FALSE);
 
         clks_fb_fill_rect(0U, info.height - footer_h, info.width, footer_h, CLKS_PANIC_UI_BG_2);
         clks_panic_ui_text_at(margin + 8U, info.height - footer_h + 12U,

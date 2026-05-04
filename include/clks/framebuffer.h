@@ -30,8 +30,8 @@ void clks_fb_draw_char(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb);
 void clks_fb_draw_char_styled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32 style_flags);
 void clks_fb_draw_char_scaled(u32 x, u32 y, char ch, u32 fg_rgb, u32 bg_rgb, u32 style_flags, u32 scale);
 void clks_fb_draw_codepoint_scaled(u32 x, u32 y, u32 codepoint, u32 fg_rgb, u32 bg_rgb, u32 style_flags, u32 scale);
-void clks_fb_draw_codepoint_scaled_xy(u32 x, u32 y, u32 codepoint, u32 fg_rgb, u32 bg_rgb, u32 style_flags,
-                                      u32 scale_x, u32 scale_y);
+void clks_fb_draw_codepoint_scaled_xy(u32 x, u32 y, u32 codepoint, u32 fg_rgb, u32 bg_rgb, u32 style_flags, u32 scale_x,
+                                      u32 scale_y);
 void clks_fb_draw_codepoint_scaled_clip(u32 x, u32 y, u32 codepoint, u32 fg_rgb, u32 bg_rgb, u32 style_flags,
                                         u32 scale_x, u32 scale_y, u32 clip_width, u32 clip_height);
 clks_bool clks_fb_load_psf_font(const void *blob, u64 blob_size);
