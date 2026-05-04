@@ -158,8 +158,8 @@ static void clks_bootsplash_draw_progress(u32 percent, const char *label) {
         clks_bootsplash_draw_text(bar_x, label_y, label, CLKS_BOOTSPLASH_DIM, CLKS_BOOTSPLASH_BG,
                                   CLKS_BOOTSPLASH_TEXT_SCALE);
     }
-    clks_bootsplash_draw_text(bar_x + bar_w - clks_bootsplash_text_width(pct, CLKS_BOOTSPLASH_TEXT_SCALE), label_y,
-                              pct, CLKS_BOOTSPLASH_TEXT, CLKS_BOOTSPLASH_BG, CLKS_BOOTSPLASH_TEXT_SCALE);
+    clks_bootsplash_draw_text(bar_x + bar_w - clks_bootsplash_text_width(pct, CLKS_BOOTSPLASH_TEXT_SCALE), label_y, pct,
+                              CLKS_BOOTSPLASH_TEXT, CLKS_BOOTSPLASH_BG, CLKS_BOOTSPLASH_TEXT_SCALE);
 }
 
 static void clks_bootsplash_draw_base(void) {
