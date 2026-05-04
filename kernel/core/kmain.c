@@ -2,6 +2,7 @@
 
 #include <clks/boot.h>
 #include <clks/audio.h>
+#include <clks/bootsplash.h>
 #include <clks/cpu.h>
 #include <clks/desktop.h>
 #include <clks/driver.h>
@@ -199,6 +200,7 @@ void clks_kernel_main(void) {
     struct clks_fs_node_info fs_system_dir = {0};
     u64 syscall_ticks;
     u64 fs_root_children;
+    clks_bool boot_splash_was_active;
 
     /* Serial first, because when graphics dies we still need a heartbeat. */
     clks_serial_init();
@@ -216,9 +218,11 @@ void clks_kernel_main(void) {
     if (boot_fb != CLKS_NULL) {
         clks_fb_init(boot_fb);
         clks_tty_init();
+        clks_bootsplash_init();
     }
 
-    clks_log(CLKS_LOG_INFO, "BOOT", "CLEONOS START");
+    clks_log(CLKS_LOG_INFO, "BOOT", "CLeonKernelSystem START");
+    clks_bootsplash_step(3U, "boot protocol");
 
     if (boot_fb == CLKS_NULL) {
         clks_log(CLKS_LOG_WARN, "VIDEO", "NO FRAMEBUFFER FROM LIMINE");
@@ -232,12 +236,14 @@ void clks_kernel_main(void) {
         clks_log(CLKS_LOG_WARN, "CFG", "BOOT VIDEO LOGS DISABLED BY MENUCONFIG");
 #endif
     }
+    clks_bootsplash_step(8U, "video online");
 
 #if defined(CLKS_ARCH_X86_64)
     clks_log(CLKS_LOG_INFO, "ARCH", "X86_64 ONLINE");
 #elif defined(CLKS_ARCH_AARCH64)
     clks_log(CLKS_LOG_INFO, "ARCH", "AARCH64 ONLINE");
 #endif
+    clks_bootsplash_step(12U, "architecture online");
 
     boot_memmap = clks_boot_get_memmap();
 
@@ -249,6 +255,7 @@ void clks_kernel_main(void) {
     clks_pmm_init(boot_memmap);
     pmm_stats = clks_pmm_get_stats();
     clks_vm_init();
+    clks_bootsplash_step(22U, "memory manager");
 
 #if CLKS_CFG_PMM_STATS_LOG
     clks_log_hex(CLKS_LOG_INFO, "PMM", "MANAGED_PAGES", pmm_stats.managed_pages);
@@ -262,6 +269,7 @@ void clks_kernel_main(void) {
 
     clks_heap_init();
     heap_stats = clks_heap_get_stats();
+    clks_bootsplash_step(28U, "heap allocator");
 
 #if CLKS_CFG_HEAP_STATS_LOG
     clks_log_hex(CLKS_LOG_INFO, "HEAP", "TOTAL_BYTES", heap_stats.total_bytes);
@@ -285,6 +293,7 @@ void clks_kernel_main(void) {
 #endif
 
     clks_fs_init();
+    clks_bootsplash_step(36U, "filesystem probe");
 
     if (clks_fs_is_ready() == CLKS_FALSE) {
         clks_log(CLKS_LOG_ERROR, "FS", "RAMDISK FS INIT FAILED");
@@ -292,6 +301,7 @@ void clks_kernel_main(void) {
     }
 
     clks_locale_init();
+    clks_bootsplash_step(42U, "filesystem online");
 
     fs_root_children = clks_fs_count_children("/");
 #if CLKS_CFG_FS_ROOT_LOG
@@ -319,18 +329,22 @@ void clks_kernel_main(void) {
 
         if (tty_psf_blob != CLKS_NULL && clks_fb_load_psf_font(tty_psf_blob, tty_psf_size) == CLKS_TRUE) {
             clks_tty_init();
+            clks_bootsplash_step(50U, "tty font loaded");
             clks_log(CLKS_LOG_INFO, "TTY", "EXTERNAL PSF LOADED /SYSTEM/TTY.PSF");
             clks_log_hex(CLKS_LOG_INFO, "TTY", "PSF_SIZE", tty_psf_size);
         } else {
             clks_log(CLKS_LOG_WARN, "TTY", "EXTERNAL PSF LOAD FAILED, USING BUILTIN");
+            clks_bootsplash_step(50U, "builtin tty font");
         }
 #else
         clks_log(CLKS_LOG_WARN, "CFG", "EXTERNAL PSF LOADING DISABLED BY MENUCONFIG");
+        clks_bootsplash_step(50U, "tty font skipped");
 #endif
     }
 
     clks_exec_init();
     clks_user_init();
+    clks_bootsplash_step(56U, "exec runtime");
 #if CLKS_CFG_AUDIO
     clks_audio_init();
 #else
@@ -352,13 +366,16 @@ void clks_kernel_main(void) {
 #else
     clks_log(CLKS_LOG_WARN, "CFG", "DESKTOP DISABLED BY MENUCONFIG");
 #endif
+    clks_bootsplash_step(64U, "devices online");
 
     if (clks_userland_init() == CLKS_FALSE) {
         clks_log(CLKS_LOG_ERROR, "USER", "USERLAND INIT FAILED");
         clks_cpu_halt_forever();
     }
+    clks_bootsplash_step(72U, "userland online");
 
     clks_net_init();
+    clks_bootsplash_step(78U, "network online");
 
 #if CLKS_CFG_DRIVER_MANAGER
     clks_driver_init();
@@ -371,9 +388,11 @@ void clks_kernel_main(void) {
 #else
     clks_log(CLKS_LOG_WARN, "CFG", "KELF DISABLED BY MENUCONFIG");
 #endif
+    clks_bootsplash_step(84U, "drivers online");
 
     /* Scheduler init is the "okay, now this mess is actually alive" moment. */
     clks_scheduler_init();
+    clks_bootsplash_step(88U, "scheduler online");
 
 #if CLKS_CFG_KLOGD_TASK
     if (clks_scheduler_add_kernel_task_ex("klogd", 4U, clks_task_klogd) == CLKS_FALSE) {
@@ -417,6 +436,7 @@ void clks_kernel_main(void) {
 #endif
 
     clks_service_init();
+    clks_bootsplash_step(91U, "kernel services");
 
 #if CLKS_CFG_ELFRUNNER_INIT
     clks_elfrunner_init();
@@ -437,11 +457,13 @@ void clks_kernel_main(void) {
 #endif
 
     clks_syscall_init();
+    clks_bootsplash_step(95U, "syscalls online");
 
     clks_interrupts_init();
 #if CLKS_CFG_INTERRUPT_READY_LOG
     clks_log(CLKS_LOG_INFO, "INT", "IDT + PIC INITIALIZED");
 #endif
+    clks_bootsplash_step(97U, "interrupts online");
 
 #if CLKS_CFG_SYSCALL_TICK_QUERY
     syscall_ticks = clks_syscall_invoke_kernel(CLKS_SYSCALL_TIMER_TICKS, 0ULL, 0ULL, 0ULL);
@@ -452,6 +474,7 @@ void clks_kernel_main(void) {
 #endif
 
     clks_shell_init();
+    clks_bootsplash_step(99U, "shell online");
 
 #if CLKS_CFG_USRD_TASK
 #if CLKS_CFG_SHELL_MODE_LOG
@@ -476,6 +499,13 @@ void clks_kernel_main(void) {
 #if CLKS_CFG_IDLE_DEBUG_LOG
     clks_log(CLKS_LOG_DEBUG, "KERNEL", "IDLE LOOP ENTER");
 #endif
+
+    boot_splash_was_active = clks_bootsplash_active();
+    clks_bootsplash_finish();
+    if (boot_splash_was_active == CLKS_TRUE) {
+        clks_tty_clear_active();
+        clks_shell_redraw_ready_prompt();
+    }
 
     /* Infinite idle loop: glamorous name for "wait forever and hope interrupts behave". */
     for (;;) {

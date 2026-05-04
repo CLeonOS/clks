@@ -6,5 +6,6 @@
 void clks_shell_init(void);
 void clks_shell_pump_input(u32 max_chars);
 void clks_shell_tick(u64 tick);
+void clks_shell_redraw_ready_prompt(void);
 
 #endif

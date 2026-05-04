@@ -1,5 +1,6 @@
 #include <clks/exec.h>
 #include <clks/fs.h>
+#include <clks/bootsplash.h>
 #include <clks/elf64.h>
 #include <clks/heap.h>
 #include <clks/interrupts.h>
@@ -24,7 +25,7 @@
 #define CLKS_SHELL_INPUT_BUDGET 128U
 #define CLKS_SHELL_CLEAR_LINES 56U
 #define CLKS_SHELL_HISTORY_MAX 16U
-#define CLKS_SHELL_PROMPT_TEXT "cleonos> "
+#define CLKS_SHELL_PROMPT_TEXT "clks> "
 
 static clks_bool clks_shell_ready = CLKS_FALSE;
 static char clks_shell_line[CLKS_SHELL_LINE_MAX];
@@ -82,6 +83,14 @@ static void clks_shell_writeln(const char *text) {
 
 static void clks_shell_prompt(void) {
     clks_shell_write(CLKS_SHELL_PROMPT_TEXT);
+}
+
+static void clks_shell_write_ready_prompt(void) {
+    clks_shell_writeln("");
+    clks_shell_writeln("CLKS interactive shell ready");
+    clks_shell_writeln("type 'help' for commands");
+    clks_shell_writeln("filesystem write commands are enabled in kernel shell mode");
+    clks_shell_prompt();
 }
 
 static void clks_shell_copy_line(char *dst, usize dst_size, const char *src) {
@@ -1459,15 +1468,22 @@ void clks_shell_init(void) {
 
     clks_shell_ready = CLKS_TRUE;
 
-    clks_shell_writeln("");
-    clks_shell_writeln("CLeonOS interactive shell ready");
-    clks_shell_writeln("type 'help' for commands");
-    clks_shell_writeln("filesystem write commands are enabled in kernel shell mode");
-    clks_shell_prompt();
+    if (clks_bootsplash_active() == CLKS_FALSE) {
+        clks_shell_write_ready_prompt();
+    }
 
     clks_interrupts_drain_ps2_input();
     clks_keyboard_set_input_ready(CLKS_TRUE);
     clks_log(CLKS_LOG_INFO, "SHELL", "INTERACTIVE LOOP ONLINE");
+}
+
+void clks_shell_redraw_ready_prompt(void) {
+    if (clks_shell_ready == CLKS_FALSE) {
+        return;
+    }
+
+    clks_shell_rendered_len = clks_shell_line_len;
+    clks_shell_write_ready_prompt();
 }
 
 static void clks_shell_drain_input(u32 budget_limit) {

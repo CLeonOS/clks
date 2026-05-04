@@ -213,7 +213,7 @@ static void clks_desktop_draw_static_scene(const struct clks_mouse_state *mouse)
     clks_fb_fill_rect(clks_desktop.win_x, clks_desktop.win_y, clks_desktop.win_w, clks_desktop.win_title_h,
                       CLKS_DESKTOP_TITLE_COLOR);
 
-    clks_desktop_draw_text(12U, 6U, "CLeonOS Desktop TTY2", CLKS_DESKTOP_TEXT_FG, CLKS_DESKTOP_TOPBAR_COLOR);
+    clks_desktop_draw_text(12U, 6U, "CLKS Desktop TTY2", CLKS_DESKTOP_TEXT_FG, CLKS_DESKTOP_TOPBAR_COLOR);
     clks_desktop_draw_text(clks_desktop.win_x + 12U, clks_desktop.win_y + 6U, "Mouse Input Ready", CLKS_DESKTOP_TEXT_FG,
                            CLKS_DESKTOP_TITLE_COLOR);
     clks_desktop_draw_text(clks_desktop.win_x + 16U, clks_desktop.win_y + clks_desktop.win_title_h + 16U,

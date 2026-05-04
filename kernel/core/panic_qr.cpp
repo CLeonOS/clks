@@ -29,7 +29,7 @@ extern "C" {
 #define CLKS_PANIC_QR_COMP_MAX (CLKS_PANIC_QR_TEXT_MAX + 2048U)
 #define CLKS_PANIC_QR_MAX_COMP_BYTES 2953U
 #define CLKS_PANIC_QR_DIGITS_MAX (((CLKS_PANIC_QR_MAX_COMP_BYTES / 7U) * 17U) + 17U)
-#define CLKS_PANIC_QR_URL_PREFIX "https://panic.archlinux.org/panic_report#?a=cleonos-x86_64&v=cleonos&z="
+#define CLKS_PANIC_QR_URL_PREFIX "https://panic.archlinux.org/panic_report#?a=clks-x86_64&v=clks&z="
 #define CLKS_PANIC_QR_URL_PREFIX_LEN ((u64)(sizeof(CLKS_PANIC_QR_URL_PREFIX) - 1U))
 
 #define CLKS_PANIC_QR_COLOR_DARK 0x00000000U

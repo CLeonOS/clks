@@ -1619,8 +1619,8 @@ static void clks_panic_render_snapshot_console(clks_bool serial_backtrace) {
         if (info.width < CLKS_PANIC_UI_MIN_WIDTH || info.height < CLKS_PANIC_UI_MIN_HEIGHT) {
             clks_fb_clear(CLKS_PANIC_BG);
             clks_panic_console_write(&console,
-                                     CLKS_PANIC_TEXT("CLeonOS KERNEL PANIC\n",
-                                                     "CLeonOS 内核 Panic (KERNEL PANIC)\n"));
+                                     CLKS_PANIC_TEXT("CLKS KERNEL PANIC\n",
+                                                     "CLKS 内核 Panic (KERNEL PANIC)\n"));
             clks_panic_console_write(&console, "====================\n\n");
 
             if (clks_panic_screen.kind == CLKS_PANIC_SCREEN_EXCEPTION) {
@@ -1842,7 +1842,7 @@ CLKS_NORETURN void clks_panic(const char *reason) {
     clks_panic_active = CLKS_TRUE;
     clks_panic_capture_context(&rip, &rbp, &rsp);
 
-    clks_panic_serial_write_line("[PANIC] CLeonOS KERNEL PANIC");
+    clks_panic_serial_write_line("[PANIC] CLKS KERNEL PANIC");
 
     if (reason != CLKS_NULL) {
         clks_panic_serial_write_line(reason);

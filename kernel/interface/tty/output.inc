@@ -75,6 +75,21 @@ void clks_tty_write(const char *text) {
     clks_tty_write_n(text, clks_strlen(text));
 }
 
+void clks_tty_clear_active(void) {
+    if (clks_tty_is_ready == CLKS_FALSE) {
+        return;
+    }
+
+    clks_tty_hide_cursor();
+    clks_tty_clear_tty(clks_tty_active_index);
+    clks_tty_deferred_scroll_rows = 0U;
+    clks_tty_status_invalidate();
+    clks_tty_cursor_visible = CLKS_FALSE;
+    clks_tty_dirty_reset();
+    clks_tty_reset_blink_timer();
+    clks_tty_redraw_active();
+}
+
 static void clks_tty_utf8_reset(u32 tty_index) {
     clks_tty_utf8[tty_index].codepoint = 0U;
     clks_tty_utf8[tty_index].remaining = 0U;

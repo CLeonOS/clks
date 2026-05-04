@@ -1,4 +1,5 @@
 #include <clks/log.h>
+#include <clks/bootsplash.h>
 #include <clks/serial.h>
 #include <clks/tty.h>
 #include <clks/types.h>
@@ -260,7 +261,9 @@ static void clks_log_emit_line(enum clks_log_level level, const char *tag, const
 #endif
 
 #if CLKS_CFG_LOG_OUTPUT_TTY != 0
-    clks_log_emit_tty_colored(level, tag, message);
+    if (clks_bootsplash_active() == CLKS_FALSE) {
+        clks_log_emit_tty_colored(level, tag, message);
+    }
 #else
     (void)level;
     (void)tag;
