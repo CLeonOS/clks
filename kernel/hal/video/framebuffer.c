@@ -486,8 +486,8 @@ void clks_fb_scroll_up(u32 pixel_rows, u32 fill_rgb) {
     clks_fb_fill_rows_color32(fb_base + tail_offset, row_bytes, pixel_rows, fill_rgb);
 }
 
-void clks_fb_draw_codepoint_scaled_xy(u32 x, u32 y, u32 codepoint, u32 fg_rgb, u32 bg_rgb, u32 style_flags,
-                                      u32 scale_x, u32 scale_y) {
+void clks_fb_draw_codepoint_scaled_xy(u32 x, u32 y, u32 codepoint, u32 fg_rgb, u32 bg_rgb, u32 style_flags, u32 scale_x,
+                                      u32 scale_y) {
     clks_fb_draw_codepoint_scaled_clip(x, y, codepoint, fg_rgb, bg_rgb, style_flags, scale_x, scale_y, 0U, 0U);
 }
 
