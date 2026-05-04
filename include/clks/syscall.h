@@ -149,10 +149,20 @@
 #define CLKS_SYSCALL_SYSINFO 143ULL
 #define CLKS_SYSCALL_LOCALE_GET 144ULL
 #define CLKS_SYSCALL_LOCALE_SET 145ULL
+#define CLKS_SYSCALL_MMAP 146ULL
 
 #define CLKS_SYSINFO_TEXT_MAX 32U
 #define CLKS_SYSINFO_BOOT_MODE_MAX 16U
 #define CLKS_LOCALE_TEXT_MAX 32U
+
+struct clks_mmap_req {
+    u64 addr_hint;
+    u64 length;
+    u64 prot;
+    u64 flags;
+    u64 fd;
+    u64 offset;
+};
 
 struct clks_sysinfo {
     char kernel_name[CLKS_SYSINFO_TEXT_MAX];

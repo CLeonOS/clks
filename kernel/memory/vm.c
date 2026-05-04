@@ -347,6 +347,61 @@ clks_bool clks_vm_map_page_current(u64 virt_addr, u64 phys_addr, u64 flags) {
     return CLKS_TRUE;
 }
 
+clks_bool clks_vm_protect_page_current(u64 virt_addr, u64 flags) {
+    u64 *pml4;
+    u64 *pdpt;
+    u64 *pd;
+    u64 *pt;
+    u64 old_entry;
+    u64 pml4_index;
+    u64 pdpt_index;
+    u64 pd_index;
+    u64 pt_index;
+
+    if (clks_vm_ready == CLKS_FALSE || (virt_addr & (CLKS_VM_PAGE_SIZE - 1ULL)) != 0ULL) {
+        return CLKS_FALSE;
+    }
+
+    pml4 = clks_vm_current_pml4();
+    if (pml4 == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    pml4_index = (virt_addr >> 39U) & 0x1FFULL;
+    pdpt_index = (virt_addr >> 30U) & 0x1FFULL;
+    pd_index = (virt_addr >> 21U) & 0x1FFULL;
+    pt_index = (virt_addr >> 12U) & 0x1FFULL;
+
+    if ((pml4[pml4_index] & CLKS_VM_PTE_PRESENT) == 0ULL || (pml4[pml4_index] & CLKS_VM_PTE_PS) != 0ULL) {
+        return CLKS_FALSE;
+    }
+
+    pdpt = (u64 *)clks_boot_phys_to_virt(pml4[pml4_index] & CLKS_VM_PTE_ADDR_MASK);
+    if (pdpt == CLKS_NULL || (pdpt[pdpt_index] & CLKS_VM_PTE_PRESENT) == 0ULL ||
+        (pdpt[pdpt_index] & CLKS_VM_PTE_PS) != 0ULL) {
+        return CLKS_FALSE;
+    }
+
+    pd = (u64 *)clks_boot_phys_to_virt(pdpt[pdpt_index] & CLKS_VM_PTE_ADDR_MASK);
+    if (pd == CLKS_NULL || (pd[pd_index] & CLKS_VM_PTE_PRESENT) == 0ULL || (pd[pd_index] & CLKS_VM_PTE_PS) != 0ULL) {
+        return CLKS_FALSE;
+    }
+
+    pt = (u64 *)clks_boot_phys_to_virt(pd[pd_index] & CLKS_VM_PTE_ADDR_MASK);
+    if (pt == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    old_entry = pt[pt_index];
+    if ((old_entry & CLKS_VM_PTE_PRESENT) == 0ULL) {
+        return CLKS_FALSE;
+    }
+
+    pt[pt_index] = (old_entry & CLKS_VM_PTE_ADDR_MASK) | clks_vm_entry_flags_from_api(flags);
+    clks_vm_invlpg(virt_addr);
+    return CLKS_TRUE;
+}
+
 clks_bool clks_vm_unmap_page_current(u64 virt_addr, u64 *out_phys_addr) {
     u64 *pml4;
     u64 *pdpt;

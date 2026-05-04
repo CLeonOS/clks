@@ -367,6 +367,8 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_locale_get(frame->rbx, frame->rcx));
     case CLKS_SYSCALL_LOCALE_SET:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_locale_set(frame->rbx));
+    case CLKS_SYSCALL_MMAP:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_mmap(frame->rbx));
     case CLKS_SYSCALL_MOUSE_STATE:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_mouse_state(frame->rbx));
     case CLKS_SYSCALL_WM_CREATE:

@@ -17,7 +17,7 @@
 #define CLKS_SYSCALL_KDBG_STACK_WINDOW_BYTES (128ULL * 1024ULL)
 #define CLKS_SYSCALL_KERNEL_SYMBOL_FILE "/system/kernel.sym"
 #define CLKS_SYSCALL_KERNEL_ADDR_BASE 0xFFFF800000000000ULL
-#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_LOCALE_SET
+#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_MMAP
 #define CLKS_SYSCALL_DISK_SECTOR_BYTES 512U
 #define CLKS_SYSCALL_NET_UDP_PAYLOAD_MAX 1472U
 #define CLKS_SYSCALL_NET_TCP_IO_MAX 65536U
@@ -126,6 +126,15 @@ struct clks_syscall_exec_io_req {
     u64 stdin_fd;
     u64 stdout_fd;
     u64 stderr_fd;
+};
+
+struct clks_syscall_mmap_req_user {
+    u64 addr_hint;
+    u64 length;
+    u64 prot;
+    u64 flags;
+    u64 fd;
+    u64 offset;
 };
 
 struct clks_syscall_fb_info_user {

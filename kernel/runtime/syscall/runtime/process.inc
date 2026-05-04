@@ -75,6 +75,17 @@ static u64 clks_syscall_exec_pathv_io(u64 arg0, u64 arg1, u64 arg2) {
     return status;
 }
 
+static u64 clks_syscall_mmap(u64 arg0) {
+    struct clks_syscall_mmap_req_user req;
+
+    if (arg0 == 0ULL || clks_syscall_user_ptr_readable(arg0, (u64)sizeof(req)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    clks_memcpy(&req, (const void *)arg0, sizeof(req));
+    return clks_exec_mmap(req.addr_hint, req.length, req.prot, req.flags, req.fd, req.offset);
+}
+
 static u64 clks_syscall_getpid(void) {
     return clks_exec_current_pid();
 }
