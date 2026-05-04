@@ -11,7 +11,9 @@ clks_exec_call_on_stack_x86_64:
     mov r11, rsp
     mov rsp, rsi
     and rsp, -16
-    sub rsp, 56
+    /* Keep the synthetic call frame SysV x86_64 aligned. Before call, rsp must
+       be 16-byte aligned so the callee sees rsp % 16 == 8 on entry. */
+    sub rsp, 64
     mov [rsp], r11
     mov [rsp + 8], rbx
     mov [rsp + 16], rbp
