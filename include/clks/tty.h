@@ -20,5 +20,7 @@ clks_bool clks_tty_ready(void);
 clks_bool clks_tty_set_resolution(u32 width, u32 height);
 u32 clks_tty_width(void);
 u32 clks_tty_height(void);
+u32 clks_tty_text_cols(void);
+u32 clks_tty_text_rows(void);
 
 #endif

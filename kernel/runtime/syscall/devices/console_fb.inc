@@ -156,6 +156,22 @@ static u64 clks_syscall_display_set_mode(u64 arg0) {
     return 0ULL;
 }
 
+static u64 clks_syscall_tty_grid_info(u64 arg0) {
+    struct clks_syscall_tty_grid_info_user *out_info = (struct clks_syscall_tty_grid_info_user *)(usize)arg0;
+
+    if (arg0 == 0ULL) {
+        return 0ULL;
+    }
+
+    if (clks_syscall_user_ptr_writable(arg0, (u64)sizeof(*out_info)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    out_info->cols = (u64)clks_tty_text_cols();
+    out_info->rows = (u64)clks_tty_text_rows();
+    return 1ULL;
+}
+
 static u64 clks_syscall_fb_blit(u64 arg0) {
     struct clks_syscall_fb_blit_req req;
     const u8 *src_base;

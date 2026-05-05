@@ -246,3 +246,11 @@ u32 clks_tty_width(void) {
 u32 clks_tty_height(void) {
     return clks_display_height(CLKS_DISPLAY_TARGET_TTY);
 }
+
+u32 clks_tty_text_cols(void) {
+    return clks_tty_cols;
+}
+
+u32 clks_tty_text_rows(void) {
+    return clks_tty_rows;
+}

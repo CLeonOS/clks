@@ -153,6 +153,7 @@
 #define CLKS_SYSCALL_MMAP 146ULL
 #define CLKS_SYSCALL_DISPLAY_INFO 147ULL
 #define CLKS_SYSCALL_DISPLAY_SET_MODE 148ULL
+#define CLKS_SYSCALL_TTY_GRID_INFO 149ULL
 
 #define CLKS_SYSINFO_TEXT_MAX 32U
 #define CLKS_SYSINFO_BOOT_MODE_MAX 16U
@@ -170,6 +171,11 @@ struct clks_display_set_mode_req {
     u64 target;
     u64 logical_width;
     u64 logical_height;
+};
+
+struct clks_tty_grid_info {
+    u64 cols;
+    u64 rows;
 };
 
 struct clks_mmap_req {

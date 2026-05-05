@@ -291,6 +291,8 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_display_info(frame->rbx, frame->rcx));
     case CLKS_SYSCALL_DISPLAY_SET_MODE:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_display_set_mode(frame->rbx));
+    case CLKS_SYSCALL_TTY_GRID_INFO:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_tty_grid_info(frame->rbx));
     case CLKS_SYSCALL_KERNEL_VERSION:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_kernel_version(frame->rbx, frame->rcx));
     case CLKS_SYSCALL_DISK_PRESENT:
