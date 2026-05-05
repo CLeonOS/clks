@@ -80,7 +80,7 @@ static void clks_wm_draw_stats_overlay_clipped(const struct clks_wm_rect *clip) 
 
     (void)clipped;
     cell_w = clks_fb_cell_width();
-    clks_fb_fill_rect((u32)box.l, (u32)box.t, (u32)(box.r - box.l), (u32)(box.b - box.t), CLKS_WM_STATS_BG_COLOR);
+    clks_wm_fb_fill_rect(box.l, box.t, (u32)(box.r - box.l), (u32)(box.b - box.t), CLKS_WM_STATS_BG_COLOR);
 
     text[text_len++] = 'F';
     text[text_len++] = 'P';
@@ -95,8 +95,8 @@ static void clks_wm_draw_stats_overlay_clipped(const struct clks_wm_rect *clip) 
 
     for (i = 0U; i < CLKS_WM_STATS_TEXT_CELLS; i++) {
         char ch = (i < text_len) ? text[i] : ' ';
-        clks_fb_draw_char((u32)box.l + 4U + (i * cell_w), (u32)box.t + 3U, ch, CLKS_WM_STATS_FG_COLOR,
-                          CLKS_WM_STATS_BG_COLOR);
+        clks_wm_fb_draw_char(box.l + 4 + (i32)(i * cell_w), box.t + 3, ch, CLKS_WM_STATS_FG_COLOR,
+                             CLKS_WM_STATS_BG_COLOR);
     }
 #endif
 }

@@ -27,6 +27,34 @@ void clks_wm_init(void) {
     clks_log(CLKS_LOG_INFO, "WM", "MULTI-RECT COMPOSITOR ONLINE");
 }
 
+static i32 clks_wm_origin_x(void) {
+    return clks_display_origin_x(CLKS_DISPLAY_TARGET_WM);
+}
+
+static i32 clks_wm_origin_y(void) {
+    return clks_display_origin_y(CLKS_DISPLAY_TARGET_WM);
+}
+
+static void clks_wm_fb_fill_rect(i32 x, i32 y, u32 width, u32 height, u32 color) {
+    clks_fb_fill_rect((u32)(x + clks_wm_origin_x()), (u32)(y + clks_wm_origin_y()), width, height, color);
+}
+
+static void clks_wm_fb_blit_rgba(i32 x, i32 y, const void *pixels, u32 width, u32 height, u32 pitch_bytes) {
+    clks_fb_blit_rgba(x + clks_wm_origin_x(), y + clks_wm_origin_y(), pixels, width, height, pitch_bytes);
+}
+
+static void clks_wm_fb_draw_char(i32 x, i32 y, char ch, u32 fg, u32 bg) {
+    clks_fb_draw_char((u32)(x + clks_wm_origin_x()), (u32)(y + clks_wm_origin_y()), ch, fg, bg);
+}
+
+static void clks_wm_fb_draw_pixel(i32 x, i32 y, u32 color) {
+    clks_fb_draw_pixel((u32)(x + clks_wm_origin_x()), (u32)(y + clks_wm_origin_y()), color);
+}
+
+static clks_bool clks_wm_fb_read_pixel(i32 x, i32 y, u32 *out_color) {
+    return clks_fb_read_pixel((u32)(x + clks_wm_origin_x()), (u32)(y + clks_wm_origin_y()), out_color);
+}
+
 void clks_wm_tick(u64 tick) {
     (void)tick;
 
@@ -48,6 +76,28 @@ clks_bool clks_wm_is_foreground(void) {
     }
 
     return (clks_tty_active() == CLKS_WM_TTY_INDEX) ? CLKS_TRUE : CLKS_FALSE;
+}
+
+u32 clks_wm_width(void) {
+    return clks_display_width(CLKS_DISPLAY_TARGET_WM);
+}
+
+u32 clks_wm_height(void) {
+    return clks_display_height(CLKS_DISPLAY_TARGET_WM);
+}
+
+clks_bool clks_wm_set_resolution(u32 width, u32 height) {
+    if (clks_display_mode_set(CLKS_DISPLAY_TARGET_WM, width, height) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    clks_wm_layer_free();
+    clks_wm_scene_damage.count = 0U;
+    clks_wm_present_damage.count = 0U;
+    clks_wm_active_last = CLKS_FALSE;
+    clks_wm_mark_dirty_full();
+    clks_wm_mark_stats_dirty();
+    return CLKS_TRUE;
 }
 
 u64 clks_wm_window_count(void) {

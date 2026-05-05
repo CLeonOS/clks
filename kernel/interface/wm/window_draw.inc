@@ -95,8 +95,8 @@ static void clks_wm_draw_window_to_fb_clipped(const struct clks_wm_window *win, 
             return;
         }
 
-        clks_fb_blit_rgba(draw_rect.l, draw_rect.t + (i32)row, (const void *)(win->pixels + src_offset), copy_w, 1U,
-                          win->width * 4U);
+        clks_wm_fb_blit_rgba(draw_rect.l, draw_rect.t + (i32)row, (const void *)(win->pixels + src_offset), copy_w, 1U,
+                             win->width * 4U);
     }
 
     border_color = (win->focused == CLKS_TRUE) ? (u32)CLKS_WM_BORDER_ACTIVE : (u32)CLKS_WM_BORDER_INACTIVE;
@@ -129,4 +129,3 @@ static void clks_wm_update_scene_layer(void) {
 
     clks_wm_scene_damage.count = 0U;
 }
-

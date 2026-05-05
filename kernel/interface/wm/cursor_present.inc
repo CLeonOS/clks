@@ -11,11 +11,11 @@ static void clks_wm_draw_inverted_cursor_pixel(i32 x, i32 y) {
         return;
     }
 
-    if (clks_fb_read_pixel((u32)x, (u32)y, &under) == CLKS_FALSE) {
+    if (clks_wm_fb_read_pixel(x, y, &under) == CLKS_FALSE) {
         return;
     }
 
-    clks_fb_draw_pixel((u32)x, (u32)y, (under ^ 0x00FFFFFFUL) & 0x00FFFFFFUL);
+    clks_wm_fb_draw_pixel(x, y, (under ^ 0x00FFFFFFUL) & 0x00FFFFFFUL);
 }
 
 static void clks_wm_draw_cursor_clipped(i32 x, i32 y, u8 buttons, const struct clks_wm_rect *clip) {
@@ -65,7 +65,7 @@ static void clks_wm_present_rect(const struct clks_wm_rect *rect) {
     width = (u32)(rect->r - rect->l);
     height = (u32)(rect->b - rect->t);
     src = clks_wm_layers.scene + ((u64)(u32)rect->t * (u64)clks_wm_layers.width) + (u32)rect->l;
-    clks_fb_blit_rgba(rect->l, rect->t, (const void *)src, width, height, clks_wm_layers.pitch_bytes);
+    clks_wm_fb_blit_rgba(rect->l, rect->t, (const void *)src, width, height, clks_wm_layers.pitch_bytes);
 
     clks_wm_draw_stats_overlay_clipped(rect);
 

@@ -1,5 +1,6 @@
 #include <clks/cpu.h>
 #include <clks/audio.h>
+#include <clks/display.h>
 #include <clks/disk.h>
 #include <clks/driver.h>
 #include <clks/exec.h>

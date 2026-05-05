@@ -1,6 +1,7 @@
 #ifndef CLKS_SYSCALL_H
 #define CLKS_SYSCALL_H
 
+#include <clks/display.h>
 #include <clks/types.h>
 
 #define CLKS_SYSCALL_LOG_WRITE 0ULL
@@ -150,10 +151,26 @@
 #define CLKS_SYSCALL_LOCALE_GET 144ULL
 #define CLKS_SYSCALL_LOCALE_SET 145ULL
 #define CLKS_SYSCALL_MMAP 146ULL
+#define CLKS_SYSCALL_DISPLAY_INFO 147ULL
+#define CLKS_SYSCALL_DISPLAY_SET_MODE 148ULL
 
 #define CLKS_SYSINFO_TEXT_MAX 32U
 #define CLKS_SYSINFO_BOOT_MODE_MAX 16U
 #define CLKS_LOCALE_TEXT_MAX 32U
+
+struct clks_display_info {
+    u64 target;
+    u64 physical_width;
+    u64 physical_height;
+    u64 logical_width;
+    u64 logical_height;
+};
+
+struct clks_display_set_mode_req {
+    u64 target;
+    u64 logical_width;
+    u64 logical_height;
+};
 
 struct clks_mmap_req {
     u64 addr_hint;

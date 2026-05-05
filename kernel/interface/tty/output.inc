@@ -1,14 +1,7 @@
-void clks_tty_init(void) {
-    struct clks_framebuffer_info info;
-    u32 tty;
+static void clks_tty_recompute_geometry(void) {
+    u32 width = clks_display_width(CLKS_DISPLAY_TARGET_TTY);
+    u32 height = clks_display_height(CLKS_DISPLAY_TARGET_TTY);
 
-    if (clks_fb_ready() == CLKS_FALSE) {
-        clks_tty_is_ready = CLKS_FALSE;
-        return;
-    }
-
-    /* If framebuffer lies here, the whole UI goes to hell immediately. */
-    info = clks_fb_info();
     clks_tty_cell_width = clks_fb_half_cell_width();
     clks_tty_cell_height = clks_fb_cell_height();
 
@@ -20,8 +13,8 @@ void clks_tty_init(void) {
         clks_tty_cell_height = 8U;
     }
 
-    clks_tty_rows = info.height / clks_tty_cell_height;
-    clks_tty_cols = info.width / clks_tty_cell_width;
+    clks_tty_rows = (clks_tty_cell_height == 0U) ? 0U : (height / clks_tty_cell_height);
+    clks_tty_cols = (clks_tty_cell_width == 0U) ? 0U : (width / clks_tty_cell_width);
 
     if (clks_tty_rows > CLKS_TTY_MAX_ROWS) {
         clks_tty_rows = CLKS_TTY_MAX_ROWS;
@@ -30,6 +23,17 @@ void clks_tty_init(void) {
     if (clks_tty_cols > CLKS_TTY_MAX_COLS) {
         clks_tty_cols = CLKS_TTY_MAX_COLS;
     }
+}
+
+void clks_tty_init(void) {
+    u32 tty;
+
+    if (clks_fb_ready() == CLKS_FALSE) {
+        clks_tty_is_ready = CLKS_FALSE;
+        return;
+    }
+
+    clks_tty_recompute_geometry();
 
     if (clks_tty_rows == 0U || clks_tty_cols == 0U) {
         clks_tty_is_ready = CLKS_FALSE;
@@ -205,4 +209,40 @@ static void clks_tty_write_n_internal(u32 tty_index, const char *text, usize len
         clks_tty_draw_status_bar();
         clks_tty_reset_blink_timer();
     }
+}
+
+clks_bool clks_tty_set_resolution(u32 width, u32 height) {
+    if (clks_display_mode_set(CLKS_DISPLAY_TARGET_TTY, width, height) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    clks_tty_recompute_geometry();
+    if (clks_tty_rows == 0U || clks_tty_cols == 0U) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_tty_active_index < CLKS_TTY_COUNT) {
+        if (clks_tty_cursor_row[clks_tty_active_index] >= clks_tty_content_rows()) {
+            clks_tty_cursor_row[clks_tty_active_index] =
+                (clks_tty_content_rows() > 0U) ? (clks_tty_content_rows() - 1U) : 0U;
+        }
+        if (clks_tty_cursor_col[clks_tty_active_index] >= clks_tty_cols) {
+            clks_tty_cursor_col[clks_tty_active_index] = (clks_tty_cols > 0U) ? (clks_tty_cols - 1U) : 0U;
+        }
+    }
+
+    clks_tty_status_invalidate();
+    clks_tty_cursor_visible = CLKS_FALSE;
+    clks_tty_dirty_reset();
+    clks_tty_redraw_active();
+    clks_tty_reset_blink_timer();
+    return CLKS_TRUE;
+}
+
+u32 clks_tty_width(void) {
+    return clks_display_width(CLKS_DISPLAY_TARGET_TTY);
+}
+
+u32 clks_tty_height(void) {
+    return clks_display_height(CLKS_DISPLAY_TARGET_TTY);
 }

@@ -103,6 +103,59 @@ static u64 clks_syscall_fb_clear(u64 arg0) {
     return 1ULL;
 }
 
+static u64 clks_syscall_display_info(u64 arg0, u64 arg1) {
+    u32 target = (u32)arg0;
+    struct clks_syscall_display_info_user *out_info = (struct clks_syscall_display_info_user *)(usize)arg1;
+    struct clks_display_mode mode;
+
+    if (arg1 == 0ULL) {
+        return 0ULL;
+    }
+
+    if (clks_syscall_user_ptr_writable(arg1, (u64)sizeof(*out_info)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    if (clks_display_mode_get(target, &mode) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    out_info->target = (u64)target;
+    out_info->physical_width = (u64)mode.physical_width;
+    out_info->physical_height = (u64)mode.physical_height;
+    out_info->logical_width = (u64)mode.logical_width;
+    out_info->logical_height = (u64)mode.logical_height;
+    return 1ULL;
+}
+
+static u64 clks_syscall_display_set_mode(u64 arg0) {
+    struct clks_syscall_display_set_mode_req req;
+
+    if (arg0 == 0ULL) {
+        return 0ULL;
+    }
+
+    if (clks_syscall_user_ptr_readable(arg0, (u64)sizeof(req)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    clks_memcpy(&req, (const void *)(usize)arg0, sizeof(req));
+
+    if (req.logical_width > 0xFFFFFFFFULL || req.logical_height > 0xFFFFFFFFULL) {
+        return 0ULL;
+    }
+
+    if (req.target == CLKS_DISPLAY_TARGET_TTY) {
+        return (clks_tty_set_resolution((u32)req.logical_width, (u32)req.logical_height) == CLKS_TRUE) ? 1ULL : 0ULL;
+    }
+
+    if (req.target == CLKS_DISPLAY_TARGET_WM) {
+        return (clks_wm_set_resolution((u32)req.logical_width, (u32)req.logical_height) == CLKS_TRUE) ? 1ULL : 0ULL;
+    }
+
+    return 0ULL;
+}
+
 static u64 clks_syscall_fb_blit(u64 arg0) {
     struct clks_syscall_fb_blit_req req;
     const u8 *src_base;

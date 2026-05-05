@@ -16,9 +16,10 @@ clks_bool clks_wm_poll_event(u64 owner_pid, u64 window_id, struct clks_wm_event 
 clks_bool clks_wm_move(u64 owner_pid, u64 window_id, i32 x, i32 y) {
     i32 slot = clks_wm_find_slot_by_id(window_id);
     struct clks_wm_window *win;
-    struct clks_framebuffer_info fb_info;
     i32 max_x;
     i32 max_y;
+    u32 screen_w;
+    u32 screen_h;
 
     if (slot < 0) {
         return CLKS_FALSE;
@@ -29,9 +30,10 @@ clks_bool clks_wm_move(u64 owner_pid, u64 window_id, i32 x, i32 y) {
         return CLKS_FALSE;
     }
 
-    fb_info = clks_fb_info();
-    max_x = (i32)fb_info.width - (i32)win->width;
-    max_y = (i32)fb_info.height - (i32)win->height;
+    screen_w = clks_wm_width();
+    screen_h = clks_wm_height();
+    max_x = (i32)screen_w - (i32)win->width;
+    max_y = (i32)screen_h - (i32)win->height;
 
     if (max_x < 0) {
         max_x = 0;
@@ -108,7 +110,6 @@ clks_bool clks_wm_set_flags(u64 owner_pid, u64 window_id, u64 flags) {
 clks_bool clks_wm_resize(u64 owner_pid, u64 window_id, u32 width, u32 height) {
     i32 slot = clks_wm_find_slot_by_id(window_id);
     struct clks_wm_window *win;
-    struct clks_framebuffer_info fb_info;
     u64 pixel_count;
     u32 *pixels;
     u32 copy_w;
@@ -116,6 +117,8 @@ clks_bool clks_wm_resize(u64 owner_pid, u64 window_id, u32 width, u32 height) {
     u32 y;
     i32 max_x;
     i32 max_y;
+    u32 screen_w;
+    u32 screen_h;
 
     if (slot < 0) {
         return CLKS_FALSE;
@@ -131,8 +134,9 @@ clks_bool clks_wm_resize(u64 owner_pid, u64 window_id, u32 width, u32 height) {
         return CLKS_FALSE;
     }
 
-    fb_info = clks_fb_info();
-    if (width > fb_info.width || height > fb_info.height) {
+    screen_w = clks_wm_width();
+    screen_h = clks_wm_height();
+    if (width > screen_w || height > screen_h) {
         return CLKS_FALSE;
     }
 
@@ -159,8 +163,8 @@ clks_bool clks_wm_resize(u64 owner_pid, u64 window_id, u32 width, u32 height) {
     win->width = width;
     win->height = height;
 
-    max_x = (i32)fb_info.width - (i32)width;
-    max_y = (i32)fb_info.height - (i32)height;
+    max_x = (i32)screen_w - (i32)width;
+    max_y = (i32)screen_h - (i32)height;
     if (max_x < 0) {
         max_x = 0;
     }

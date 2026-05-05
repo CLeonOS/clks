@@ -1,3 +1,4 @@
+#include <clks/display.h>
 #include <clks/exec.h>
 #include <clks/framebuffer.h>
 #include <clks/string.h>
@@ -103,6 +104,7 @@ static void clks_tty_write_n_internal(u32 tty_index, const char *text, usize len
 static void clks_tty_status_invalidate(void);
 static void clks_tty_put_codepoint_raw(u32 tty_index, u32 codepoint);
 static u32 clks_tty_codepoint_width(u32 codepoint);
+static void clks_tty_recompute_geometry(void);
 
 #include "tty/draw_dirty.inc"
 #include "tty/scrollback_search.inc"

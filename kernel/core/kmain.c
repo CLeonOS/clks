@@ -5,6 +5,7 @@
 #include <clks/bootsplash.h>
 #include <clks/cpu.h>
 #include <clks/desktop.h>
+#include <clks/display.h>
 #include <clks/driver.h>
 #include <clks/elfrunner.h>
 #include <clks/exec.h>
@@ -217,6 +218,7 @@ void clks_kernel_main(void) {
     /* TTY comes up only when framebuffer exists; no pixels, no pretty lies. */
     if (boot_fb != CLKS_NULL) {
         clks_fb_init(boot_fb);
+        clks_display_init();
         clks_tty_init();
         clks_bootsplash_init();
     }

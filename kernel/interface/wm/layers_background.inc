@@ -11,21 +11,22 @@ static clks_bool clks_wm_layer_ensure(void) {
     clks_wm_layer_free();
     return CLKS_FALSE;
 #else
-    struct clks_framebuffer_info fb = clks_fb_info();
     u64 pixel_count;
     u64 bytes;
+    u32 width = clks_wm_width();
+    u32 height = clks_wm_height();
 
-    if (fb.width == 0U || fb.height == 0U || fb.bpp != 32U) {
+    if (width == 0U || height == 0U) {
         return CLKS_FALSE;
     }
 
-    if (clks_wm_layers.ready == CLKS_TRUE && clks_wm_layers.width == fb.width && clks_wm_layers.height == fb.height) {
+    if (clks_wm_layers.ready == CLKS_TRUE && clks_wm_layers.width == width && clks_wm_layers.height == height) {
         return CLKS_TRUE;
     }
 
     clks_wm_layer_free();
 
-    pixel_count = (u64)fb.width * (u64)fb.height;
+    pixel_count = (u64)width * (u64)height;
     bytes = pixel_count * 4ULL;
     if (pixel_count == 0ULL || bytes == 0ULL || bytes > (u64)(~(usize)0U)) {
         return CLKS_FALSE;
@@ -37,9 +38,9 @@ static clks_bool clks_wm_layer_ensure(void) {
         return CLKS_FALSE;
     }
 
-    clks_wm_layers.width = fb.width;
-    clks_wm_layers.height = fb.height;
-    clks_wm_layers.pitch_bytes = fb.width * 4U;
+    clks_wm_layers.width = width;
+    clks_wm_layers.height = height;
+    clks_wm_layers.pitch_bytes = width * 4U;
     clks_wm_layers.pixel_count = pixel_count;
     clks_wm_layers.ready = CLKS_TRUE;
     clks_wm_layers.background_dirty = CLKS_TRUE;
@@ -134,36 +135,34 @@ static void clks_wm_fill_fb_box_clipped(i32 x, i32 y, i32 w, i32 h, u32 color, c
         return;
     }
 
-    clks_fb_fill_rect((u32)clipped.l, (u32)clipped.t, (u32)(clipped.r - clipped.l), (u32)(clipped.b - clipped.t),
-                      color);
+    clks_wm_fb_fill_rect(clipped.l, clipped.t, (u32)(clipped.r - clipped.l), (u32)(clipped.b - clipped.t), color);
 }
 
 static void clks_wm_copy_background_to_fb(const struct clks_wm_rect *rect) {
-    struct clks_framebuffer_info fb;
     struct clks_wm_rect body;
     struct clks_wm_rect topbar;
     struct clks_wm_rect clipped;
+    u32 width;
 
     if (rect == CLKS_NULL || rect->r <= rect->l || rect->b <= rect->t) {
         return;
     }
 
-    fb = clks_fb_info();
+    width = clks_wm_width();
     body = *rect;
     if (body.t < (i32)CLKS_WM_TOPBAR_HEIGHT) {
         body.t = (i32)CLKS_WM_TOPBAR_HEIGHT;
     }
     if (body.b > body.t) {
-        clks_fb_fill_rect((u32)body.l, (u32)body.t, (u32)(body.r - body.l), (u32)(body.b - body.t),
-                          (u32)CLKS_WM_BG_COLOR);
+        clks_wm_fb_fill_rect(body.l, body.t, (u32)(body.r - body.l), (u32)(body.b - body.t), (u32)CLKS_WM_BG_COLOR);
     }
 
     topbar.l = 0;
     topbar.t = 0;
-    topbar.r = (i32)fb.width;
+    topbar.r = (i32)width;
     topbar.b = (i32)CLKS_WM_TOPBAR_HEIGHT;
     if (clks_wm_rect_intersect(rect, &topbar, &clipped) == CLKS_TRUE) {
-        clks_fb_fill_rect((u32)clipped.l, (u32)clipped.t, (u32)(clipped.r - clipped.l), (u32)(clipped.b - clipped.t),
-                          (u32)CLKS_WM_TOPBAR_COLOR);
+        clks_wm_fb_fill_rect(clipped.l, clipped.t, (u32)(clipped.r - clipped.l), (u32)(clipped.b - clipped.t),
+                             (u32)CLKS_WM_TOPBAR_COLOR);
     }
 }

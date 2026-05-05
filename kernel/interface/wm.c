@@ -1,3 +1,4 @@
+#include <clks/display.h>
 #include <clks/exec.h>
 #include <clks/framebuffer.h>
 #include <clks/heap.h>
@@ -141,6 +142,13 @@ static struct clks_wm_layers clks_wm_layers;
 static struct clks_wm_timing clks_wm_timing;
 
 static void clks_wm_reap_dead_owners(void);
+static i32 clks_wm_origin_x(void);
+static i32 clks_wm_origin_y(void);
+static void clks_wm_fb_fill_rect(i32 x, i32 y, u32 width, u32 height, u32 color);
+static void clks_wm_fb_blit_rgba(i32 x, i32 y, const void *pixels, u32 width, u32 height, u32 pitch_bytes);
+static void clks_wm_fb_draw_char(i32 x, i32 y, char ch, u32 fg, u32 bg);
+static void clks_wm_fb_draw_pixel(i32 x, i32 y, u32 color);
+static clks_bool clks_wm_fb_read_pixel(i32 x, i32 y, u32 *out_color);
 
 #include "wm/window_list.inc"
 #include "wm/timing.inc"

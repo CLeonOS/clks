@@ -1,19 +1,21 @@
 static clks_bool clks_wm_rect_clip_to_screen(i32 l, i32 t, i32 r, i32 b, struct clks_wm_rect *out_rect) {
-    struct clks_framebuffer_info fb;
     i32 max_r;
     i32 max_b;
+    u32 width;
+    u32 height;
 
     if (out_rect == CLKS_NULL) {
         return CLKS_FALSE;
     }
 
-    fb = clks_fb_info();
-    if (fb.width == 0U || fb.height == 0U) {
+    width = clks_wm_width();
+    height = clks_wm_height();
+    if (width == 0U || height == 0U) {
         return CLKS_FALSE;
     }
 
-    max_r = (i32)fb.width;
-    max_b = (i32)fb.height;
+    max_r = (i32)width;
+    max_b = (i32)height;
 
     if (l < 0) {
         l = 0;
@@ -145,17 +147,18 @@ static void clks_wm_damage_remove(struct clks_wm_damage_list *list, u32 index) {
 }
 
 static void clks_wm_damage_force_full(struct clks_wm_damage_list *list) {
-    struct clks_framebuffer_info fb = clks_fb_info();
+    u32 width = clks_wm_width();
+    u32 height = clks_wm_height();
 
-    if (list == CLKS_NULL || fb.width == 0U || fb.height == 0U) {
+    if (list == CLKS_NULL || width == 0U || height == 0U) {
         return;
     }
 
     list->count = 1U;
     list->rects[0].l = 0;
     list->rects[0].t = 0;
-    list->rects[0].r = (i32)fb.width;
-    list->rects[0].b = (i32)fb.height;
+    list->rects[0].r = (i32)width;
+    list->rects[0].b = (i32)height;
 }
 
 static void clks_wm_damage_add(struct clks_wm_damage_list *list, const struct clks_wm_rect *input) {
@@ -224,7 +227,7 @@ static void clks_wm_damage_add(struct clks_wm_damage_list *list, const struct cl
         total_area += clks_wm_rect_area(&list->rects[i]);
     }
 
-    screen_area = (u64)clks_wm_layers.width * (u64)clks_wm_layers.height;
+    screen_area = (u64)clks_wm_width() * (u64)clks_wm_height();
     if (screen_area != 0ULL && (total_area * 100ULL) > (screen_area * CLKS_WM_DAMAGE_FULL_THRESHOLD_PERCENT)) {
         clks_wm_damage_force_full(list);
     }
@@ -268,30 +271,28 @@ static void clks_wm_mark_stats_dirty(void) {
 #if CLKS_CFG_WM_STATS_OVERLAY == 0
     return;
 #else
-    struct clks_framebuffer_info fb = clks_fb_info();
     u32 cell_w = clks_fb_cell_width();
     u32 cell_h = clks_fb_cell_height();
+    u32 width = clks_wm_width();
+    u32 height = clks_wm_height();
     u32 box_w;
     u32 box_h;
 
-    if (fb.width == 0U || fb.height == 0U || cell_w == 0U || cell_h == 0U) {
+    if (width == 0U || height == 0U || cell_w == 0U || cell_h == 0U) {
         return;
     }
 
     box_w = (CLKS_WM_STATS_TEXT_CELLS * cell_w) + 8U;
     box_h = cell_h + 6U;
-    if (box_w + 4U > fb.width || box_h + 4U > fb.height) {
+    if (box_w + 4U > width || box_h + 4U > height) {
         return;
     }
 
-    clks_wm_mark_present_dirty_rect((i32)(fb.width - box_w - 4U), (i32)(fb.height - box_h - 4U), (i32)(fb.width - 4U),
-                                    (i32)(fb.height - 4U));
+    clks_wm_mark_present_dirty_rect((i32)(width - box_w - 4U), (i32)(height - box_h - 4U), (i32)(width - 4U),
+                                    (i32)(height - 4U));
 #endif
 }
 
 static void clks_wm_mark_dirty_full(void) {
-    struct clks_framebuffer_info fb = clks_fb_info();
-
-    clks_wm_mark_scene_dirty_rect(0, 0, (i32)fb.width, (i32)fb.height);
+    clks_wm_mark_scene_dirty_rect(0, 0, (i32)clks_wm_width(), (i32)clks_wm_height());
 }
-

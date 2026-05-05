@@ -17,5 +17,8 @@ clks_bool clks_tty_scrollback_handle_key(char ch);
 u32 clks_tty_active(void);
 u32 clks_tty_count(void);
 clks_bool clks_tty_ready(void);
+clks_bool clks_tty_set_resolution(u32 width, u32 height);
+u32 clks_tty_width(void);
+u32 clks_tty_height(void);
 
 #endif

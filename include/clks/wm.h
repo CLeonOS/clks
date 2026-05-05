@@ -49,5 +49,8 @@ clks_bool clks_wm_move(u64 owner_pid, u64 window_id, i32 x, i32 y);
 clks_bool clks_wm_set_focus(u64 owner_pid, u64 window_id);
 clks_bool clks_wm_set_flags(u64 owner_pid, u64 window_id, u64 flags);
 clks_bool clks_wm_resize(u64 owner_pid, u64 window_id, u32 width, u32 height);
+clks_bool clks_wm_set_resolution(u32 width, u32 height);
+u32 clks_wm_width(void);
+u32 clks_wm_height(void);
 
 #endif

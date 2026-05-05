@@ -238,6 +238,10 @@ static const char *clks_syscall_name(u64 id) {
         return "VM_FREE";
     case CLKS_SYSCALL_MMAP:
         return "MMAP";
+    case CLKS_SYSCALL_DISPLAY_INFO:
+        return "DISPLAY_INFO";
+    case CLKS_SYSCALL_DISPLAY_SET_MODE:
+        return "DISPLAY_SET_MODE";
     case CLKS_SYSCALL_USER_CURRENT:
         return "USER_CURRENT";
     case CLKS_SYSCALL_USER_LOGIN:

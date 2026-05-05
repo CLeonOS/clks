@@ -1,10 +1,11 @@
 u64 clks_wm_create(u64 owner_pid, i32 x, i32 y, u32 width, u32 height, u64 flags) {
-    struct clks_framebuffer_info fb_info;
     i32 slot;
     i32 max_x;
     i32 max_y;
     u64 pixel_count;
     u32 *pixels;
+    u32 screen_w;
+    u32 screen_h;
 
     if (clks_wm_ready_flag == CLKS_FALSE) {
         return 0ULL;
@@ -15,13 +16,14 @@ u64 clks_wm_create(u64 owner_pid, i32 x, i32 y, u32 width, u32 height, u64 flags
         return 0ULL;
     }
 
-    fb_info = clks_fb_info();
-    if (width > fb_info.width || height > fb_info.height) {
+    screen_w = clks_wm_width();
+    screen_h = clks_wm_height();
+    if (width > screen_w || height > screen_h) {
         return 0ULL;
     }
 
-    max_x = (i32)fb_info.width - (i32)width;
-    max_y = (i32)fb_info.height - (i32)height;
+    max_x = (i32)screen_w - (i32)width;
+    max_y = (i32)screen_h - (i32)height;
     if (max_x < 0) {
         max_x = 0;
     }
