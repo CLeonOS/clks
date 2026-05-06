@@ -202,6 +202,8 @@ void clks_kernel_main(void) {
     u64 syscall_ticks;
     u64 fs_root_children;
     clks_bool boot_splash_was_active;
+    clks_bool rescue_mode;
+    clks_bool boot_splash_enabled;
 
     /* Serial first, because when graphics dies we still need a heartbeat. */
     clks_serial_init();
@@ -214,16 +216,27 @@ void clks_kernel_main(void) {
     }
 
     boot_fb = clks_boot_get_framebuffer();
+    rescue_mode = clks_boot_rescue_mode();
+    boot_splash_enabled = (rescue_mode == CLKS_FALSE &&
+                           clks_boot_cmdline_flag_enabled("clks.nosplash") == CLKS_FALSE &&
+                           clks_boot_cmdline_flag_enabled("nosplash") == CLKS_FALSE)
+                              ? CLKS_TRUE
+                              : CLKS_FALSE;
 
     /* TTY comes up only when framebuffer exists; no pixels, no pretty lies. */
     if (boot_fb != CLKS_NULL) {
         clks_fb_init(boot_fb);
         clks_display_init();
         clks_tty_init();
-        clks_bootsplash_init();
+        if (boot_splash_enabled == CLKS_TRUE) {
+            clks_bootsplash_init();
+        }
     }
 
     clks_log(CLKS_LOG_INFO, "BOOT", "CLeonKernelSystem START");
+    if (rescue_mode == CLKS_TRUE) {
+        clks_log(CLKS_LOG_WARN, "BOOT", "RESCUE MODE ENABLED");
+    }
     clks_bootsplash_step(3U, "boot protocol");
 
     if (boot_fb == CLKS_NULL) {

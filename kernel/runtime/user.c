@@ -1,3 +1,4 @@
+#include <clks/boot.h>
 #include <clks/disk.h>
 #include <clks/exec.h>
 #include <clks/fs.h>
@@ -701,6 +702,9 @@ void clks_user_init(void) {
         (CLKS_CFG_USER_SYSTEM != 0 && CLKS_CFG_USER_DISK_LOGIN != 0 && clks_user_is_disk_boot() == CLKS_TRUE)
             ? CLKS_TRUE
             : CLKS_FALSE;
+    if (clks_user_is_disk_boot() == CLKS_TRUE && clks_boot_rescue_mode() == CLKS_TRUE) {
+        clks_user_disk_login_required = CLKS_FALSE;
+    }
 #if CLKS_CFG_USER_BOOT_LOG
     clks_log(CLKS_LOG_INFO, "USER", "KERNEL USER SYSTEM ONLINE");
     clks_log_hex(CLKS_LOG_INFO, "USER", "DISK_LOGIN_REQUIRED",

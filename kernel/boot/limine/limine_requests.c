@@ -83,6 +83,82 @@ const struct limine_file *clks_boot_get_executable_file(void) {
     return request->response->executable_file;
 }
 
+const char *clks_boot_get_cmdline(void) {
+    const struct limine_file *file = clks_boot_get_executable_file();
+
+    if (file == CLKS_NULL || file->string == CLKS_NULL) {
+        return "";
+    }
+
+    return file->string;
+}
+
+static clks_bool clks_boot_token_matches(const char *token, const char *name, usize name_len) {
+    usize i;
+
+    if (token == CLKS_NULL || name == CLKS_NULL || name_len == 0U) {
+        return CLKS_FALSE;
+    }
+
+    for (i = 0U; i < name_len; i++) {
+        if (token[i] != name[i]) {
+            return CLKS_FALSE;
+        }
+    }
+
+    if (token[name_len] == '\0' || token[name_len] == ' ' || token[name_len] == '\t') {
+        return CLKS_TRUE;
+    }
+
+    if (token[name_len] == '=') {
+        char value = token[name_len + 1U];
+        return (value == '1' || value == 'y' || value == 'Y' || value == 't' || value == 'T') ? CLKS_TRUE
+                                                                                              : CLKS_FALSE;
+    }
+
+    return CLKS_FALSE;
+}
+
+clks_bool clks_boot_cmdline_flag_enabled(const char *name) {
+    const char *cmdline = clks_boot_get_cmdline();
+    usize name_len = 0U;
+    usize i = 0U;
+
+    if (name == CLKS_NULL || name[0] == '\0') {
+        return CLKS_FALSE;
+    }
+
+    while (name[name_len] != '\0') {
+        name_len++;
+    }
+
+    while (cmdline[i] != '\0') {
+        while (cmdline[i] == ' ' || cmdline[i] == '\t') {
+            i++;
+        }
+        if (cmdline[i] == '\0') {
+            break;
+        }
+
+        if (clks_boot_token_matches(cmdline + i, name, name_len) == CLKS_TRUE) {
+            return CLKS_TRUE;
+        }
+
+        while (cmdline[i] != '\0' && cmdline[i] != ' ' && cmdline[i] != '\t') {
+            i++;
+        }
+    }
+
+    return CLKS_FALSE;
+}
+
+clks_bool clks_boot_rescue_mode(void) {
+    return (clks_boot_cmdline_flag_enabled("clks.rescue") == CLKS_TRUE ||
+            clks_boot_cmdline_flag_enabled("rescue") == CLKS_TRUE)
+               ? CLKS_TRUE
+               : CLKS_FALSE;
+}
+
 u64 clks_boot_get_module_count(void) {
     volatile struct limine_module_request *request = &limine_module_request;
 
