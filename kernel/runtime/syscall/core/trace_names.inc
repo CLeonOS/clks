@@ -244,6 +244,18 @@ static const char *clks_syscall_name(u64 id) {
         return "DISPLAY_SET_MODE";
     case CLKS_SYSCALL_TTY_GRID_INFO:
         return "TTY_GRID_INFO";
+    case CLKS_SYSCALL_INPUTM_COUNT:
+        return "INPUTM_COUNT";
+    case CLKS_SYSCALL_INPUTM_INFO:
+        return "INPUTM_INFO";
+    case CLKS_SYSCALL_INPUTM_CURRENT:
+        return "INPUTM_CURRENT";
+    case CLKS_SYSCALL_INPUTM_SELECT:
+        return "INPUTM_SELECT";
+    case CLKS_SYSCALL_INPUTM_REGISTER:
+        return "INPUTM_REGISTER";
+    case CLKS_SYSCALL_TTY_STATUS_SET:
+        return "TTY_STATUS_SET";
     case CLKS_SYSCALL_USER_CURRENT:
         return "USER_CURRENT";
     case CLKS_SYSCALL_USER_LOGIN:

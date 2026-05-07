@@ -1,6 +1,7 @@
 #include <clks/display.h>
 #include <clks/exec.h>
 #include <clks/framebuffer.h>
+#include <clks/inputm.h>
 #include <clks/string.h>
 #include <clks/tty.h>
 #include <clks/types.h>

@@ -293,6 +293,18 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_display_set_mode(frame->rbx));
     case CLKS_SYSCALL_TTY_GRID_INFO:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_tty_grid_info(frame->rbx));
+    case CLKS_SYSCALL_INPUTM_COUNT:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_inputm_count());
+    case CLKS_SYSCALL_INPUTM_INFO:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_inputm_info(frame->rbx, frame->rcx, frame->rdx));
+    case CLKS_SYSCALL_INPUTM_CURRENT:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_inputm_current());
+    case CLKS_SYSCALL_INPUTM_SELECT:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_inputm_select(frame->rbx));
+    case CLKS_SYSCALL_INPUTM_REGISTER:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_inputm_register(frame->rbx));
+    case CLKS_SYSCALL_TTY_STATUS_SET:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_tty_status_set(frame->rbx));
     case CLKS_SYSCALL_KERNEL_VERSION:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_kernel_version(frame->rbx, frame->rcx));
     case CLKS_SYSCALL_DISK_PRESENT:

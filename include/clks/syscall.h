@@ -154,10 +154,32 @@
 #define CLKS_SYSCALL_DISPLAY_INFO 147ULL
 #define CLKS_SYSCALL_DISPLAY_SET_MODE 148ULL
 #define CLKS_SYSCALL_TTY_GRID_INFO 149ULL
+#define CLKS_SYSCALL_INPUTM_COUNT 150ULL
+#define CLKS_SYSCALL_INPUTM_INFO 151ULL
+#define CLKS_SYSCALL_INPUTM_CURRENT 152ULL
+#define CLKS_SYSCALL_INPUTM_SELECT 153ULL
+#define CLKS_SYSCALL_INPUTM_REGISTER 154ULL
+#define CLKS_SYSCALL_TTY_STATUS_SET 155ULL
 
 #define CLKS_SYSINFO_TEXT_MAX 32U
 #define CLKS_SYSINFO_BOOT_MODE_MAX 16U
 #define CLKS_LOCALE_TEXT_MAX 32U
+#define CLKS_INPUTM_NAME_MAX 32U
+#define CLKS_INPUTM_PATH_MAX 192U
+#define CLKS_INPUTM_FLAG_CHINESE_PINYIN 0x1ULL
+
+struct clks_inputm_info {
+    char name[CLKS_INPUTM_NAME_MAX];
+    char path[CLKS_INPUTM_PATH_MAX];
+    u64 flags;
+    u64 active;
+};
+
+struct clks_inputm_register_req {
+    u64 name_ptr;
+    u64 path_ptr;
+    u64 flags;
+};
 
 struct clks_display_info {
     u64 target;

@@ -8,6 +8,7 @@
 #include <clks/fs.h>
 #include <clks/heap.h>
 #include <clks/interrupts.h>
+#include <clks/inputm.h>
 #include <clks/kelf.h>
 #include <clks/keyboard.h>
 #include <clks/locale.h>
@@ -33,6 +34,7 @@
 #include "syscall/storage/disk.inc"
 #include "syscall/network/net.inc"
 #include "syscall/ui/wm.inc"
+#include "syscall/ui/inputm.inc"
 #include "syscall/runtime/fd_driver_dl.inc"
 #include "syscall/runtime/procfs_kdbg.inc"
 #include "syscall/storage/fs_read.inc"

@@ -13,6 +13,7 @@
 #include <clks/fs.h>
 #include <clks/heap.h>
 #include <clks/interrupts.h>
+#include <clks/inputm.h>
 #include <clks/keyboard.h>
 #include <clks/kelf.h>
 #include <clks/kernel.h>
@@ -366,6 +367,7 @@ void clks_kernel_main(void) {
     clks_log(CLKS_LOG_WARN, "CFG", "AUDIO DISABLED BY MENUCONFIG");
 #endif
 #if CLKS_CFG_KEYBOARD
+    clks_inputm_init();
     clks_keyboard_init();
 #else
     clks_log(CLKS_LOG_WARN, "CFG", "KEYBOARD DISABLED BY MENUCONFIG");

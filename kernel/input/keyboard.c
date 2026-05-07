@@ -1,4 +1,5 @@
 #include <clks/exec.h>
+#include <clks/inputm.h>
 #include <clks/keyboard.h>
 #include <clks/log.h>
 #include <clks/shell.h>
@@ -16,6 +17,7 @@
 #define CLKS_SC_F4 0x3EU
 #define CLKS_SC_R 0x13U
 #define CLKS_SC_C 0x2EU
+#define CLKS_SC_SPACE 0x39U
 #define CLKS_SC_EXT_PREFIX 0xE0U
 
 #define CLKS_SC_EXT_HOME 0x47U
@@ -150,6 +152,28 @@ static clks_bool clks_keyboard_queue_push_for_tty(u32 tty_index, char ch) {
     clks_kbd_input_count[tty]++;
     clks_kbd_push_count++;
     return CLKS_TRUE;
+}
+
+clks_bool clks_keyboard_inject_char_for_tty(u32 tty_index, char ch) {
+    return clks_keyboard_queue_push_for_tty(tty_index, ch);
+}
+
+clks_bool clks_keyboard_inject_text_for_tty(u32 tty_index, const char *text) {
+    clks_bool ok = CLKS_TRUE;
+
+    if (text == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    while (*text != '\0') {
+        if (clks_keyboard_queue_push_for_tty(tty_index, *text) == CLKS_FALSE) {
+            ok = CLKS_FALSE;
+            break;
+        }
+        text++;
+    }
+
+    return ok;
 }
 
 static clks_bool clks_keyboard_shell_input_enabled(void) {
@@ -433,8 +457,25 @@ void clks_keyboard_handle_scancode(u8 scancode) {
         return;
     }
 
+    if (code == CLKS_SC_SPACE && clks_keyboard_ctrl_active() == CLKS_TRUE &&
+        clks_keyboard_shift_active() == CLKS_TRUE) {
+        clks_inputm_cycle();
+        return;
+    }
+
     if (code == CLKS_SC_ESC && clks_tty_scrollback_handle_key(27) == CLKS_TRUE) {
         return;
+    }
+
+    if (code == CLKS_SC_ESC) {
+        u32 active_tty = clks_tty_active();
+
+        if (clks_inputm_handle_char(active_tty, 27) == CLKS_TRUE) {
+            if (clks_keyboard_should_pump_shell_now() == CLKS_TRUE) {
+                clks_shell_pump_input(32U);
+            }
+            return;
+        }
     }
 
     {
@@ -453,6 +494,12 @@ void clks_keyboard_handle_scancode(u8 scancode) {
 
         if (translated != '\0') {
             if (clks_tty_scrollback_handle_key(translated) == CLKS_TRUE) {
+                return;
+            }
+            if (clks_inputm_handle_char(active_tty, translated) == CLKS_TRUE) {
+                if (clks_keyboard_should_pump_shell_now() == CLKS_TRUE) {
+                    clks_shell_pump_input(32U);
+                }
                 return;
             }
             if (clks_keyboard_queue_push_for_tty(active_tty, translated) == CLKS_TRUE &&
