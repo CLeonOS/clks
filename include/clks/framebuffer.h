@@ -35,6 +35,7 @@ void clks_fb_draw_codepoint_scaled_xy(u32 x, u32 y, u32 codepoint, u32 fg_rgb, u
 void clks_fb_draw_codepoint_scaled_clip(u32 x, u32 y, u32 codepoint, u32 fg_rgb, u32 bg_rgb, u32 style_flags,
                                         u32 scale_x, u32 scale_y, u32 clip_width, u32 clip_height);
 clks_bool clks_fb_load_psf_font(const void *blob, u64 blob_size);
+clks_bool clks_fb_load_ttf_font(const void *blob, u64 blob_size);
 u32 clks_fb_cell_width(void);
 u32 clks_fb_half_cell_width(void);
 u32 clks_fb_cell_height(void);

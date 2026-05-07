@@ -60,8 +60,8 @@
 #define CLKS_CFG_HEAP_SELFTEST 1
 #endif
 
-#ifndef CLKS_CFG_EXTERNAL_PSF
-#define CLKS_CFG_EXTERNAL_PSF 1
+#ifndef CLKS_CFG_EXTERNAL_TTY_FONT
+#define CLKS_CFG_EXTERNAL_TTY_FONT 1
 #endif
 
 #ifndef CLKS_CFG_KEYBOARD
@@ -337,23 +337,24 @@ void clks_kernel_main(void) {
 #endif
 
     if (boot_fb != CLKS_NULL) {
-#if CLKS_CFG_EXTERNAL_PSF
-        const void *tty_psf_blob;
-        u64 tty_psf_size = 0ULL;
+#if CLKS_CFG_EXTERNAL_TTY_FONT
+        const void *tty_ttf_blob;
+        u64 tty_ttf_size = 0ULL;
 
-        tty_psf_blob = clks_fs_read_all("/system/tty.psf", &tty_psf_size);
+        tty_ttf_blob = clks_fs_read_all("/system/tty.ttf", &tty_ttf_size);
 
-        if (tty_psf_blob != CLKS_NULL && clks_fb_load_psf_font(tty_psf_blob, tty_psf_size) == CLKS_TRUE) {
+        if (tty_ttf_blob != CLKS_NULL && clks_fb_load_ttf_font(tty_ttf_blob, tty_ttf_size) == CLKS_TRUE) {
             clks_tty_init();
             clks_bootsplash_step(50U, "tty font loaded");
-            clks_log(CLKS_LOG_INFO, "TTY", "EXTERNAL PSF LOADED /SYSTEM/TTY.PSF");
-            clks_log_hex(CLKS_LOG_INFO, "TTY", "PSF_SIZE", tty_psf_size);
+            clks_log(CLKS_LOG_INFO, "TTY", "EXTERNAL TTF LOADED /SYSTEM/TTY.TTF");
+            clks_log_hex(CLKS_LOG_INFO, "TTY", "TTF_SIZE", tty_ttf_size);
         } else {
-            clks_log(CLKS_LOG_WARN, "TTY", "EXTERNAL PSF LOAD FAILED, USING BUILTIN");
+            clks_log(CLKS_LOG_WARN, "TTY", "EXTERNAL TTF LOAD FAILED, USING BUILTIN");
+            clks_log_hex(CLKS_LOG_WARN, "TTY", "TTF_SIZE", tty_ttf_size);
             clks_bootsplash_step(50U, "builtin tty font");
         }
 #else
-        clks_log(CLKS_LOG_WARN, "CFG", "EXTERNAL PSF LOADING DISABLED BY MENUCONFIG");
+        clks_log(CLKS_LOG_WARN, "CFG", "EXTERNAL TTY FONT LOADING DISABLED BY MENUCONFIG");
         clks_bootsplash_step(50U, "tty font skipped");
 #endif
     }

@@ -222,11 +222,11 @@
       "default": true
     },
     {
-      "key": "CLEONOS_CLKS_ENABLE_EXTERNAL_PSF",
-      "title": "Load External PSF Font",
-      "title_zh": "加载外部 PSF 字体",
-      "description": "Load /system/tty.psf and apply it to framebuffer TTY.",
-      "description_zh": "加载 /system/tty.psf 并应用到 framebuffer TTY。",
+      "key": "CLEONOS_CLKS_ENABLE_EXTERNAL_TTY_FONT",
+      "title": "Load External TTY TTF Font",
+      "title_zh": "加载外部 TTY TTF 字体",
+      "description": "Load /system/tty.ttf and apply it to framebuffer TTY.",
+      "description_zh": "加载 /system/tty.ttf 并应用到 framebuffer TTY。",
       "type": "bool",
       "default": true
     },

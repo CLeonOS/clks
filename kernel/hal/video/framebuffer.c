@@ -1,9 +1,11 @@
 #include <clks/framebuffer.h>
 #include <clks/heap.h>
 #include <clks/string.h>
+#include <clks/ttf.h>
 #include <clks/types.h>
 
 #include "psf_font.h"
+#include "../../font/ttf.c"
 
 struct clks_fb_state {
     volatile u8 *address;
@@ -14,8 +16,11 @@ struct clks_fb_state {
     const struct clks_psf_font *font;
     u8 *external_font_blob;
     u64 external_font_blob_size;
+    clks_bool external_font_blob_owned;
     struct clks_psf_font external_font;
     clks_bool external_font_active;
+    struct xiaobaios_ttf_font ttf_font;
+    clks_bool ttf_font_active;
     u32 glyph_width;
     u32 glyph_height;
     clks_bool ready;
@@ -30,8 +35,11 @@ static struct clks_fb_state clks_fb = {
     .font = CLKS_NULL,
     .external_font_blob = CLKS_NULL,
     .external_font_blob_size = 0ULL,
+    .external_font_blob_owned = CLKS_FALSE,
     .external_font = {0, 0, 0, 0, 0, CLKS_NULL, CLKS_NULL, 0ULL},
     .external_font_active = CLKS_FALSE,
+    .ttf_font = {0},
+    .ttf_font_active = CLKS_FALSE,
     .glyph_width = 8U,
     .glyph_height = 8U,
     .ready = CLKS_FALSE,
@@ -145,6 +153,7 @@ static void clks_fb_fill_span_color32(u32 *dst, u32 pixel_count, u32 fill_rgb) {
 
 static void clks_fb_apply_font(const struct clks_psf_font *font) {
     clks_fb.font = font;
+    clks_fb.ttf_font_active = CLKS_FALSE;
     clks_fb.glyph_width = 8U;
     clks_fb.glyph_height = 8U;
 
@@ -157,6 +166,69 @@ static void clks_fb_apply_font(const struct clks_psf_font *font) {
             clks_fb.glyph_height = font->height;
         }
     }
+}
+
+static void clks_fb_apply_ttf_font(const struct xiaobaios_ttf_font *font) {
+    u32 pixel_height = 22U;
+
+    clks_fb.font = CLKS_NULL;
+    clks_fb.ttf_font_active = (font != CLKS_NULL && font->ready == CLKS_TRUE) ? CLKS_TRUE : CLKS_FALSE;
+    clks_fb.glyph_width = 10U;
+    clks_fb.glyph_height = pixel_height;
+}
+
+static u32 clks_fb_blend_rgb(u32 fg_rgb, u32 bg_rgb, u8 alpha) {
+    u32 inv;
+    u32 fr;
+    u32 fg;
+    u32 fb;
+    u32 br;
+    u32 bg;
+    u32 bb;
+    u32 r;
+    u32 g;
+    u32 b;
+
+    if (alpha == 0U) {
+        return bg_rgb;
+    }
+    if (alpha == 255U) {
+        return fg_rgb;
+    }
+
+    inv = 255U - (u32)alpha;
+    fr = (fg_rgb >> 16U) & 0xFFU;
+    fg = (fg_rgb >> 8U) & 0xFFU;
+    fb = fg_rgb & 0xFFU;
+    br = (bg_rgb >> 16U) & 0xFFU;
+    bg = (bg_rgb >> 8U) & 0xFFU;
+    bb = bg_rgb & 0xFFU;
+
+    r = ((fr * (u32)alpha) + (br * inv) + 127U) / 255U;
+    g = ((fg * (u32)alpha) + (bg * inv) + 127U) / 255U;
+    b = ((fb * (u32)alpha) + (bb * inv) + 127U) / 255U;
+    return (r << 16U) | (g << 8U) | b;
+}
+
+static u8 clks_fb_ttf_sharpen_alpha(u8 alpha) {
+    u32 value;
+
+    if (alpha <= 24U) {
+        return 0U;
+    }
+    if (alpha >= 208U) {
+        return 255U;
+    }
+
+    value = (((u32)alpha - 24U) * 255U + 92U) / 184U;
+    return (value > 255U) ? 255U : (u8)value;
+}
+
+static u8 clks_fb_ttf_alpha_at(const struct xiaobaios_ttf_bitmap *bitmap, u32 row, u32 col) {
+    if (bitmap == CLKS_NULL || row >= XIAOBAIOS_TTF_BITMAP_MAX_H || col >= XIAOBAIOS_TTF_BITMAP_MAX_W) {
+        return 0U;
+    }
+    return bitmap->alpha[row][col];
 }
 
 static void clks_fb_put_pixel(u32 x, u32 y, u32 rgb) {
@@ -251,11 +323,14 @@ void clks_fb_init(const struct limine_framebuffer *fb) {
     }
 
     clks_fb.external_font_active = CLKS_FALSE;
-    if (clks_fb.external_font_blob != CLKS_NULL) {
+    clks_fb.ttf_font_active = CLKS_FALSE;
+    clks_memset(&clks_fb.ttf_font, 0, sizeof(clks_fb.ttf_font));
+    if (clks_fb.external_font_blob != CLKS_NULL && clks_fb.external_font_blob_owned == CLKS_TRUE) {
         clks_kfree(clks_fb.external_font_blob);
-        clks_fb.external_font_blob = CLKS_NULL;
-        clks_fb.external_font_blob_size = 0ULL;
     }
+    clks_fb.external_font_blob = CLKS_NULL;
+    clks_fb.external_font_blob_size = 0ULL;
+    clks_fb.external_font_blob_owned = CLKS_FALSE;
     clks_fb_apply_font(clks_psf_default_font());
 
     clks_fb.ready = CLKS_TRUE;
@@ -494,6 +569,7 @@ void clks_fb_draw_codepoint_scaled_xy(u32 x, u32 y, u32 codepoint, u32 fg_rgb, u
 void clks_fb_draw_codepoint_scaled_clip(u32 x, u32 y, u32 codepoint, u32 fg_rgb, u32 bg_rgb, u32 style_flags,
                                         u32 scale_x, u32 scale_y, u32 clip_width, u32 clip_height) {
     const u8 *glyph;
+    struct xiaobaios_ttf_bitmap ttf_bitmap;
     u32 row;
     u32 col;
     u32 cols;
@@ -507,7 +583,7 @@ void clks_fb_draw_codepoint_scaled_clip(u32 x, u32 y, u32 codepoint, u32 fg_rgb,
     clks_bool style_underline;
     u32 underline_row;
 
-    if (clks_fb.ready == CLKS_FALSE || clks_fb.font == CLKS_NULL) {
+    if (clks_fb.ready == CLKS_FALSE || (clks_fb.font == CLKS_NULL && clks_fb.ttf_font_active == CLKS_FALSE)) {
         return;
     }
 
@@ -535,8 +611,6 @@ void clks_fb_draw_codepoint_scaled_clip(u32 x, u32 y, u32 codepoint, u32 fg_rgb,
         scale_y = 3U;
     }
 
-    glyph = clks_psf_glyph(clks_fb.font, codepoint);
-
     cols = clks_fb.glyph_width;
     rows = clks_fb.glyph_height;
 
@@ -547,6 +621,106 @@ void clks_fb_draw_codepoint_scaled_clip(u32 x, u32 y, u32 codepoint, u32 fg_rgb,
     if (rows == 0U) {
         rows = 8U;
     }
+
+    if (clks_fb.ttf_font_active == CLKS_TRUE) {
+        u32 ttf_pixel_height = rows * scale_y;
+        if (ttf_pixel_height == 0U) {
+            ttf_pixel_height = rows;
+        }
+        if (ttf_pixel_height > XIAOBAIOS_TTF_BITMAP_MAX_H) {
+            ttf_pixel_height = XIAOBAIOS_TTF_BITMAP_MAX_H;
+        }
+
+        /*
+         * Render TTF at the final requested pixel height. Scaling a small glyph
+         * bitmap makes large headings look soft/pixelated, especially at 2x/3x.
+         */
+        if (xiaobaios_ttf_rasterize(&clks_fb.ttf_font, codepoint, ttf_pixel_height, &ttf_bitmap) == CLKS_TRUE) {
+            cols = (ttf_bitmap.width > 0) ? (u32)ttf_bitmap.width : cols;
+            rows = (ttf_bitmap.height > 0) ? (u32)ttf_bitmap.height : rows;
+
+            out_cols = cols;
+            out_rows = rows;
+            if (out_cols == 0U || out_rows == 0U) {
+                return;
+            }
+
+            draw_cols = out_cols;
+            if (clip_width > 0U && draw_cols > clip_width) {
+                draw_cols = clip_width;
+            }
+            if (x + draw_cols > clks_fb.info.width) {
+                draw_cols = clks_fb.info.width - x;
+            }
+
+            draw_rows = out_rows;
+            if (clip_height > 0U && draw_rows > clip_height) {
+                draw_rows = clip_height;
+            }
+            if (y + draw_rows > clks_fb.info.height) {
+                draw_rows = clks_fb.info.height - y;
+            }
+
+            style_bold = ((style_flags & CLKS_FB_STYLE_BOLD) != 0U) ? CLKS_TRUE : CLKS_FALSE;
+            style_underline = ((style_flags & CLKS_FB_STYLE_UNDERLINE) != 0U) ? CLKS_TRUE : CLKS_FALSE;
+            underline_row = (out_rows > 2U) ? (out_rows - 2U) : 0U;
+
+            for (row = 0U; row < draw_rows; row++) {
+                u32 glyph_row = row;
+                u32 *dst_row =
+                    (u32 *)(void *)(clks_fb.address + ((usize)(y + row) * (usize)clks_fb.info.pitch) + ((usize)x * 4U));
+                u32 *shadow_row =
+                    (clks_fb.shadow_ready == CLKS_TRUE)
+                        ? (u32 *)(void *)(clks_fb.shadow + ((usize)(y + row) * (usize)clks_fb.info.pitch) +
+                                          ((usize)x * 4U))
+                        : CLKS_NULL;
+
+                for (col = 0U; col < draw_cols; col++) {
+                    u32 glyph_col = col;
+                    u8 alpha = 0U;
+                    u8 neighbor_alpha;
+                    u32 color;
+
+                    alpha = clks_fb_ttf_alpha_at(&ttf_bitmap, glyph_row, glyph_col);
+
+                    /* Slight synthetic embolden keeps CJK and small status text from looking washed out. */
+                    neighbor_alpha = clks_fb_ttf_alpha_at(&ttf_bitmap, glyph_row, glyph_col > 0U ? glyph_col - 1U : 0U);
+                    if (neighbor_alpha > alpha) {
+                        alpha = (u8)(((u32)alpha + (u32)neighbor_alpha + 1U) / 2U);
+                    }
+                    neighbor_alpha = clks_fb_ttf_alpha_at(&ttf_bitmap, glyph_row, glyph_col + 1U);
+                    if (neighbor_alpha > alpha) {
+                        alpha = (u8)(((u32)alpha * 3U + (u32)neighbor_alpha + 2U) / 4U);
+                    }
+
+                    if (style_bold == CLKS_TRUE && alpha == 0U && glyph_col > 0U &&
+                        glyph_row < XIAOBAIOS_TTF_BITMAP_MAX_H && glyph_col - 1U < XIAOBAIOS_TTF_BITMAP_MAX_W) {
+                        alpha = clks_fb_ttf_alpha_at(&ttf_bitmap, glyph_row, glyph_col - 1U);
+                    }
+
+                    if (style_underline == CLKS_TRUE && row == underline_row) {
+                        alpha = 255U;
+                    }
+
+                    alpha = clks_fb_ttf_sharpen_alpha(alpha);
+                    color = clks_fb_blend_rgb(fg_rgb, bg_rgb, alpha);
+                    if (shadow_row != CLKS_NULL) {
+                        shadow_row[col] = color;
+                    }
+                    dst_row[col] = color;
+                }
+            }
+            return;
+        }
+
+        glyph = clks_psf_glyph(clks_psf_default_font(), codepoint);
+        cols = 8U;
+        rows = 8U;
+        row_stride = 1U;
+        goto clks_fb_draw_bitmap_glyph;
+    }
+
+    glyph = clks_psf_glyph(clks_fb.font, codepoint);
 
     row_stride = clks_fb.font->bytes_per_row;
 
@@ -562,6 +736,7 @@ void clks_fb_draw_codepoint_scaled_clip(u32 x, u32 y, u32 codepoint, u32 fg_rgb,
         return;
     }
 
+clks_fb_draw_bitmap_glyph:
     out_cols = cols * scale_x;
     out_rows = rows * scale_y;
 
@@ -671,15 +846,42 @@ clks_bool clks_fb_load_psf_font(const void *blob, u64 blob_size) {
         return CLKS_FALSE;
     }
 
-    if (clks_fb.external_font_blob != CLKS_NULL) {
+    if (clks_fb.external_font_blob != CLKS_NULL && clks_fb.external_font_blob_owned == CLKS_TRUE) {
         clks_kfree(clks_fb.external_font_blob);
     }
 
     clks_fb.external_font_blob = font_copy;
     clks_fb.external_font_blob_size = blob_size;
+    clks_fb.external_font_blob_owned = CLKS_TRUE;
     clks_fb.external_font = parsed;
     clks_fb.external_font_active = CLKS_TRUE;
     clks_fb_apply_font(&clks_fb.external_font);
+    return CLKS_TRUE;
+}
+
+clks_bool clks_fb_load_ttf_font(const void *blob, u64 blob_size) {
+    struct xiaobaios_ttf_font parsed;
+
+    if (blob == CLKS_NULL || blob_size == 0ULL || blob_size > (64ULL * 1024ULL * 1024ULL)) {
+        return CLKS_FALSE;
+    }
+
+    clks_memset(&parsed, 0, sizeof(parsed));
+    if (xiaobaios_ttf_parse(blob, blob_size, &parsed) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_fb.external_font_blob != CLKS_NULL && clks_fb.external_font_blob_owned == CLKS_TRUE) {
+        clks_kfree(clks_fb.external_font_blob);
+    }
+
+    clks_fb.external_font_blob = (u8 *)(void *)blob;
+    clks_fb.external_font_blob_size = blob_size;
+    clks_fb.external_font_blob_owned = CLKS_FALSE;
+    clks_memset(&clks_fb.external_font, 0, sizeof(clks_fb.external_font));
+    clks_fb.external_font_active = CLKS_FALSE;
+    clks_fb.ttf_font = parsed;
+    clks_fb_apply_ttf_font(&clks_fb.ttf_font);
     return CLKS_TRUE;
 }
 
