@@ -7,6 +7,15 @@
 #include "psf_font.h"
 #include "../../font/ttf.c"
 
+#define CLKS_FB_TTF_CACHE_CAP 64U
+
+struct clks_fb_ttf_cache_entry {
+    clks_bool valid;
+    u32 codepoint;
+    u32 pixel_height;
+    struct xiaobaios_ttf_bitmap bitmap;
+};
+
 struct clks_fb_state {
     volatile u8 *address;
     u8 *shadow;
@@ -21,6 +30,7 @@ struct clks_fb_state {
     clks_bool external_font_active;
     struct xiaobaios_ttf_font ttf_font;
     clks_bool ttf_font_active;
+    struct clks_fb_ttf_cache_entry ttf_cache[CLKS_FB_TTF_CACHE_CAP];
     u32 glyph_width;
     u32 glyph_height;
     clks_bool ready;
@@ -40,10 +50,41 @@ static struct clks_fb_state clks_fb = {
     .external_font_active = CLKS_FALSE,
     .ttf_font = {0},
     .ttf_font_active = CLKS_FALSE,
+    .ttf_cache = {{0}},
     .glyph_width = 8U,
     .glyph_height = 8U,
     .ready = CLKS_FALSE,
 };
+
+static void clks_fb_ttf_cache_clear(void) {
+    clks_memset(clks_fb.ttf_cache, 0, sizeof(clks_fb.ttf_cache));
+}
+
+static struct xiaobaios_ttf_bitmap *clks_fb_ttf_cached_rasterize(u32 codepoint, u32 pixel_height) {
+    u32 slot;
+    struct clks_fb_ttf_cache_entry *entry;
+
+    if (clks_fb.ttf_font_active == CLKS_FALSE || pixel_height == 0U || pixel_height > XIAOBAIOS_TTF_BITMAP_MAX_H) {
+        return CLKS_NULL;
+    }
+
+    slot = ((codepoint * 131U) ^ (pixel_height * 17U)) % CLKS_FB_TTF_CACHE_CAP;
+    entry = &clks_fb.ttf_cache[slot];
+
+    if (entry->valid == CLKS_TRUE && entry->codepoint == codepoint && entry->pixel_height == pixel_height) {
+        return &entry->bitmap;
+    }
+
+    if (xiaobaios_ttf_rasterize(&clks_fb.ttf_font, codepoint, pixel_height, &entry->bitmap) == CLKS_FALSE) {
+        entry->valid = CLKS_FALSE;
+        return CLKS_NULL;
+    }
+
+    entry->valid = CLKS_TRUE;
+    entry->codepoint = codepoint;
+    entry->pixel_height = pixel_height;
+    return &entry->bitmap;
+}
 
 static void clks_fb_copy_forward_bytes(void *dst, const void *src, usize bytes) {
     u8 *d = (u8 *)dst;
@@ -154,6 +195,7 @@ static void clks_fb_fill_span_color32(u32 *dst, u32 pixel_count, u32 fill_rgb) {
 static void clks_fb_apply_font(const struct clks_psf_font *font) {
     clks_fb.font = font;
     clks_fb.ttf_font_active = CLKS_FALSE;
+    clks_fb_ttf_cache_clear();
     clks_fb.glyph_width = 8U;
     clks_fb.glyph_height = 8U;
 
@@ -173,6 +215,7 @@ static void clks_fb_apply_ttf_font(const struct xiaobaios_ttf_font *font) {
 
     clks_fb.font = CLKS_NULL;
     clks_fb.ttf_font_active = (font != CLKS_NULL && font->ready == CLKS_TRUE) ? CLKS_TRUE : CLKS_FALSE;
+    clks_fb_ttf_cache_clear();
     clks_fb.glyph_width = 10U;
     clks_fb.glyph_height = pixel_height;
 }
@@ -569,7 +612,7 @@ void clks_fb_draw_codepoint_scaled_xy(u32 x, u32 y, u32 codepoint, u32 fg_rgb, u
 void clks_fb_draw_codepoint_scaled_clip(u32 x, u32 y, u32 codepoint, u32 fg_rgb, u32 bg_rgb, u32 style_flags,
                                         u32 scale_x, u32 scale_y, u32 clip_width, u32 clip_height) {
     const u8 *glyph;
-    struct xiaobaios_ttf_bitmap ttf_bitmap;
+    struct xiaobaios_ttf_bitmap *ttf_bitmap;
     u32 row;
     u32 col;
     u32 cols;
@@ -635,9 +678,10 @@ void clks_fb_draw_codepoint_scaled_clip(u32 x, u32 y, u32 codepoint, u32 fg_rgb,
          * Render TTF at the final requested pixel height. Scaling a small glyph
          * bitmap makes large headings look soft/pixelated, especially at 2x/3x.
          */
-        if (xiaobaios_ttf_rasterize(&clks_fb.ttf_font, codepoint, ttf_pixel_height, &ttf_bitmap) == CLKS_TRUE) {
-            cols = (ttf_bitmap.width > 0) ? (u32)ttf_bitmap.width : cols;
-            rows = (ttf_bitmap.height > 0) ? (u32)ttf_bitmap.height : rows;
+        ttf_bitmap = clks_fb_ttf_cached_rasterize(codepoint, ttf_pixel_height);
+        if (ttf_bitmap != CLKS_NULL) {
+            cols = (ttf_bitmap->width > 0) ? (u32)ttf_bitmap->width : cols;
+            rows = (ttf_bitmap->height > 0) ? (u32)ttf_bitmap->height : rows;
 
             out_cols = cols;
             out_rows = rows;
@@ -681,21 +725,21 @@ void clks_fb_draw_codepoint_scaled_clip(u32 x, u32 y, u32 codepoint, u32 fg_rgb,
                     u8 neighbor_alpha;
                     u32 color;
 
-                    alpha = clks_fb_ttf_alpha_at(&ttf_bitmap, glyph_row, glyph_col);
+                    alpha = clks_fb_ttf_alpha_at(ttf_bitmap, glyph_row, glyph_col);
 
                     /* Slight synthetic embolden keeps CJK and small status text from looking washed out. */
-                    neighbor_alpha = clks_fb_ttf_alpha_at(&ttf_bitmap, glyph_row, glyph_col > 0U ? glyph_col - 1U : 0U);
+                    neighbor_alpha = clks_fb_ttf_alpha_at(ttf_bitmap, glyph_row, glyph_col > 0U ? glyph_col - 1U : 0U);
                     if (neighbor_alpha > alpha) {
                         alpha = (u8)(((u32)alpha + (u32)neighbor_alpha + 1U) / 2U);
                     }
-                    neighbor_alpha = clks_fb_ttf_alpha_at(&ttf_bitmap, glyph_row, glyph_col + 1U);
+                    neighbor_alpha = clks_fb_ttf_alpha_at(ttf_bitmap, glyph_row, glyph_col + 1U);
                     if (neighbor_alpha > alpha) {
                         alpha = (u8)(((u32)alpha * 3U + (u32)neighbor_alpha + 2U) / 4U);
                     }
 
                     if (style_bold == CLKS_TRUE && alpha == 0U && glyph_col > 0U &&
                         glyph_row < XIAOBAIOS_TTF_BITMAP_MAX_H && glyph_col - 1U < XIAOBAIOS_TTF_BITMAP_MAX_W) {
-                        alpha = clks_fb_ttf_alpha_at(&ttf_bitmap, glyph_row, glyph_col - 1U);
+                        alpha = clks_fb_ttf_alpha_at(ttf_bitmap, glyph_row, glyph_col - 1U);
                     }
 
                     if (style_underline == CLKS_TRUE && row == underline_row) {

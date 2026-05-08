@@ -40,6 +40,7 @@
 static char clks_log_journal[CLKS_LOG_JOURNAL_CAP][CLKS_LOG_LINE_MAX];
 static u32 clks_log_journal_head = 0U;
 static u32 clks_log_journal_count_live = 0U;
+static enum clks_log_level clks_log_runtime_min_level = CLKS_LOG_DEBUG;
 
 static const char *clks_log_level_name(enum clks_log_level level) {
     switch (level) {
@@ -57,6 +58,10 @@ static const char *clks_log_level_name(enum clks_log_level level) {
 }
 
 static clks_bool clks_log_level_enabled(enum clks_log_level level) {
+    if (level < clks_log_runtime_min_level) {
+        return CLKS_FALSE;
+    }
+
     switch (level) {
     case CLKS_LOG_DEBUG:
         return (CLKS_CFG_LOG_LEVEL_DEBUG != 0) ? CLKS_TRUE : CLKS_FALSE;
@@ -69,6 +74,18 @@ static clks_bool clks_log_level_enabled(enum clks_log_level level) {
     default:
         return CLKS_FALSE;
     }
+}
+
+void clks_log_set_min_level(enum clks_log_level level) {
+    if (level > CLKS_LOG_ERROR) {
+        level = CLKS_LOG_ERROR;
+    }
+
+    clks_log_runtime_min_level = level;
+}
+
+enum clks_log_level clks_log_min_level(void) {
+    return clks_log_runtime_min_level;
 }
 
 static void clks_log_append_char(char *buffer, usize *cursor, char ch) {

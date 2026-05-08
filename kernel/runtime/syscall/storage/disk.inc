@@ -104,6 +104,12 @@ static u64 clks_syscall_locale_set(u64 arg0) {
     return 2ULL;
 }
 
+static u64 clks_syscall_boot_cmdline(u64 arg0, u64 arg1) {
+    const char *cmdline = clks_boot_get_cmdline();
+    usize len = clks_strlen(cmdline);
+    return clks_syscall_copy_text_to_user(arg0, arg1, cmdline, len);
+}
+
 static u64 clks_syscall_disk_present(void) {
     return (clks_disk_present() == CLKS_TRUE) ? 1ULL : 0ULL;
 }

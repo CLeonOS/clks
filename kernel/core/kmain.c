@@ -26,6 +26,7 @@
 #include <clks/serial.h>
 #include <clks/service.h>
 #include <clks/shell.h>
+#include <clks/string.h>
 #include <clks/syscall.h>
 #include <clks/tty.h>
 #include <clks/types.h>
@@ -35,6 +36,42 @@
 #include <clks/wm.h>
 
 /* Boot orchestration file: one wrong init order and the whole damn thing faceplants. */
+
+static void clks_kmain_apply_boot_loglevel(void) {
+    char value[24];
+
+    if (clks_boot_cmdline_get_value("clks.loglevel", value, sizeof(value)) == CLKS_FALSE &&
+        clks_boot_cmdline_get_value("loglevel", value, sizeof(value)) == CLKS_FALSE) {
+        return;
+    }
+
+    if (clks_strcmp(value, "quiet") == 0 || clks_strcmp(value, "warn") == 0) {
+        clks_log_set_min_level(CLKS_LOG_WARN);
+    } else if (clks_strcmp(value, "error") == 0) {
+        clks_log_set_min_level(CLKS_LOG_ERROR);
+    } else if (clks_strcmp(value, "debug") == 0 || clks_strcmp(value, "verbose") == 0) {
+        clks_log_set_min_level(CLKS_LOG_DEBUG);
+    } else if (clks_strcmp(value, "info") == 0 || clks_strcmp(value, "normal") == 0) {
+        clks_log_set_min_level(CLKS_LOG_INFO);
+    }
+}
+
+static void clks_kmain_apply_boot_locale(void) {
+    char value[CLKS_LOCALE_MAX];
+
+    if (clks_boot_cmdline_get_value("clks.locale", value, sizeof(value)) == CLKS_FALSE &&
+        clks_boot_cmdline_get_value("locale", value, sizeof(value)) == CLKS_FALSE) {
+        return;
+    }
+
+    if (clks_locale_set(value, CLKS_FALSE) == CLKS_TRUE) {
+        clks_log(CLKS_LOG_INFO, "LOCALE", "BOOT CMDLINE OVERRIDE");
+        clks_log(CLKS_LOG_INFO, "LOCALE", value);
+    } else {
+        clks_log(CLKS_LOG_WARN, "LOCALE", "INVALID BOOT CMDLINE LOCALE");
+        clks_log(CLKS_LOG_WARN, "LOCALE", value);
+    }
+}
 
 #ifndef CLKS_CFG_AUDIO
 #define CLKS_CFG_AUDIO 1
@@ -218,6 +255,7 @@ void clks_kernel_main(void) {
 
     boot_fb = clks_boot_get_framebuffer();
     rescue_mode = clks_boot_rescue_mode();
+    clks_kmain_apply_boot_loglevel();
     boot_splash_enabled = (rescue_mode == CLKS_FALSE &&
                            clks_boot_cmdline_flag_enabled("clks.nosplash") == CLKS_FALSE &&
                            clks_boot_cmdline_flag_enabled("nosplash") == CLKS_FALSE)
@@ -317,6 +355,7 @@ void clks_kernel_main(void) {
     }
 
     clks_locale_init();
+    clks_kmain_apply_boot_locale();
     clks_bootsplash_step(42U, "filesystem online");
 
     fs_root_children = clks_fs_count_children("/");

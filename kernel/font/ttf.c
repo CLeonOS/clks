@@ -678,6 +678,8 @@ clks_bool xiaobaios_ttf_rasterize(const struct xiaobaios_ttf_font *font, u32 cod
     i32 height;
     u32 glyph_px_x;
     u32 glyph_px_y;
+    clks_bool latin_glyph;
+    i32 spacing_px;
 
     if (font == CLKS_NULL || out == CLKS_NULL || font->ready == CLKS_FALSE || pixel_height < 8U ||
         pixel_height > XIAOBAIOS_TTF_BITMAP_MAX_H) {
@@ -688,6 +690,7 @@ clks_bool xiaobaios_ttf_rasterize(const struct xiaobaios_ttf_font *font, u32 cod
     glyph_id = ttf_glyph_index(font, codepoint);
     out->codepoint = codepoint;
     out->glyph_found = (glyph_id != 0U) ? CLKS_TRUE : CLKS_FALSE;
+    latin_glyph = (codepoint >= 0x20U && codepoint < 0x300U) ? CLKS_TRUE : CLKS_FALSE;
     height = (i32)pixel_height;
     glyph_px_y = pixel_height > 12U ? pixel_height - 3U : pixel_height - 1U;
     if (pixel_height >= 44U) {
@@ -702,13 +705,17 @@ clks_bool xiaobaios_ttf_rasterize(const struct xiaobaios_ttf_font *font, u32 cod
      * Keep large TTF glyphs slightly condensed instead of letting headings look
      * horizontally stretched or clipped inside the cell.
      */
-    glyph_px_x = (glyph_px_y * 92U + 50U) / 100U;
+    glyph_px_x = (glyph_px_y * ((latin_glyph == CLKS_TRUE && pixel_height >= 32U) ? 84U : 92U) + 50U) / 100U;
     if (glyph_px_x < 8U) {
         glyph_px_x = 8U;
     }
     out->advance = ttf_scale_value(font, (i32)ttf_advance_width(font, glyph_id), glyph_px_x);
     if (out->advance <= 0) {
         out->advance = (i32)((pixel_height + 1U) / 2U);
+    }
+    spacing_px = (latin_glyph == CLKS_TRUE && pixel_height >= 32U) ? (i32)((pixel_height + 23U) / 24U) : 1;
+    if (spacing_px < 1) {
+        spacing_px = 1;
     }
 
     glyph_offset = ttf_glyph_offset(font, glyph_id);
@@ -825,12 +832,18 @@ clks_bool xiaobaios_ttf_rasterize(const struct xiaobaios_ttf_font *font, u32 cod
     if (baseline > height - 2) {
         baseline = height - 2;
     }
-    width = ttf_scale_value(font, (i32)(x_max - x_min), glyph_px_x) + 2;
+    width = ttf_scale_value(font, (i32)(x_max - x_min), glyph_px_x) + 2 + spacing_px;
     if (width < out->advance) {
         width = out->advance;
     }
+    if (latin_glyph == CLKS_TRUE && pixel_height >= 32U && out->advance < width + spacing_px) {
+        out->advance = width + spacing_px;
+    }
     if (width > (i32)XIAOBAIOS_TTF_BITMAP_MAX_W) {
         width = (i32)XIAOBAIOS_TTF_BITMAP_MAX_W;
+    }
+    if (out->advance > (i32)XIAOBAIOS_TTF_BITMAP_MAX_W) {
+        out->advance = (i32)XIAOBAIOS_TTF_BITMAP_MAX_W;
     }
     if (width <= 0) {
         width = 1;

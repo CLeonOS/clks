@@ -152,6 +152,59 @@ clks_bool clks_boot_cmdline_flag_enabled(const char *name) {
     return CLKS_FALSE;
 }
 
+clks_bool clks_boot_cmdline_get_value(const char *name, char *out_value, usize out_size) {
+    const char *cmdline = clks_boot_get_cmdline();
+    usize name_len = 0U;
+    usize i = 0U;
+    usize out_pos;
+
+    if (name == CLKS_NULL || name[0] == '\0' || out_value == CLKS_NULL || out_size == 0U) {
+        return CLKS_FALSE;
+    }
+
+    out_value[0] = '\0';
+
+    while (name[name_len] != '\0') {
+        name_len++;
+    }
+
+    while (cmdline[i] != '\0') {
+        usize j;
+
+        while (cmdline[i] == ' ' || cmdline[i] == '\t') {
+            i++;
+        }
+        if (cmdline[i] == '\0') {
+            break;
+        }
+
+        for (j = 0U; j < name_len; j++) {
+            if (cmdline[i + j] != name[j]) {
+                break;
+            }
+        }
+
+        if (j == name_len && cmdline[i + name_len] == '=') {
+            i += name_len + 1U;
+            out_pos = 0U;
+            while (cmdline[i] != '\0' && cmdline[i] != ' ' && cmdline[i] != '\t') {
+                if (out_pos + 1U < out_size) {
+                    out_value[out_pos++] = cmdline[i];
+                }
+                i++;
+            }
+            out_value[out_pos] = '\0';
+            return (out_pos > 0U) ? CLKS_TRUE : CLKS_FALSE;
+        }
+
+        while (cmdline[i] != '\0' && cmdline[i] != ' ' && cmdline[i] != '\t') {
+            i++;
+        }
+    }
+
+    return CLKS_FALSE;
+}
+
 clks_bool clks_boot_rescue_mode(void) {
     return (clks_boot_cmdline_flag_enabled("clks.rescue") == CLKS_TRUE ||
             clks_boot_cmdline_flag_enabled("rescue") == CLKS_TRUE)

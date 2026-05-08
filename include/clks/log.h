@@ -10,6 +10,8 @@ enum clks_log_level {
     CLKS_LOG_ERROR = 3,
 };
 
+void clks_log_set_min_level(enum clks_log_level level);
+enum clks_log_level clks_log_min_level(void);
 void clks_log(enum clks_log_level level, const char *tag, const char *message);
 void clks_log_hex(enum clks_log_level level, const char *tag, const char *label, u64 value);
 

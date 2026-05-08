@@ -1,7 +1,9 @@
+#include <clks/boot.h>
 #include <clks/elf64.h>
 #include <clks/exec.h>
 #include <clks/fs.h>
 #include <clks/log.h>
+#include <clks/string.h>
 #include <clks/types.h>
 #include <clks/userland.h>
 
@@ -27,6 +29,8 @@ static u64 clks_user_launch_success_count = 0ULL;
 static u64 clks_user_launch_fail_count = 0ULL;
 static u64 clks_user_last_try_tick = 0ULL;
 static clks_bool clks_user_first_try_pending = CLKS_FALSE;
+static clks_bool clks_user_installer_pending = CLKS_FALSE;
+static char clks_user_installer_arg[32];
 
 static clks_bool clks_userland_probe_elf(const char *path, const char *tag) {
     const void *image;
@@ -93,6 +97,55 @@ static clks_bool clks_userland_request_shell_exec(void) {
     return CLKS_FALSE;
 }
 
+static clks_bool clks_userland_request_installer_exec(void) {
+    u64 status = (u64)-1;
+
+    if (clks_user_shell_ready == CLKS_FALSE || clks_user_installer_arg[0] == '\0') {
+        return CLKS_FALSE;
+    }
+
+    clks_user_launch_attempt_count++;
+
+    if (clks_exec_run_pathv("/shell/install2disk.elf", clks_user_installer_arg, "CLKS_INSTALLER_AUTO=1",
+                            &status) == CLKS_TRUE) {
+        clks_user_launch_success_count++;
+        clks_user_installer_pending = CLKS_FALSE;
+
+        clks_log(CLKS_LOG_INFO, "USER", "INSTALLER AUTO EXEC REQUESTED");
+        clks_log(CLKS_LOG_INFO, "USER", clks_user_installer_arg);
+        clks_log_hex(CLKS_LOG_INFO, "USER", "INSTALLER_STATUS", status);
+        (void)clks_userland_request_shell_exec();
+        return CLKS_TRUE;
+    }
+
+    clks_user_launch_fail_count++;
+    clks_log(CLKS_LOG_WARN, "USER", "INSTALLER AUTO EXEC FAILED");
+    return CLKS_FALSE;
+}
+
+static void clks_userland_init_installer_mode(void) {
+    char mode[32];
+
+    clks_memset(clks_user_installer_arg, 0, sizeof(clks_user_installer_arg));
+    clks_user_installer_pending = CLKS_FALSE;
+
+    if (clks_boot_cmdline_get_value("clks.installer", mode, sizeof(mode)) == CLKS_FALSE &&
+        clks_boot_cmdline_get_value("installer", mode, sizeof(mode)) == CLKS_FALSE) {
+        return;
+    }
+
+    if (clks_strcmp(mode, "install") == 0 || clks_strcmp(mode, "repair") == 0 ||
+        clks_strcmp(mode, "update-kernel") == 0 || clks_strcmp(mode, "verify") == 0) {
+        clks_memcpy(clks_user_installer_arg, mode, clks_strlen(mode) + 1U);
+        clks_user_installer_pending = CLKS_TRUE;
+        clks_log(CLKS_LOG_INFO, "USER", "INSTALLER AUTO MODE READY");
+        clks_log(CLKS_LOG_INFO, "USER", clks_user_installer_arg);
+    } else {
+        clks_log(CLKS_LOG_WARN, "USER", "UNKNOWN INSTALLER AUTO MODE");
+        clks_log(CLKS_LOG_WARN, "USER", mode);
+    }
+}
+
 clks_bool clks_userland_init(void) {
     clks_log(CLKS_LOG_INFO, "USER", "USERLAND FRAMEWORK ONLINE");
 
@@ -104,6 +157,7 @@ clks_bool clks_userland_init(void) {
     clks_user_launch_fail_count = 0ULL;
     clks_user_last_try_tick = 0ULL;
     clks_user_first_try_pending = CLKS_TRUE;
+    clks_userland_init_installer_mode();
 
     if (clks_userland_probe_elf("/shell/shell.elf", "SHELL ELF READY") == CLKS_FALSE) {
         return CLKS_FALSE;
@@ -146,6 +200,10 @@ void clks_userland_tick(u64 tick) {
     if (clks_user_first_try_pending == CLKS_TRUE) {
         clks_user_first_try_pending = CLKS_FALSE;
         clks_user_last_try_tick = tick;
+        if (clks_user_installer_pending == CLKS_TRUE) {
+            (void)clks_userland_request_installer_exec();
+            return;
+        }
         (void)clks_userland_request_shell_exec();
         return;
     }
