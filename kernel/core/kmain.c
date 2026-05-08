@@ -378,11 +378,22 @@ void clks_kernel_main(void) {
     if (boot_fb != CLKS_NULL) {
 #if CLKS_CFG_EXTERNAL_TTY_FONT
         const void *tty_ttf_blob;
+        const void *emoji_ttf_blob;
         u64 tty_ttf_size = 0ULL;
+        u64 emoji_ttf_size = 0ULL;
 
         tty_ttf_blob = clks_fs_read_all("/system/tty.ttf", &tty_ttf_size);
 
         if (tty_ttf_blob != CLKS_NULL && clks_fb_load_ttf_font(tty_ttf_blob, tty_ttf_size) == CLKS_TRUE) {
+            emoji_ttf_blob = clks_fs_read_all("/system/emoji.ttf", &emoji_ttf_size);
+            if (emoji_ttf_blob != CLKS_NULL &&
+                clks_fb_load_emoji_ttf_font(emoji_ttf_blob, emoji_ttf_size) == CLKS_TRUE) {
+                clks_log(CLKS_LOG_INFO, "TTY", "EMOJI TTF LOADED /SYSTEM/EMOJI.TTF");
+                clks_log_hex(CLKS_LOG_INFO, "TTY", "EMOJI_TTF_SIZE", emoji_ttf_size);
+            } else {
+                clks_log(CLKS_LOG_WARN, "TTY", "EMOJI TTF LOAD FAILED, EMOJI FALLBACK DISABLED");
+                clks_log_hex(CLKS_LOG_WARN, "TTY", "EMOJI_TTF_SIZE", emoji_ttf_size);
+            }
             clks_tty_init();
             clks_bootsplash_step(50U, "tty font loaded");
             clks_log(CLKS_LOG_INFO, "TTY", "EXTERNAL TTF LOADED /SYSTEM/TTY.TTF");

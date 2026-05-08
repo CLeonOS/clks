@@ -11,6 +11,7 @@
 
 struct clks_fb_ttf_cache_entry {
     clks_bool valid;
+    clks_bool emoji_font;
     u32 codepoint;
     u32 pixel_height;
     struct xiaobaios_ttf_bitmap bitmap;
@@ -29,7 +30,9 @@ struct clks_fb_state {
     struct clks_psf_font external_font;
     clks_bool external_font_active;
     struct xiaobaios_ttf_font ttf_font;
+    struct xiaobaios_ttf_font emoji_ttf_font;
     clks_bool ttf_font_active;
+    clks_bool emoji_ttf_font_active;
     struct clks_fb_ttf_cache_entry ttf_cache[CLKS_FB_TTF_CACHE_CAP];
     u32 glyph_width;
     u32 glyph_height;
@@ -49,7 +52,9 @@ static struct clks_fb_state clks_fb = {
     .external_font = {0, 0, 0, 0, 0, CLKS_NULL, CLKS_NULL, 0ULL},
     .external_font_active = CLKS_FALSE,
     .ttf_font = {0},
+    .emoji_ttf_font = {0},
     .ttf_font_active = CLKS_FALSE,
+    .emoji_ttf_font_active = CLKS_FALSE,
     .ttf_cache = {{0}},
     .glyph_width = 8U,
     .glyph_height = 8U,
@@ -60,30 +65,45 @@ static void clks_fb_ttf_cache_clear(void) {
     clks_memset(clks_fb.ttf_cache, 0, sizeof(clks_fb.ttf_cache));
 }
 
-static struct xiaobaios_ttf_bitmap *clks_fb_ttf_cached_rasterize(u32 codepoint, u32 pixel_height) {
+static struct xiaobaios_ttf_bitmap *clks_fb_ttf_cached_rasterize_font(const struct xiaobaios_ttf_font *font,
+                                                                      clks_bool active, clks_bool emoji_font,
+                                                                      u32 codepoint, u32 pixel_height) {
     u32 slot;
     struct clks_fb_ttf_cache_entry *entry;
 
-    if (clks_fb.ttf_font_active == CLKS_FALSE || pixel_height == 0U || pixel_height > XIAOBAIOS_TTF_BITMAP_MAX_H) {
+    if (active == CLKS_FALSE || font == CLKS_NULL || pixel_height == 0U || pixel_height > XIAOBAIOS_TTF_BITMAP_MAX_H) {
         return CLKS_NULL;
     }
 
-    slot = ((codepoint * 131U) ^ (pixel_height * 17U)) % CLKS_FB_TTF_CACHE_CAP;
+    slot = ((codepoint * 131U) ^ (pixel_height * 17U) ^ (emoji_font == CLKS_TRUE ? 0x55U : 0U)) %
+           CLKS_FB_TTF_CACHE_CAP;
     entry = &clks_fb.ttf_cache[slot];
 
-    if (entry->valid == CLKS_TRUE && entry->codepoint == codepoint && entry->pixel_height == pixel_height) {
+    if (entry->valid == CLKS_TRUE && entry->emoji_font == emoji_font && entry->codepoint == codepoint &&
+        entry->pixel_height == pixel_height) {
         return &entry->bitmap;
     }
 
-    if (xiaobaios_ttf_rasterize(&clks_fb.ttf_font, codepoint, pixel_height, &entry->bitmap) == CLKS_FALSE) {
+    if (xiaobaios_ttf_rasterize(font, codepoint, pixel_height, &entry->bitmap) == CLKS_FALSE) {
         entry->valid = CLKS_FALSE;
         return CLKS_NULL;
     }
 
     entry->valid = CLKS_TRUE;
+    entry->emoji_font = emoji_font;
     entry->codepoint = codepoint;
     entry->pixel_height = pixel_height;
     return &entry->bitmap;
+}
+
+static struct xiaobaios_ttf_bitmap *clks_fb_ttf_cached_rasterize(u32 codepoint, u32 pixel_height) {
+    return clks_fb_ttf_cached_rasterize_font(&clks_fb.ttf_font, clks_fb.ttf_font_active, CLKS_FALSE, codepoint,
+                                             pixel_height);
+}
+
+static struct xiaobaios_ttf_bitmap *clks_fb_emoji_ttf_cached_rasterize(u32 codepoint, u32 pixel_height) {
+    return clks_fb_ttf_cached_rasterize_font(&clks_fb.emoji_ttf_font, clks_fb.emoji_ttf_font_active, CLKS_TRUE,
+                                             codepoint, pixel_height);
 }
 
 static void clks_fb_copy_forward_bytes(void *dst, const void *src, usize bytes) {
@@ -210,6 +230,14 @@ static void clks_fb_apply_font(const struct clks_psf_font *font) {
     }
 }
 
+static clks_bool clks_fb_codepoint_prefers_emoji_font(u32 codepoint) {
+    if ((codepoint >= 0x1F000U && codepoint <= 0x1FAFFU) || (codepoint >= 0x2600U && codepoint <= 0x27BFU) ||
+        codepoint == 0xFE0FU || codepoint == 0x200DU) {
+        return CLKS_TRUE;
+    }
+    return CLKS_FALSE;
+}
+
 static void clks_fb_apply_ttf_font(const struct xiaobaios_ttf_font *font) {
     u32 pixel_height = 22U;
 
@@ -218,6 +246,11 @@ static void clks_fb_apply_ttf_font(const struct xiaobaios_ttf_font *font) {
     clks_fb_ttf_cache_clear();
     clks_fb.glyph_width = 10U;
     clks_fb.glyph_height = pixel_height;
+}
+
+static void clks_fb_apply_emoji_ttf_font(const struct xiaobaios_ttf_font *font) {
+    clks_fb.emoji_ttf_font_active = (font != CLKS_NULL && font->ready == CLKS_TRUE) ? CLKS_TRUE : CLKS_FALSE;
+    clks_fb_ttf_cache_clear();
 }
 
 static u32 clks_fb_blend_rgb(u32 fg_rgb, u32 bg_rgb, u8 alpha) {
@@ -367,7 +400,9 @@ void clks_fb_init(const struct limine_framebuffer *fb) {
 
     clks_fb.external_font_active = CLKS_FALSE;
     clks_fb.ttf_font_active = CLKS_FALSE;
+    clks_fb.emoji_ttf_font_active = CLKS_FALSE;
     clks_memset(&clks_fb.ttf_font, 0, sizeof(clks_fb.ttf_font));
+    clks_memset(&clks_fb.emoji_ttf_font, 0, sizeof(clks_fb.emoji_ttf_font));
     if (clks_fb.external_font_blob != CLKS_NULL && clks_fb.external_font_blob_owned == CLKS_TRUE) {
         clks_kfree(clks_fb.external_font_blob);
     }
@@ -626,7 +661,9 @@ void clks_fb_draw_codepoint_scaled_clip(u32 x, u32 y, u32 codepoint, u32 fg_rgb,
     clks_bool style_underline;
     u32 underline_row;
 
-    if (clks_fb.ready == CLKS_FALSE || (clks_fb.font == CLKS_NULL && clks_fb.ttf_font_active == CLKS_FALSE)) {
+    if (clks_fb.ready == CLKS_FALSE ||
+        (clks_fb.font == CLKS_NULL && clks_fb.ttf_font_active == CLKS_FALSE &&
+         clks_fb.emoji_ttf_font_active == CLKS_FALSE)) {
         return;
     }
 
@@ -665,8 +702,9 @@ void clks_fb_draw_codepoint_scaled_clip(u32 x, u32 y, u32 codepoint, u32 fg_rgb,
         rows = 8U;
     }
 
-    if (clks_fb.ttf_font_active == CLKS_TRUE) {
+    if (clks_fb.ttf_font_active == CLKS_TRUE || clks_fb.emoji_ttf_font_active == CLKS_TRUE) {
         u32 ttf_pixel_height = rows * scale_y;
+        clks_bool prefer_emoji = clks_fb_codepoint_prefers_emoji_font(codepoint);
         if (ttf_pixel_height == 0U) {
             ttf_pixel_height = rows;
         }
@@ -678,8 +716,15 @@ void clks_fb_draw_codepoint_scaled_clip(u32 x, u32 y, u32 codepoint, u32 fg_rgb,
          * Render TTF at the final requested pixel height. Scaling a small glyph
          * bitmap makes large headings look soft/pixelated, especially at 2x/3x.
          */
-        ttf_bitmap = clks_fb_ttf_cached_rasterize(codepoint, ttf_pixel_height);
-        if (ttf_bitmap != CLKS_NULL) {
+        ttf_bitmap = prefer_emoji == CLKS_TRUE ? clks_fb_emoji_ttf_cached_rasterize(codepoint, ttf_pixel_height)
+                                               : clks_fb_ttf_cached_rasterize(codepoint, ttf_pixel_height);
+        if ((ttf_bitmap == CLKS_NULL || ttf_bitmap->glyph_found == CLKS_FALSE) && prefer_emoji == CLKS_FALSE) {
+            ttf_bitmap = clks_fb_emoji_ttf_cached_rasterize(codepoint, ttf_pixel_height);
+        }
+        if ((ttf_bitmap == CLKS_NULL || ttf_bitmap->glyph_found == CLKS_FALSE) && prefer_emoji == CLKS_TRUE) {
+            ttf_bitmap = clks_fb_ttf_cached_rasterize(codepoint, ttf_pixel_height);
+        }
+        if (ttf_bitmap != CLKS_NULL && ttf_bitmap->glyph_found == CLKS_TRUE) {
             cols = (ttf_bitmap->width > 0) ? (u32)ttf_bitmap->width : cols;
             rows = (ttf_bitmap->height > 0) ? (u32)ttf_bitmap->height : rows;
 
@@ -926,6 +971,23 @@ clks_bool clks_fb_load_ttf_font(const void *blob, u64 blob_size) {
     clks_fb.external_font_active = CLKS_FALSE;
     clks_fb.ttf_font = parsed;
     clks_fb_apply_ttf_font(&clks_fb.ttf_font);
+    return CLKS_TRUE;
+}
+
+clks_bool clks_fb_load_emoji_ttf_font(const void *blob, u64 blob_size) {
+    struct xiaobaios_ttf_font parsed;
+
+    if (blob == CLKS_NULL || blob_size == 0ULL || blob_size > (64ULL * 1024ULL * 1024ULL)) {
+        return CLKS_FALSE;
+    }
+
+    clks_memset(&parsed, 0, sizeof(parsed));
+    if (xiaobaios_ttf_parse(blob, blob_size, &parsed) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    clks_fb.emoji_ttf_font = parsed;
+    clks_fb_apply_emoji_ttf_font(&clks_fb.emoji_ttf_font);
     return CLKS_TRUE;
 }
 

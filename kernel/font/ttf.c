@@ -653,6 +653,43 @@ static clks_bool ttf_inside_span(const struct xiaobaios_ttf_intersection *xs, u3
     return (winding != 0) ? CLKS_TRUE : CLKS_FALSE;
 }
 
+static clks_bool ttf_codepoint_is_emoji(u32 codepoint) {
+    return ((codepoint >= 0x1F000U && codepoint <= 0x1FAFFU) || (codepoint >= 0x2600U && codepoint <= 0x27BFU))
+               ? CLKS_TRUE
+               : CLKS_FALSE;
+}
+
+static void ttf_points_bounds(const struct xiaobaios_ttf_point *points, u16 point_count, i16 *out_x_min,
+                              i16 *out_x_max) {
+    u16 i;
+    i32 min_x;
+    i32 max_x;
+
+    if (points == CLKS_NULL || point_count == 0U || out_x_min == CLKS_NULL || out_x_max == CLKS_NULL) {
+        return;
+    }
+
+    min_x = points[0].x;
+    max_x = points[0].x;
+    for (i = 1U; i < point_count; i++) {
+        if (points[i].x < min_x) {
+            min_x = points[i].x;
+        }
+        if (points[i].x > max_x) {
+            max_x = points[i].x;
+        }
+    }
+
+    if (min_x < -32768) {
+        min_x = -32768;
+    }
+    if (max_x > 32767) {
+        max_x = 32767;
+    }
+    *out_x_min = (i16)min_x;
+    *out_x_max = (i16)max_x;
+}
+
 clks_bool xiaobaios_ttf_rasterize(const struct xiaobaios_ttf_font *font, u32 codepoint, u32 pixel_height,
                                   struct xiaobaios_ttf_bitmap *out) {
     u16 glyph_id;
@@ -679,6 +716,7 @@ clks_bool xiaobaios_ttf_rasterize(const struct xiaobaios_ttf_font *font, u32 cod
     u32 glyph_px_x;
     u32 glyph_px_y;
     clks_bool latin_glyph;
+    clks_bool emoji_glyph;
     i32 spacing_px;
 
     if (font == CLKS_NULL || out == CLKS_NULL || font->ready == CLKS_FALSE || pixel_height < 8U ||
@@ -691,6 +729,7 @@ clks_bool xiaobaios_ttf_rasterize(const struct xiaobaios_ttf_font *font, u32 cod
     out->codepoint = codepoint;
     out->glyph_found = (glyph_id != 0U) ? CLKS_TRUE : CLKS_FALSE;
     latin_glyph = (codepoint >= 0x20U && codepoint < 0x300U) ? CLKS_TRUE : CLKS_FALSE;
+    emoji_glyph = ttf_codepoint_is_emoji(codepoint);
     height = (i32)pixel_height;
     glyph_px_y = pixel_height > 12U ? pixel_height - 3U : pixel_height - 1U;
     if (pixel_height >= 44U) {
@@ -705,7 +744,7 @@ clks_bool xiaobaios_ttf_rasterize(const struct xiaobaios_ttf_font *font, u32 cod
      * Keep large TTF glyphs slightly condensed instead of letting headings look
      * horizontally stretched or clipped inside the cell.
      */
-    glyph_px_x = (glyph_px_y * ((latin_glyph == CLKS_TRUE && pixel_height >= 32U) ? 84U : 92U) + 50U) / 100U;
+    glyph_px_x = (glyph_px_y * ((emoji_glyph == CLKS_TRUE) ? 100U : ((latin_glyph == CLKS_TRUE && pixel_height >= 32U) ? 84U : 92U)) + 50U) / 100U;
     if (glyph_px_x < 8U) {
         glyph_px_x = 8U;
     }
@@ -823,6 +862,7 @@ clks_bool xiaobaios_ttf_rasterize(const struct xiaobaios_ttf_font *font, u32 cod
                                          &raster_contours) == CLKS_FALSE) {
         return CLKS_FALSE;
     }
+    ttf_points_bounds(points, point_count, &x_min, &x_max);
 
     ascent_px = ttf_scale_value(font, (i32)font->ascent, glyph_px_y);
     baseline = ascent_px;
@@ -833,6 +873,9 @@ clks_bool xiaobaios_ttf_rasterize(const struct xiaobaios_ttf_font *font, u32 cod
         baseline = height - 2;
     }
     width = ttf_scale_value(font, (i32)(x_max - x_min), glyph_px_x) + 2 + spacing_px;
+    if (emoji_glyph == CLKS_TRUE && width < height) {
+        width = height;
+    }
     if (width < out->advance) {
         width = out->advance;
     }

@@ -22,6 +22,10 @@ static u32 clks_tty_codepoint_width(u32 codepoint) {
         return 0U;
     }
 
+    if ((codepoint >= 0x1F000U && codepoint <= 0x1FAFFU) || (codepoint >= 0x2600U && codepoint <= 0x27BFU)) {
+        return 2U;
+    }
+
     if (codepoint < 0x1100U) {
         return 1U;
     }
