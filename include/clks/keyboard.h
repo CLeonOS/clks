@@ -18,6 +18,13 @@
 #define CLKS_KEY_SHIFT_HOME ((char)0x15)
 #define CLKS_KEY_SHIFT_END ((char)0x16)
 #define CLKS_KEY_REVERSE_SEARCH ((char)0x17)
+#define CLKS_KEY_LINE_START ((char)0x18)
+#define CLKS_KEY_LINE_END ((char)0x19)
+#define CLKS_KEY_KILL_BEFORE ((char)0x1A)
+#define CLKS_KEY_KILL_AFTER ((char)0x1C)
+#define CLKS_KEY_KILL_WORD_BEFORE ((char)0x1D)
+#define CLKS_KEY_CLEAR_SCREEN ((char)0x1E)
+#define CLKS_KEY_EOF_OR_DELETE ((char)0x1F)
 
 void clks_keyboard_init(void);
 void clks_keyboard_flush(void);

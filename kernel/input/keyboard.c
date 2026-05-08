@@ -16,6 +16,12 @@
 #define CLKS_SC_F3 0x3DU
 #define CLKS_SC_F4 0x3EU
 #define CLKS_SC_R 0x13U
+#define CLKS_SC_E 0x12U
+#define CLKS_SC_U 0x16U
+#define CLKS_SC_K 0x25U
+#define CLKS_SC_W 0x11U
+#define CLKS_SC_L 0x26U
+#define CLKS_SC_D 0x20U
 #define CLKS_SC_C 0x2EU
 #define CLKS_SC_SPACE 0x39U
 #define CLKS_SC_EXT_PREFIX 0xE0U
@@ -230,7 +236,7 @@ static clks_bool clks_keyboard_try_emit_ctrl_shortcut(u8 code, u32 tty_index) {
 
     switch (code) {
     case 0x1EU:
-        shortcut = CLKS_KEY_SELECT_ALL;
+        shortcut = CLKS_KEY_LINE_START;
         break;
     case 0x2EU:
         shortcut = CLKS_KEY_COPY;
@@ -240,6 +246,24 @@ static clks_bool clks_keyboard_try_emit_ctrl_shortcut(u8 code, u32 tty_index) {
         break;
     case CLKS_SC_R:
         shortcut = CLKS_KEY_REVERSE_SEARCH;
+        break;
+    case CLKS_SC_E:
+        shortcut = CLKS_KEY_LINE_END;
+        break;
+    case CLKS_SC_U:
+        shortcut = CLKS_KEY_KILL_BEFORE;
+        break;
+    case CLKS_SC_K:
+        shortcut = CLKS_KEY_KILL_AFTER;
+        break;
+    case CLKS_SC_W:
+        shortcut = CLKS_KEY_KILL_WORD_BEFORE;
+        break;
+    case CLKS_SC_L:
+        shortcut = CLKS_KEY_CLEAR_SCREEN;
+        break;
+    case CLKS_SC_D:
+        shortcut = CLKS_KEY_EOF_OR_DELETE;
         break;
     default:
         return CLKS_FALSE;
