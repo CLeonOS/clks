@@ -254,6 +254,8 @@ static const char *clks_syscall_name(u64 id) {
         return "INPUTM_SELECT";
     case CLKS_SYSCALL_INPUTM_REGISTER:
         return "INPUTM_REGISTER";
+    case CLKS_SYSCALL_INPUTM_REGISTER_RULE:
+        return "INPUTM_REGISTER_RULE";
     case CLKS_SYSCALL_TTY_STATUS_SET:
         return "TTY_STATUS_SET";
     case CLKS_SYSCALL_USER_CURRENT:

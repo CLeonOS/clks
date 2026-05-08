@@ -51,6 +51,38 @@ static u64 clks_syscall_inputm_register(u64 arg0) {
     return clks_inputm_register(name, path, req.flags);
 }
 
+static u64 clks_syscall_inputm_register_rule(u64 arg0) {
+    struct clks_inputm_rule_register_req req;
+    char name[CLKS_INPUTM_NAME_MAX];
+    char path[CLKS_INPUTM_PATH_MAX];
+    char rule_path[CLKS_INPUTM_PATH_MAX];
+    char label[CLKS_INPUTM_LABEL_MAX];
+
+    if (arg0 == 0ULL ||
+        clks_syscall_user_ptr_readable(arg0, (u64)sizeof(struct clks_inputm_rule_register_req)) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    clks_memcpy(&req, (const void *)(usize)arg0, sizeof(req));
+    if (clks_syscall_copy_user_string(req.name_ptr, name, sizeof(name)) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    if (clks_syscall_copy_user_optional_string(req.path_ptr, path, sizeof(path)) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    if (clks_syscall_copy_user_string(req.rule_path_ptr, rule_path, sizeof(rule_path)) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    if (clks_syscall_copy_user_optional_string(req.label_ptr, label, sizeof(label)) == CLKS_FALSE) {
+        return (u64)-1;
+    }
+
+    return clks_inputm_register_rule(name, path, rule_path, label, req.flags);
+}
+
 static u64 clks_syscall_tty_status_set(u64 arg0) {
     char text[CLKS_INPUTM_STATUS_MAX];
 

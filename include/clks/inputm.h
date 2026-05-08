@@ -12,6 +12,7 @@ clks_bool clks_inputm_info_at(u64 index, struct clks_inputm_info *out_info);
 u64 clks_inputm_current(void);
 clks_bool clks_inputm_select(u64 index);
 u64 clks_inputm_register(const char *name, const char *path, u64 flags);
+u64 clks_inputm_register_rule(const char *name, const char *path, const char *rule_path, const char *label, u64 flags);
 void clks_inputm_cycle(void);
 clks_bool clks_inputm_handle_char(u32 tty_index, char ch);
 const char *clks_inputm_current_name(void);

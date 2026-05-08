@@ -161,17 +161,26 @@
 #define CLKS_SYSCALL_INPUTM_REGISTER 154ULL
 #define CLKS_SYSCALL_TTY_STATUS_SET 155ULL
 #define CLKS_SYSCALL_BOOT_CMDLINE 156ULL
+#define CLKS_SYSCALL_INPUTM_REGISTER_RULE 157ULL
 
 #define CLKS_SYSINFO_TEXT_MAX 32U
 #define CLKS_SYSINFO_BOOT_MODE_MAX 16U
 #define CLKS_LOCALE_TEXT_MAX 32U
 #define CLKS_INPUTM_NAME_MAX 32U
 #define CLKS_INPUTM_PATH_MAX 192U
+#define CLKS_INPUTM_LABEL_MAX 16U
 #define CLKS_INPUTM_FLAG_CHINESE_PINYIN 0x1ULL
+#define CLKS_INPUTM_FLAG_JAPANESE_ROMAJI 0x2ULL
+#define CLKS_INPUTM_FLAG_RULE_TABLE 0x100ULL
+#define CLKS_INPUTM_FLAG_RULE_LOWERCASE 0x200ULL
+#define CLKS_INPUTM_FLAG_RULE_SPLIT 0x400ULL
+#define CLKS_INPUTM_FLAG_RULE_COMMIT_RAW 0x800ULL
 
 struct clks_inputm_info {
     char name[CLKS_INPUTM_NAME_MAX];
     char path[CLKS_INPUTM_PATH_MAX];
+    char rule_path[CLKS_INPUTM_PATH_MAX];
+    char label[CLKS_INPUTM_LABEL_MAX];
     u64 flags;
     u64 active;
 };
@@ -179,6 +188,14 @@ struct clks_inputm_info {
 struct clks_inputm_register_req {
     u64 name_ptr;
     u64 path_ptr;
+    u64 flags;
+};
+
+struct clks_inputm_rule_register_req {
+    u64 name_ptr;
+    u64 path_ptr;
+    u64 rule_path_ptr;
+    u64 label_ptr;
     u64 flags;
 };
 

@@ -12,16 +12,17 @@
 #define CLKS_INPUTM_CAND_MAX 64U
 #define CLKS_INPUTM_CAND_PAGE_SIZE 5U
 #define CLKS_INPUTM_CAND_BYTES 64U
-#define CLKS_INPUTM_SPLIT_MAX_PARTS 6U
+#define CLKS_INPUTM_SPLIT_MAX_PARTS 12U
 #define CLKS_INPUTM_SPLIT_MAX_SYLLABLE 6U
 #define CLKS_INPUTM_SPLIT_ALT_MAX 2U
-#define CLKS_INPUTM_DICT_PATH "/system/inputm/pinyin.db"
 #define CLKS_INPUTM_DIR "/shell/inputm"
 
 struct clks_inputm_entry {
     clks_bool used;
     char name[CLKS_INPUTM_NAME_MAX];
     char path[CLKS_INPUTM_PATH_MAX];
+    char rule_path[CLKS_INPUTM_PATH_MAX];
+    char label[CLKS_INPUTM_LABEL_MAX];
     u64 flags;
 };
 
@@ -156,13 +157,78 @@ static clks_bool clks_inputm_has_suffix(const char *text, const char *suffix) {
     return (clks_strcmp(text + (text_len - suffix_len), suffix) == 0) ? CLKS_TRUE : CLKS_FALSE;
 }
 
+static clks_bool clks_inputm_line_value(const char *data, u64 line_start, u64 line_end, const char *prefix,
+                                        char *out, usize out_size) {
+    u64 prefix_len;
+    u64 len;
+
+    if (data == CLKS_NULL || prefix == CLKS_NULL || out == CLKS_NULL || out_size == 0U) {
+        return CLKS_FALSE;
+    }
+
+    prefix_len = clks_strlen(prefix);
+    if (line_end < line_start + prefix_len ||
+        clks_inputm_memcmp(data + line_start, prefix, (usize)prefix_len) != 0) {
+        return CLKS_FALSE;
+    }
+
+    len = line_end - line_start - prefix_len;
+    if (len + 1ULL > (u64)out_size) {
+        len = (u64)out_size - 1ULL;
+    }
+    clks_memcpy(out, data + line_start + prefix_len, (usize)len);
+    out[len] = '\0';
+    return CLKS_TRUE;
+}
+
+static void clks_inputm_read_rule_meta(const char *rule_path, char *inout_name, usize name_size, char *inout_label,
+                                       usize label_size) {
+    u64 size = 0ULL;
+    const char *data = (const char *)clks_fs_read_all(rule_path, &size);
+    u64 pos = 0ULL;
+
+    if (data == CLKS_NULL || size == 0ULL) {
+        return;
+    }
+
+    while (pos < size) {
+        u64 line_start = pos;
+        u64 line_end;
+
+        while (pos < size && data[pos] != '\n' && data[pos] != '\r') {
+            pos++;
+        }
+        line_end = pos;
+        while (pos < size && (data[pos] == '\n' || data[pos] == '\r')) {
+            pos++;
+        }
+
+        if (line_start >= line_end) {
+            continue;
+        }
+        if (data[line_start] != '#') {
+            break;
+        }
+
+        (void)clks_inputm_line_value(data, line_start, line_end, "# inputm.name=", inout_name, name_size);
+        (void)clks_inputm_line_value(data, line_start, line_end, "# inputm.label=", inout_label, label_size);
+    }
+}
+
 static void clks_inputm_refresh_status(void) {
     char line[CLKS_INPUTM_STATUS_MAX];
     usize pos = 0U;
     const char *name = clks_inputm_current_name();
+    const char *label = "COMP:";
     u32 page_start;
     u32 page_end;
     u32 i;
+
+    if (clks_inputm_current_index < clks_inputm_entry_count) {
+        if (clks_inputm_entries[clks_inputm_current_index].label[0] != '\0') {
+            label = clks_inputm_entries[clks_inputm_current_index].label;
+        }
+    }
 
     for (i = 0U; i < CLKS_INPUTM_STATUS_MAX; i++) {
         line[i] = '\0';
@@ -174,7 +240,8 @@ static void clks_inputm_refresh_status(void) {
     if (clks_inputm_comp_len > 0U) {
         u32 page_count;
 
-        clks_inputm_append_text(line, sizeof(line), &pos, "  PINYIN:");
+        clks_inputm_append_text(line, sizeof(line), &pos, "  ");
+        clks_inputm_append_text(line, sizeof(line), &pos, label);
         clks_inputm_append_text(line, sizeof(line), &pos, clks_inputm_comp);
         clks_inputm_append_text(line, sizeof(line), &pos, "  ");
 
@@ -211,17 +278,37 @@ static void clks_inputm_refresh_status(void) {
     clks_tty_status_refresh();
 }
 
-static u64 clks_inputm_register_internal(const char *name, const char *path, u64 flags) {
+static void clks_inputm_default_label(char *out_label, usize out_size, u64 flags) {
+    if ((flags & CLKS_INPUTM_FLAG_CHINESE_PINYIN) != 0ULL) {
+        clks_inputm_copy_string(out_label, out_size, "PINYIN:");
+    } else if ((flags & CLKS_INPUTM_FLAG_JAPANESE_ROMAJI) != 0ULL) {
+        clks_inputm_copy_string(out_label, out_size, "ROMAJI:");
+    } else {
+        clks_inputm_copy_string(out_label, out_size, "COMP:");
+    }
+}
+
+static u64 clks_inputm_register_rule_internal(const char *name, const char *path, const char *rule_path,
+                                              const char *label, u64 flags) {
     u64 i;
     struct clks_inputm_entry *entry;
+    char resolved_label[CLKS_INPUTM_LABEL_MAX];
 
     if (name == CLKS_NULL || name[0] == '\0') {
         return (u64)-1;
     }
 
+    if (label == CLKS_NULL || label[0] == '\0') {
+        clks_inputm_default_label(resolved_label, sizeof(resolved_label), flags);
+        label = resolved_label;
+    }
+
     for (i = 0ULL; i < clks_inputm_entry_count; i++) {
         if (clks_inputm_entries[i].used == CLKS_TRUE && clks_strcmp(clks_inputm_entries[i].name, name) == 0) {
             clks_inputm_copy_string(clks_inputm_entries[i].path, sizeof(clks_inputm_entries[i].path), path);
+            clks_inputm_copy_string(clks_inputm_entries[i].rule_path, sizeof(clks_inputm_entries[i].rule_path),
+                                    rule_path);
+            clks_inputm_copy_string(clks_inputm_entries[i].label, sizeof(clks_inputm_entries[i].label), label);
             clks_inputm_entries[i].flags = flags;
             return i;
         }
@@ -235,9 +322,15 @@ static u64 clks_inputm_register_internal(const char *name, const char *path, u64
     entry->used = CLKS_TRUE;
     clks_inputm_copy_string(entry->name, sizeof(entry->name), name);
     clks_inputm_copy_string(entry->path, sizeof(entry->path), path);
+    clks_inputm_copy_string(entry->rule_path, sizeof(entry->rule_path), rule_path);
+    clks_inputm_copy_string(entry->label, sizeof(entry->label), label);
     entry->flags = flags;
     clks_inputm_entry_count++;
     return clks_inputm_entry_count - 1ULL;
+}
+
+static u64 clks_inputm_register_internal(const char *name, const char *path, u64 flags) {
+    return clks_inputm_register_rule_internal(name, path, "", CLKS_NULL, flags);
 }
 
 static void clks_inputm_detect_userland_imes(void) {
@@ -252,6 +345,10 @@ static void clks_inputm_detect_userland_imes(void) {
     for (i = 0ULL; i < count; i++) {
         char child_name[96];
         char path[CLKS_INPUTM_PATH_MAX];
+        char name[CLKS_INPUTM_NAME_MAX];
+        char rule_path[CLKS_INPUTM_PATH_MAX];
+        char label[CLKS_INPUTM_LABEL_MAX];
+        usize child_len;
 
         if (clks_fs_get_child_name(CLKS_INPUTM_DIR, i, child_name, sizeof(child_name)) == CLKS_FALSE) {
             continue;
@@ -263,20 +360,42 @@ static void clks_inputm_detect_userland_imes(void) {
         clks_inputm_copy_string(path, sizeof(path), CLKS_INPUTM_DIR "/");
         clks_inputm_copy_string(path + clks_strlen(path), sizeof(path) - clks_strlen(path), child_name);
 
-        if (clks_strcmp(child_name, "pinyin.elf") == 0) {
-            (void)clks_inputm_register_internal("PinyinCN", path, CLKS_INPUTM_FLAG_CHINESE_PINYIN);
-        } else {
-            (void)clks_inputm_register_internal(child_name, path, 0ULL);
+        clks_inputm_copy_string(name, sizeof(name), child_name);
+        child_len = clks_strlen(name);
+        if (child_len > 4U && clks_strcmp(name + child_len - 4U, ".elf") == 0) {
+            name[child_len - 4U] = '\0';
         }
+
+        clks_inputm_copy_string(rule_path, sizeof(rule_path), "/system/inputm/");
+        clks_inputm_copy_string(rule_path + clks_strlen(rule_path), sizeof(rule_path) - clks_strlen(rule_path), name);
+        clks_inputm_copy_string(rule_path + clks_strlen(rule_path), sizeof(rule_path) - clks_strlen(rule_path), ".db");
+
+        label[0] = '\0';
+        clks_inputm_read_rule_meta(rule_path, name, sizeof(name), label, sizeof(label));
+        if (label[0] == '\0') {
+            clks_inputm_copy_string(label, sizeof(label), "COMP:");
+        }
+
+        (void)clks_inputm_register_rule_internal(name, path, rule_path, label,
+                                                 CLKS_INPUTM_FLAG_RULE_TABLE | CLKS_INPUTM_FLAG_RULE_LOWERCASE |
+                                                     CLKS_INPUTM_FLAG_RULE_SPLIT | CLKS_INPUTM_FLAG_RULE_COMMIT_RAW);
     }
 }
 
 static clks_bool clks_inputm_lookup_candidate(const char *key, u32 candidate_index, char *out_text, usize out_size) {
+    const char *rule_path;
     u64 size = 0ULL;
-    const char *data = (const char *)clks_fs_read_all(CLKS_INPUTM_DICT_PATH, &size);
+    const char *data;
     u64 pos = 0ULL;
 
-    if (key == CLKS_NULL || out_text == CLKS_NULL || out_size == 0U || data == CLKS_NULL || size == 0ULL) {
+    if (key == CLKS_NULL || out_text == CLKS_NULL || out_size == 0U ||
+        clks_inputm_current_index >= clks_inputm_entry_count) {
+        return CLKS_FALSE;
+    }
+
+    rule_path = clks_inputm_entries[clks_inputm_current_index].rule_path;
+    data = (const char *)clks_fs_read_all(rule_path, &size);
+    if (rule_path[0] == '\0' || data == CLKS_NULL || size == 0ULL) {
         return CLKS_FALSE;
     }
 
@@ -499,12 +618,19 @@ static void clks_inputm_rebuild_split_candidates(const char *data, u64 size) {
 }
 
 static void clks_inputm_rebuild_candidates(void) {
+    const char *rule_path;
     u64 size = 0ULL;
-    const char *data = (const char *)clks_fs_read_all(CLKS_INPUTM_DICT_PATH, &size);
+    const char *data;
     u64 pos = 0ULL;
 
     clks_inputm_clear_candidates();
-    if (clks_inputm_comp_len == 0U || data == CLKS_NULL || size == 0ULL) {
+    if (clks_inputm_comp_len == 0U || clks_inputm_current_index >= clks_inputm_entry_count) {
+        return;
+    }
+
+    rule_path = clks_inputm_entries[clks_inputm_current_index].rule_path;
+    data = (const char *)clks_fs_read_all(rule_path, &size);
+    if (rule_path[0] == '\0' || data == CLKS_NULL || size == 0ULL) {
         return;
     }
 
@@ -558,12 +684,13 @@ static void clks_inputm_rebuild_candidates(void) {
         }
     }
 
-    if (clks_inputm_candidate_count < CLKS_INPUTM_CAND_MAX) {
+    if (clks_inputm_candidate_count < CLKS_INPUTM_CAND_MAX &&
+        (clks_inputm_entries[clks_inputm_current_index].flags & CLKS_INPUTM_FLAG_RULE_SPLIT) != 0ULL) {
         clks_inputm_rebuild_split_candidates(data, size);
     }
 }
 
-static clks_bool clks_inputm_commit_comp(u32 tty_index, u32 candidate_index) {
+static clks_bool clks_inputm_commit_comp(u32 tty_index, u32 candidate_index, u64 flags) {
     u32 absolute_index;
 
     if (clks_inputm_comp_len == 0U) {
@@ -576,7 +703,7 @@ static clks_bool clks_inputm_commit_comp(u32 tty_index, u32 candidate_index) {
     } else if (clks_inputm_lookup_candidate(clks_inputm_comp, absolute_index, clks_inputm_candidates[0],
                                             sizeof(clks_inputm_candidates[0])) == CLKS_TRUE) {
         (void)clks_keyboard_inject_text_for_tty(tty_index, clks_inputm_candidates[0]);
-    } else {
+    } else if ((flags & CLKS_INPUTM_FLAG_RULE_COMMIT_RAW) != 0ULL) {
         (void)clks_keyboard_inject_text_for_tty(tty_index, clks_inputm_comp);
     }
 
@@ -624,6 +751,8 @@ clks_bool clks_inputm_info_at(u64 index, struct clks_inputm_info *out_info) {
     clks_memset(out_info, 0, sizeof(*out_info));
     clks_inputm_copy_string(out_info->name, sizeof(out_info->name), clks_inputm_entries[index].name);
     clks_inputm_copy_string(out_info->path, sizeof(out_info->path), clks_inputm_entries[index].path);
+    clks_inputm_copy_string(out_info->rule_path, sizeof(out_info->rule_path), clks_inputm_entries[index].rule_path);
+    clks_inputm_copy_string(out_info->label, sizeof(out_info->label), clks_inputm_entries[index].label);
     out_info->flags = clks_inputm_entries[index].flags;
     out_info->active = (index == clks_inputm_current_index) ? 1ULL : 0ULL;
     return CLKS_TRUE;
@@ -652,6 +781,12 @@ u64 clks_inputm_register(const char *name, const char *path, u64 flags) {
     return ret;
 }
 
+u64 clks_inputm_register_rule(const char *name, const char *path, const char *rule_path, const char *label, u64 flags) {
+    u64 ret = clks_inputm_register_rule_internal(name, path, rule_path, label, flags | CLKS_INPUTM_FLAG_RULE_TABLE);
+    clks_inputm_refresh_status();
+    return ret;
+}
+
 void clks_inputm_cycle(void) {
     if (clks_inputm_entry_count == 0ULL) {
         return;
@@ -668,13 +803,14 @@ clks_bool clks_inputm_handle_char(u32 tty_index, char ch) {
     }
 
     flags = clks_inputm_entries[clks_inputm_current_index].flags;
-    if ((flags & CLKS_INPUTM_FLAG_CHINESE_PINYIN) == 0ULL) {
+    if ((flags & CLKS_INPUTM_FLAG_RULE_TABLE) == 0ULL) {
         return CLKS_FALSE;
     }
 
     if (clks_inputm_is_alpha(ch) == CLKS_TRUE) {
         if (clks_inputm_comp_len + 1U < CLKS_INPUTM_COMP_MAX) {
-            clks_inputm_comp[clks_inputm_comp_len++] = clks_inputm_lower(ch);
+            clks_inputm_comp[clks_inputm_comp_len++] =
+                ((flags & CLKS_INPUTM_FLAG_RULE_LOWERCASE) != 0ULL) ? clks_inputm_lower(ch) : ch;
             clks_inputm_comp[clks_inputm_comp_len] = '\0';
             clks_inputm_rebuild_candidates();
             clks_inputm_refresh_status();
@@ -683,7 +819,7 @@ clks_bool clks_inputm_handle_char(u32 tty_index, char ch) {
     }
 
     if (ch >= '1' && ch <= '5' && clks_inputm_comp_len > 0U) {
-        return clks_inputm_commit_comp(tty_index, (u32)(ch - '1'));
+        return clks_inputm_commit_comp(tty_index, (u32)(ch - '1'), flags);
     }
 
     if (ch == '+' && clks_inputm_comp_len > 0U) {
@@ -709,7 +845,7 @@ clks_bool clks_inputm_handle_char(u32 tty_index, char ch) {
     }
 
     if (ch == ' ' && clks_inputm_comp_len > 0U) {
-        return clks_inputm_commit_comp(tty_index, 0U);
+        return clks_inputm_commit_comp(tty_index, 0U, flags);
     }
 
     if (ch == '\b' && clks_inputm_comp_len > 0U) {
@@ -729,7 +865,7 @@ clks_bool clks_inputm_handle_char(u32 tty_index, char ch) {
     }
 
     if (clks_inputm_comp_len > 0U) {
-        (void)clks_inputm_commit_comp(tty_index, 0U);
+        (void)clks_inputm_commit_comp(tty_index, 0U, flags);
     }
 
     return CLKS_FALSE;

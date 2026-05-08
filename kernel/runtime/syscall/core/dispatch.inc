@@ -303,6 +303,8 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_inputm_select(frame->rbx));
     case CLKS_SYSCALL_INPUTM_REGISTER:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_inputm_register(frame->rbx));
+    case CLKS_SYSCALL_INPUTM_REGISTER_RULE:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_inputm_register_rule(frame->rbx));
     case CLKS_SYSCALL_TTY_STATUS_SET:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_tty_status_set(frame->rbx));
     case CLKS_SYSCALL_KERNEL_VERSION:
