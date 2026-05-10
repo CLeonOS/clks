@@ -32,6 +32,7 @@ void clks_disk_init(void) {
         clks_disk_read_cache = CLKS_NULL;
         clks_disk_read_cache_size = 0ULL;
     }
+    clks_disk_file_cache_clear();
 
     if (clks_disk_ata_probe(&detected_sectors) == CLKS_FALSE || detected_sectors == 0ULL) {
         clks_log(CLKS_LOG_WARN, "DISK", "NO ATA DISK DETECTED (CHECK QEMU -DRIVE)");
@@ -215,6 +216,7 @@ clks_bool clks_disk_write_sector(u64 lba, const void *sector_data) {
         return CLKS_FALSE;
     }
 
+    clks_disk_file_cache_clear();
     clks_memcpy(clks_disk_bytes + (usize)(lba * CLKS_DISK_SECTOR_SIZE), sector_data, (usize)CLKS_DISK_SECTOR_SIZE);
     clks_disk_loaded_mark_range(lba, 1ULL);
 
@@ -240,6 +242,7 @@ clks_bool clks_disk_format_fat32(const char *label) {
         return CLKS_FALSE;
     }
 
+    clks_disk_file_cache_clear();
     if (clks_disk_write_fat32_boot_sector(label) == CLKS_FALSE) {
         clks_log(CLKS_LOG_WARN, "DISK", "FAT32 FORMAT FAILED: BOOT/FAT INIT");
         clks_log_hex(CLKS_LOG_WARN, "DISK", "BYTES", clks_disk_bytes_len);
@@ -348,7 +351,18 @@ const void *clks_disk_read_all(const char *path, u64 *out_size) {
         return (const void *)clks_disk_empty_file_data;
     }
 
+    {
+        const void *cached = clks_disk_file_cache_lookup(relative, lookup.info.first_cluster, lookup.info.size, out_size);
+        if (cached != CLKS_NULL) {
+            return cached;
+        }
+    }
+
     if (clks_disk_prepare_read_cache((u64)lookup.info.size) == CLKS_FALSE) {
+        struct clks_heap_stats heap_stats = clks_heap_get_stats();
+        clks_log(CLKS_LOG_WARN, "DISK", "READ_ALL CACHE ALLOC FAILED");
+        clks_log_hex(CLKS_LOG_WARN, "DISK", "READ_SIZE", (u64)lookup.info.size);
+        clks_log_hex(CLKS_LOG_WARN, "DISK", "HEAP_FREE_BYTES", heap_stats.free_bytes);
         return CLKS_NULL;
     }
 
@@ -357,6 +371,7 @@ const void *clks_disk_read_all(const char *path, u64 *out_size) {
         return CLKS_NULL;
     }
 
+    clks_disk_file_cache_store(relative, lookup.info.first_cluster, lookup.info.size, clks_disk_read_cache);
     return (const void *)clks_disk_read_cache;
 }
 
@@ -618,6 +633,7 @@ clks_bool clks_disk_mkdir(const char *path) {
         return CLKS_FALSE;
     }
 
+    clks_disk_file_cache_clear();
     return CLKS_TRUE;
 }
 
@@ -639,6 +655,7 @@ clks_bool clks_disk_write_all(const char *path, const void *data, u64 size) {
         return CLKS_FALSE;
     }
 
+    clks_disk_file_cache_clear();
     if (clks_disk_ready == CLKS_FALSE || clks_disk_formatted == CLKS_FALSE || relative[0] == '\0') {
         clks_log(CLKS_LOG_WARN, "DISK", "WRITE_ALL FAILED: NOT READY");
         clks_log_hex(CLKS_LOG_WARN, "DISK", "READY", (clks_disk_ready == CLKS_TRUE) ? 1ULL : 0ULL);
@@ -756,6 +773,7 @@ clks_bool clks_disk_append(const char *path, const void *data, u64 size) {
         return CLKS_FALSE;
     }
 
+    clks_disk_file_cache_clear();
     if (clks_disk_ready == CLKS_FALSE || clks_disk_formatted == CLKS_FALSE || relative[0] == '\0') {
         clks_log(CLKS_LOG_WARN, "DISK", "APPEND FAILED: NOT READY");
         return CLKS_FALSE;
@@ -831,6 +849,7 @@ clks_bool clks_disk_remove(const char *path) {
         return CLKS_FALSE;
     }
 
+    clks_disk_file_cache_clear();
     if (clks_disk_ready == CLKS_FALSE || clks_disk_formatted == CLKS_FALSE || relative[0] == '\0') {
         return CLKS_FALSE;
     }

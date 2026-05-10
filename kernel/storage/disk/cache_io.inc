@@ -14,6 +14,153 @@ static clks_bool clks_disk_bytes_range_valid(u64 offset, u64 size) {
     return CLKS_TRUE;
 }
 
+static void clks_disk_file_cache_copy_text(char *dst, usize dst_size, const char *src) {
+    usize i = 0U;
+
+    if (dst == CLKS_NULL || dst_size == 0U) {
+        return;
+    }
+
+    if (src == CLKS_NULL) {
+        dst[0] = '\0';
+        return;
+    }
+
+    while (src[i] != '\0' && i + 1U < dst_size) {
+        dst[i] = src[i];
+        i++;
+    }
+    dst[i] = '\0';
+}
+
+static void clks_disk_file_cache_clear(void) {
+    u32 i;
+
+    for (i = 0U; i < CLKS_DISK_FILE_CACHE_SLOTS; i++) {
+        if (clks_disk_file_cache[i].data != CLKS_NULL) {
+            clks_kfree(clks_disk_file_cache[i].data);
+        }
+        clks_memset(&clks_disk_file_cache[i], 0, sizeof(clks_disk_file_cache[i]));
+    }
+
+    clks_disk_file_cache_bytes = 0ULL;
+    clks_disk_file_cache_clock = 0ULL;
+}
+
+static void clks_disk_file_cache_drop_slot(u32 slot) {
+    if (slot >= CLKS_DISK_FILE_CACHE_SLOTS || clks_disk_file_cache[slot].valid == CLKS_FALSE) {
+        return;
+    }
+
+    if (clks_disk_file_cache_bytes >= (u64)clks_disk_file_cache[slot].size) {
+        clks_disk_file_cache_bytes -= (u64)clks_disk_file_cache[slot].size;
+    } else {
+        clks_disk_file_cache_bytes = 0ULL;
+    }
+
+    if (clks_disk_file_cache[slot].data != CLKS_NULL) {
+        clks_kfree(clks_disk_file_cache[slot].data);
+    }
+
+    clks_memset(&clks_disk_file_cache[slot], 0, sizeof(clks_disk_file_cache[slot]));
+}
+
+static const void *clks_disk_file_cache_lookup(const char *relative, u32 first_cluster, u32 size, u64 *out_size) {
+    u32 i;
+
+    if (relative == CLKS_NULL || size == 0U) {
+        return CLKS_NULL;
+    }
+
+    for (i = 0U; i < CLKS_DISK_FILE_CACHE_SLOTS; i++) {
+        if (clks_disk_file_cache[i].valid == CLKS_FALSE) {
+            continue;
+        }
+        if (clks_disk_file_cache[i].first_cluster != first_cluster || clks_disk_file_cache[i].size != size) {
+            continue;
+        }
+        if (clks_strcmp(clks_disk_file_cache[i].path, relative) != 0) {
+            continue;
+        }
+
+        clks_disk_file_cache[i].age = ++clks_disk_file_cache_clock;
+        if (out_size != CLKS_NULL) {
+            *out_size = (u64)size;
+        }
+        return (const void *)clks_disk_file_cache[i].data;
+    }
+
+    return CLKS_NULL;
+}
+
+static void clks_disk_file_cache_store(const char *relative, u32 first_cluster, u32 size, const void *data) {
+    u32 slot = CLKS_DISK_FILE_CACHE_SLOTS;
+    u32 i;
+    u64 oldest_age = 0xFFFFFFFFFFFFFFFFULL;
+    u8 *copy;
+
+    if (relative == CLKS_NULL || data == CLKS_NULL || size == 0U ||
+        (u64)size > CLKS_DISK_FILE_CACHE_MAX_FILE_BYTES) {
+        return;
+    }
+
+    for (i = 0U; i < CLKS_DISK_FILE_CACHE_SLOTS; i++) {
+        if (clks_disk_file_cache[i].valid == CLKS_TRUE &&
+            clks_strcmp(clks_disk_file_cache[i].path, relative) == 0) {
+            clks_disk_file_cache_drop_slot(i);
+            break;
+        }
+    }
+
+    while (clks_disk_file_cache_bytes + (u64)size > CLKS_DISK_FILE_CACHE_MAX_TOTAL_BYTES) {
+        slot = CLKS_DISK_FILE_CACHE_SLOTS;
+        oldest_age = 0xFFFFFFFFFFFFFFFFULL;
+        for (i = 0U; i < CLKS_DISK_FILE_CACHE_SLOTS; i++) {
+            if (clks_disk_file_cache[i].valid == CLKS_TRUE && clks_disk_file_cache[i].age < oldest_age) {
+                oldest_age = clks_disk_file_cache[i].age;
+                slot = i;
+            }
+        }
+        if (slot >= CLKS_DISK_FILE_CACHE_SLOTS) {
+            break;
+        }
+        clks_disk_file_cache_drop_slot(slot);
+    }
+
+    slot = CLKS_DISK_FILE_CACHE_SLOTS;
+    for (i = 0U; i < CLKS_DISK_FILE_CACHE_SLOTS; i++) {
+        if (clks_disk_file_cache[i].valid == CLKS_FALSE) {
+            slot = i;
+            break;
+        }
+    }
+
+    if (slot >= CLKS_DISK_FILE_CACHE_SLOTS) {
+        oldest_age = 0xFFFFFFFFFFFFFFFFULL;
+        for (i = 0U; i < CLKS_DISK_FILE_CACHE_SLOTS; i++) {
+            if (clks_disk_file_cache[i].age < oldest_age) {
+                oldest_age = clks_disk_file_cache[i].age;
+                slot = i;
+            }
+        }
+        clks_disk_file_cache_drop_slot(slot);
+    }
+
+    copy = (u8 *)clks_kmalloc((usize)size);
+    if (copy == CLKS_NULL) {
+        return;
+    }
+
+    clks_memcpy(copy, data, (usize)size);
+    clks_disk_file_cache_copy_text(clks_disk_file_cache[slot].path, sizeof(clks_disk_file_cache[slot].path), relative);
+    clks_disk_file_cache[slot].first_cluster = first_cluster;
+    clks_disk_file_cache[slot].size = size;
+    clks_disk_file_cache[slot].age = ++clks_disk_file_cache_clock;
+    clks_disk_file_cache[slot].data = copy;
+    clks_disk_file_cache[slot].valid = CLKS_TRUE;
+    clks_disk_file_cache_bytes += (u64)size;
+}
+
 static u64 clks_disk_loaded_bitmap_required_bytes(u64 sector_count) {
     return (sector_count + 7ULL) / 8ULL;
 }
