@@ -307,6 +307,33 @@ static u8 clks_fb_ttf_alpha_at(const struct xiaobaios_ttf_bitmap *bitmap, u32 ro
     return bitmap->alpha[row][col];
 }
 
+static u8 clks_fb_ttf_bold_alpha_at(const struct xiaobaios_ttf_bitmap *bitmap, u32 row, u32 col) {
+    u32 alpha;
+    u32 left;
+    u32 right;
+
+    alpha = (u32)clks_fb_ttf_alpha_at(bitmap, row, col);
+    left = (u32)clks_fb_ttf_alpha_at(bitmap, row, (col > 0U) ? (col - 1U) : 0U);
+    right = (u32)clks_fb_ttf_alpha_at(bitmap, row, col + 1U);
+
+    /*
+     * Make ANSI bold visible without turning small TTF glyphs into blobs.
+     * Use a one-pixel, weighted spread instead of maxing every neighbor.
+     */
+    if (left > alpha) {
+        alpha = ((alpha * 1U) + (left * 2U) + 1U) / 3U;
+    }
+    if (right > alpha) {
+        alpha = ((alpha * 2U) + right + 1U) / 3U;
+    }
+
+    if (alpha > 32U && alpha < 220U) {
+        alpha += (255U - alpha) / 8U;
+    }
+
+    return (alpha > 255U) ? 255U : (u8)alpha;
+}
+
 static void clks_fb_put_pixel(u32 x, u32 y, u32 rgb) {
     u8 *row;
     u32 *pixel;
@@ -770,21 +797,21 @@ void clks_fb_draw_codepoint_scaled_clip(u32 x, u32 y, u32 codepoint, u32 fg_rgb,
                     u8 neighbor_alpha;
                     u32 color;
 
-                    alpha = clks_fb_ttf_alpha_at(ttf_bitmap, glyph_row, glyph_col);
+                    if (style_bold == CLKS_TRUE) {
+                        alpha = clks_fb_ttf_bold_alpha_at(ttf_bitmap, glyph_row, glyph_col);
+                    } else {
+                        alpha = clks_fb_ttf_alpha_at(ttf_bitmap, glyph_row, glyph_col);
 
-                    /* Slight synthetic embolden keeps CJK and small status text from looking washed out. */
-                    neighbor_alpha = clks_fb_ttf_alpha_at(ttf_bitmap, glyph_row, glyph_col > 0U ? glyph_col - 1U : 0U);
-                    if (neighbor_alpha > alpha) {
-                        alpha = (u8)(((u32)alpha + (u32)neighbor_alpha + 1U) / 2U);
-                    }
-                    neighbor_alpha = clks_fb_ttf_alpha_at(ttf_bitmap, glyph_row, glyph_col + 1U);
-                    if (neighbor_alpha > alpha) {
-                        alpha = (u8)(((u32)alpha * 3U + (u32)neighbor_alpha + 2U) / 4U);
-                    }
-
-                    if (style_bold == CLKS_TRUE && alpha == 0U && glyph_col > 0U &&
-                        glyph_row < XIAOBAIOS_TTF_BITMAP_MAX_H && glyph_col - 1U < XIAOBAIOS_TTF_BITMAP_MAX_W) {
-                        alpha = clks_fb_ttf_alpha_at(ttf_bitmap, glyph_row, glyph_col - 1U);
+                        /* Slight synthetic embolden keeps CJK and small status text from looking washed out. */
+                        neighbor_alpha =
+                            clks_fb_ttf_alpha_at(ttf_bitmap, glyph_row, glyph_col > 0U ? glyph_col - 1U : 0U);
+                        if (neighbor_alpha > alpha) {
+                            alpha = (u8)(((u32)alpha + (u32)neighbor_alpha + 1U) / 2U);
+                        }
+                        neighbor_alpha = clks_fb_ttf_alpha_at(ttf_bitmap, glyph_row, glyph_col + 1U);
+                        if (neighbor_alpha > alpha) {
+                            alpha = (u8)(((u32)alpha * 3U + (u32)neighbor_alpha + 2U) / 4U);
+                        }
                     }
 
                     if (style_underline == CLKS_TRUE && row == underline_row) {
