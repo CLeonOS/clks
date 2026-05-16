@@ -17,7 +17,7 @@
 #define CLKS_SYSCALL_KDBG_STACK_WINDOW_BYTES (128ULL * 1024ULL)
 #define CLKS_SYSCALL_KERNEL_SYMBOL_FILE "/system/kernel.sym"
 #define CLKS_SYSCALL_KERNEL_ADDR_BASE 0xFFFF800000000000ULL
-#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_BOOT_CMDLINE
+#define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_NET_TCP_ACCEPT
 #define CLKS_SYSCALL_DISK_SECTOR_BYTES 512U
 #define CLKS_SYSCALL_NET_UDP_PAYLOAD_MAX 1472U
 #define CLKS_SYSCALL_NET_TCP_IO_MAX 65536U
@@ -193,6 +193,14 @@ struct clks_syscall_net_tcp_connect_req {
     u64 dst_ipv4_be;
     u64 dst_port;
     u64 src_port;
+    u64 poll_budget;
+};
+
+struct clks_syscall_net_tcp_listen_req {
+    u64 port;
+};
+
+struct clks_syscall_net_tcp_accept_req {
     u64 poll_budget;
 };
 

@@ -224,6 +224,10 @@ static const char *clks_syscall_name(u64 id) {
         return "NET_DNS_SERVER";
     case CLKS_SYSCALL_NET_TCP_CONNECT:
         return "NET_TCP_CONNECT";
+    case CLKS_SYSCALL_NET_TCP_LISTEN:
+        return "NET_TCP_LISTEN";
+    case CLKS_SYSCALL_NET_TCP_ACCEPT:
+        return "NET_TCP_ACCEPT";
     case CLKS_SYSCALL_NET_TCP_SEND:
         return "NET_TCP_SEND";
     case CLKS_SYSCALL_NET_TCP_RECV:

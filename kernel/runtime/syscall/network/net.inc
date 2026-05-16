@@ -156,6 +156,36 @@ static u64 clks_syscall_net_tcp_connect(u64 arg0) {
                : 0ULL;
 }
 
+static u64 clks_syscall_net_tcp_listen(u64 arg0) {
+    struct clks_syscall_net_tcp_listen_req req;
+
+    if (arg0 == 0ULL) {
+        return 0ULL;
+    }
+
+    if (clks_syscall_user_ptr_readable(arg0, (u64)sizeof(req)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    clks_memcpy(&req, (const void *)arg0, sizeof(req));
+    return (clks_net_tcp_listen((u16)req.port) == CLKS_TRUE) ? 1ULL : 0ULL;
+}
+
+static u64 clks_syscall_net_tcp_accept(u64 arg0) {
+    struct clks_syscall_net_tcp_accept_req req;
+
+    if (arg0 == 0ULL) {
+        return 0ULL;
+    }
+
+    if (clks_syscall_user_ptr_readable(arg0, (u64)sizeof(req)) == CLKS_FALSE) {
+        return 0ULL;
+    }
+
+    clks_memcpy(&req, (const void *)arg0, sizeof(req));
+    return (clks_net_tcp_accept(req.poll_budget) == CLKS_TRUE) ? 1ULL : 0ULL;
+}
+
 static u64 clks_syscall_net_tcp_send(u64 arg0) {
     struct clks_syscall_net_tcp_send_req req;
     void *payload_copy = CLKS_NULL;
@@ -235,4 +265,3 @@ static u64 clks_syscall_net_tcp_close(u64 arg0) {
 static u64 clks_syscall_net_tcp_last_error(void) {
     return clks_net_tcp_last_error();
 }
-

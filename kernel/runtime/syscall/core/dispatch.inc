@@ -347,6 +347,10 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_dns_server());
     case CLKS_SYSCALL_NET_TCP_CONNECT:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_tcp_connect(frame->rbx));
+    case CLKS_SYSCALL_NET_TCP_LISTEN:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_tcp_listen(frame->rbx));
+    case CLKS_SYSCALL_NET_TCP_ACCEPT:
+        CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_tcp_accept(frame->rbx));
     case CLKS_SYSCALL_NET_TCP_SEND:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_syscall_net_tcp_send(frame->rbx));
     case CLKS_SYSCALL_NET_TCP_RECV:
