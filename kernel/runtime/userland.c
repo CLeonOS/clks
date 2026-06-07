@@ -75,7 +75,7 @@ static void clks_userland_probe_init_script(void) {
 #endif
 
 static clks_bool clks_userland_request_shell_exec(void) {
-    u64 status = (u64)-1;
+    u64 pid = (u64)-1;
 
     if (clks_user_shell_ready == CLKS_FALSE) {
         return CLKS_FALSE;
@@ -83,12 +83,12 @@ static clks_bool clks_userland_request_shell_exec(void) {
 
     clks_user_launch_attempt_count++;
 
-    if (clks_exec_run_path("/shell/shell.elf", &status) == CLKS_TRUE) {
+    if (clks_exec_spawn_path("/shell/shell.elf", &pid) == CLKS_TRUE) {
         clks_user_shell_exec_requested_flag = CLKS_TRUE;
         clks_user_launch_success_count++;
 
-        clks_log(CLKS_LOG_INFO, "USER", "SHELL EXEC REQUESTED");
-        clks_log_hex(CLKS_LOG_INFO, "USER", "SHELL_STATUS", status);
+        clks_log(CLKS_LOG_INFO, "USER", "SHELL SPAWN REQUESTED");
+        clks_log_hex(CLKS_LOG_INFO, "USER", "SHELL_PID", pid);
         return CLKS_TRUE;
     }
 
@@ -98,7 +98,7 @@ static clks_bool clks_userland_request_shell_exec(void) {
 }
 
 static clks_bool clks_userland_request_installer_exec(void) {
-    u64 status = (u64)-1;
+    u64 pid = (u64)-1;
 
     if (clks_user_shell_ready == CLKS_FALSE || clks_user_installer_arg[0] == '\0') {
         return CLKS_FALSE;
@@ -106,15 +106,15 @@ static clks_bool clks_userland_request_installer_exec(void) {
 
     clks_user_launch_attempt_count++;
 
-    if (clks_exec_run_pathv("/shell/install2disk.elf", clks_user_installer_arg, "CLKS_INSTALLER_AUTO=1",
-                            &status) == CLKS_TRUE) {
+    if (clks_exec_spawn_pathv("/shell/install2disk.elf", clks_user_installer_arg, "CLKS_INSTALLER_AUTO=1", &pid) ==
+        CLKS_TRUE) {
         clks_user_launch_success_count++;
         clks_user_installer_pending = CLKS_FALSE;
+        clks_user_shell_exec_requested_flag = CLKS_TRUE;
 
-        clks_log(CLKS_LOG_INFO, "USER", "INSTALLER AUTO EXEC REQUESTED");
+        clks_log(CLKS_LOG_INFO, "USER", "INSTALLER AUTO SPAWN REQUESTED");
         clks_log(CLKS_LOG_INFO, "USER", clks_user_installer_arg);
-        clks_log_hex(CLKS_LOG_INFO, "USER", "INSTALLER_STATUS", status);
-        (void)clks_userland_request_shell_exec();
+        clks_log_hex(CLKS_LOG_INFO, "USER", "INSTALLER_PID", pid);
         return CLKS_TRUE;
     }
 

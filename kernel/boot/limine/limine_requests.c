@@ -1,5 +1,21 @@
 #include <clks/boot.h>
+#include <clks/clboot.h>
 #include <clks/compiler.h>
+
+void clks_clboot_set_info(u64 magic, const struct clboot_info *info) {
+    (void)magic;
+    (void)info;
+}
+
+const char *clks_clboot_get_bootlog(u64 *out_size, u64 *out_entry_count) {
+    if (out_size != CLKS_NULL) {
+        *out_size = 0ULL;
+    }
+    if (out_entry_count != CLKS_NULL) {
+        *out_entry_count = 0ULL;
+    }
+    return CLKS_NULL;
+}
 
 CLKS_USED static volatile u64 limine_requests_start[] __attribute__((section(".limine_requests_start"))) =
     LIMINE_REQUESTS_START_MARKER;

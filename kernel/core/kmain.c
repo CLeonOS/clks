@@ -3,6 +3,7 @@
 #include <clks/boot.h>
 #include <clks/audio.h>
 #include <clks/bootsplash.h>
+#include <clks/clboot.h>
 #include <clks/cpu.h>
 #include <clks/desktop.h>
 #include <clks/display.h>
@@ -71,6 +72,45 @@ static void clks_kmain_apply_boot_locale(void) {
         clks_log(CLKS_LOG_WARN, "LOCALE", "INVALID BOOT CMDLINE LOCALE");
         clks_log(CLKS_LOG_WARN, "LOCALE", value);
     }
+}
+
+static void clks_kmain_emit_clboot_log(void) {
+    const char *bootlog;
+    u64 size = 0ULL;
+    u64 entries = 0ULL;
+    u64 pos = 0ULL;
+    char line[160];
+
+    bootlog = clks_clboot_get_bootlog(&size, &entries);
+    if (bootlog == CLKS_NULL || size == 0ULL) {
+        return;
+    }
+
+    clks_log(CLKS_LOG_INFO, "CLBOOT", "BOOT LOG BEGIN");
+    clks_log_hex(CLKS_LOG_INFO, "CLBOOT", "ENTRY_COUNT", entries);
+
+    while (pos < size && bootlog[pos] != '\0') {
+        usize out = 0U;
+
+        while (pos < size && bootlog[pos] != '\0' && bootlog[pos] != '\n' && out + 1U < sizeof(line)) {
+            line[out++] = bootlog[pos++];
+        }
+
+        line[out] = '\0';
+        if (out > 0U) {
+            clks_log(CLKS_LOG_INFO, "CLBOOT", line);
+        }
+
+        while (pos < size && (bootlog[pos] == '\n' || bootlog[pos] == '\r')) {
+            pos++;
+        }
+
+        if (out == 0U && pos < size && bootlog[pos] == '\0') {
+            break;
+        }
+    }
+
+    clks_log(CLKS_LOG_INFO, "CLBOOT", "BOOT LOG END");
 }
 
 #ifndef CLKS_CFG_AUDIO
@@ -231,6 +271,11 @@ static void clks_task_usrd(u64 tick) {
 }
 #endif
 
+void clks_kernel_entry(u64 boot_magic, void *boot_info) {
+    clks_clboot_set_info(boot_magic, (const struct clboot_info *)boot_info);
+    clks_kernel_main();
+}
+
 void clks_kernel_main(void) {
     const struct limine_framebuffer *boot_fb;
     const struct limine_memmap_response *boot_memmap;
@@ -273,6 +318,7 @@ void clks_kernel_main(void) {
     }
 
     clks_log(CLKS_LOG_INFO, "BOOT", "CLeonKernelSystem START");
+    clks_kmain_emit_clboot_log();
     if (rescue_mode == CLKS_TRUE) {
         clks_log(CLKS_LOG_WARN, "BOOT", "RESCUE MODE ENABLED");
     }

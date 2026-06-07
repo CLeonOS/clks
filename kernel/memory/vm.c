@@ -17,6 +17,7 @@
 #define CLKS_VM_EFER_NXE (1ULL << 11U)
 #define CLKS_VM_CPUID_EXT_FEATURES 0x80000001U
 #define CLKS_VM_CPUID_EXT_NX (1U << 20U)
+#define CLKS_VM_KERNEL_STACK_WINDOW_PAGES 32ULL
 
 static clks_bool clks_vm_ready = CLKS_FALSE;
 static clks_bool clks_vm_nxe_ready = CLKS_FALSE;
@@ -266,9 +267,11 @@ u64 clks_vm_create_address_space(void) {
     clks_memset(dst, 0, (usize)CLKS_VM_PAGE_SIZE);
 
     /*
-     * Keep the kernel/HHDM half shared. User VM allocations live in low PML4
-     * slots and are created per process on demand.
+     * Keep the kernel/HHDM half shared. PML4[0] is also shared because the
+     * current kernel and exec paths still use low physical stacks/identity
+     * mappings while a process address space is active.
      */
+    dst[0] = kernel_pml4[0];
     for (i = 256U; i < 512U; i++) {
         dst[i] = kernel_pml4[i];
     }
@@ -292,6 +295,11 @@ void clks_vm_destroy_address_space(u64 cr3) {
     if (pml4 != CLKS_NULL) {
         for (i = 0U; i < 256U; i++) {
             u64 entry = pml4[i];
+
+            if (i == 0U) {
+                pml4[i] = 0ULL;
+                continue;
+            }
 
             if ((entry & CLKS_VM_PTE_PRESENT) == 0ULL || (entry & CLKS_VM_PTE_PS) != 0ULL) {
                 continue;
@@ -528,5 +536,68 @@ clks_bool clks_vm_translate_current(u64 virt_addr, u64 *out_phys_addr, u64 *out_
         *out_flags = entry;
     }
 
+    return CLKS_TRUE;
+}
+
+clks_bool clks_vm_map_page_in_address_space(u64 cr3, u64 virt_addr, u64 phys_addr, u64 flags) {
+    u64 prev_cr3;
+    clks_bool ok;
+
+    if (cr3 == 0ULL || (cr3 & (CLKS_VM_PAGE_SIZE - 1ULL)) != 0ULL) {
+        return CLKS_FALSE;
+    }
+
+    prev_cr3 = clks_vm_current_cr3();
+    if ((prev_cr3 & CLKS_VM_PTE_ADDR_MASK) != (cr3 & CLKS_VM_PTE_ADDR_MASK)) {
+        clks_vm_switch_cr3(cr3);
+    }
+
+    ok = clks_vm_map_page_current(virt_addr, phys_addr, flags);
+
+    if ((prev_cr3 & CLKS_VM_PTE_ADDR_MASK) != (cr3 & CLKS_VM_PTE_ADDR_MASK)) {
+        clks_vm_switch_cr3(prev_cr3);
+    }
+
+    return ok;
+}
+
+clks_bool clks_vm_map_current_stack_window(u64 target_cr3) {
+    u64 rsp;
+    u64 start;
+    u64 page;
+    u64 current_cr3;
+
+    if (target_cr3 == 0ULL || (target_cr3 & (CLKS_VM_PAGE_SIZE - 1ULL)) != 0ULL) {
+        return CLKS_FALSE;
+    }
+
+    current_cr3 = clks_vm_current_cr3();
+    __asm__ volatile("mov %%rsp, %0" : "=r"(rsp));
+    start = (rsp & ~(CLKS_VM_PAGE_SIZE - 1ULL)) -
+            ((CLKS_VM_KERNEL_STACK_WINDOW_PAGES / 2ULL) * CLKS_VM_PAGE_SIZE);
+
+    for (page = 0ULL; page < CLKS_VM_KERNEL_STACK_WINDOW_PAGES; page++) {
+        u64 virt = start + (page * CLKS_VM_PAGE_SIZE);
+        u64 phys = 0ULL;
+        u64 flags = 0ULL;
+
+        if (clks_vm_translate_current(virt, &phys, &flags) == CLKS_FALSE || phys == 0ULL) {
+            continue;
+        }
+
+        if (clks_vm_map_page_in_address_space(target_cr3, virt & ~(CLKS_VM_PAGE_SIZE - 1ULL),
+                                              phys & CLKS_VM_PTE_ADDR_MASK,
+                                              CLKS_VM_FLAG_READ | CLKS_VM_FLAG_WRITE | CLKS_VM_FLAG_EXEC) ==
+            CLKS_FALSE) {
+            if ((clks_vm_current_cr3() & CLKS_VM_PTE_ADDR_MASK) != (current_cr3 & CLKS_VM_PTE_ADDR_MASK)) {
+                clks_vm_switch_cr3(current_cr3);
+            }
+            return CLKS_FALSE;
+        }
+    }
+
+    if ((clks_vm_current_cr3() & CLKS_VM_PTE_ADDR_MASK) != (current_cr3 & CLKS_VM_PTE_ADDR_MASK)) {
+        clks_vm_switch_cr3(current_cr3);
+    }
     return CLKS_TRUE;
 }

@@ -21,5 +21,7 @@ clks_bool clks_vm_map_page_current(u64 virt_addr, u64 phys_addr, u64 flags);
 clks_bool clks_vm_protect_page_current(u64 virt_addr, u64 flags);
 clks_bool clks_vm_unmap_page_current(u64 virt_addr, u64 *out_phys_addr);
 clks_bool clks_vm_translate_current(u64 virt_addr, u64 *out_phys_addr, u64 *out_flags);
+clks_bool clks_vm_map_page_in_address_space(u64 cr3, u64 virt_addr, u64 phys_addr, u64 flags);
+clks_bool clks_vm_map_current_stack_window(u64 target_cr3);
 
 #endif
