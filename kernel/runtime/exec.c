@@ -4186,6 +4186,41 @@ clks_bool clks_exec_is_running(void) {
     return (clks_exec_running_depth > 0U) ? CLKS_TRUE : CLKS_FALSE;
 }
 
+clks_bool clks_exec_tty_has_user_process(u32 tty_index) {
+    u32 tty_count = clks_tty_count();
+    u32 i;
+
+    if (tty_count == 0U) {
+        tty_count = 1U;
+    }
+
+    if (tty_index >= tty_count) {
+        tty_index = 0U;
+    }
+
+    for (i = 0U; i < CLKS_EXEC_MAX_PROCS; i++) {
+        const struct clks_exec_proc_record *proc = &clks_exec_proc_table[i];
+
+        if (proc->used != CLKS_TRUE) {
+            continue;
+        }
+
+        if (proc->tty_index != tty_index) {
+            continue;
+        }
+
+        if (proc->state != CLKS_EXEC_PROC_PENDING && proc->state != CLKS_EXEC_PROC_RUNNING) {
+            continue;
+        }
+
+        if (clks_exec_path_is_user_program(proc->path) == CLKS_TRUE) {
+            return CLKS_TRUE;
+        }
+    }
+
+    return CLKS_FALSE;
+}
+
 clks_bool clks_exec_current_path_is_user(void) {
     i32 depth_index;
     i32 slot;

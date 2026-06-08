@@ -187,11 +187,13 @@ static clks_bool clks_keyboard_shell_input_enabled(void) {
 }
 
 static clks_bool clks_keyboard_should_pump_shell_now(void) {
+    u32 active_tty = clks_tty_active();
+
     if (clks_keyboard_shell_input_enabled() == CLKS_FALSE) {
         return CLKS_FALSE;
     }
 
-    if (clks_exec_is_running() == CLKS_TRUE) {
+    if (clks_exec_tty_has_user_process(active_tty) == CLKS_TRUE) {
         return CLKS_FALSE;
     }
 

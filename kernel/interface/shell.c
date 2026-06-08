@@ -1510,6 +1510,9 @@ void clks_shell_pump_input(u32 max_chars) {
 
 void clks_shell_tick(u64 tick) {
     (void)tick;
+    if (clks_exec_tty_has_user_process(clks_tty_active()) == CLKS_TRUE) {
+        return;
+    }
     clks_shell_drain_input(CLKS_SHELL_INPUT_BUDGET);
     clks_shell_process_pending_command();
 }
