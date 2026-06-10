@@ -2432,6 +2432,54 @@ static clks_bool clks_exec_dispatch_pending_once(void) {
     return CLKS_FALSE;
 }
 
+static void clks_exec_sync_wait_idle_once(void) {
+#if defined(CLKS_ARCH_X86_64)
+    __asm__ volatile("sti; hlt; cli" : : : "memory");
+#elif defined(CLKS_ARCH_AARCH64)
+    clks_cpu_pause();
+#endif
+}
+
+static clks_bool clks_exec_proc_has_internal_suspend(i32 slot, u64 status) {
+    const struct clks_exec_proc_record *proc;
+
+    if (status != CLKS_EXEC_INTERNAL_SUSPEND_STATUS || slot < 0 || (u32)slot >= CLKS_EXEC_MAX_PROCS) {
+        return CLKS_FALSE;
+    }
+
+    proc = &clks_exec_proc_table[(u32)slot];
+    return (proc->used == CLKS_TRUE && proc->state == CLKS_EXEC_PROC_PENDING &&
+            proc->saved_frame_valid == CLKS_TRUE)
+               ? CLKS_TRUE
+               : CLKS_FALSE;
+}
+
+static clks_bool clks_exec_wait_sync_proc_slot(i32 slot, u64 *io_status) {
+    u64 status;
+
+    if (io_status == CLKS_NULL) {
+        return CLKS_FALSE;
+    }
+
+    status = *io_status;
+    while (clks_exec_proc_has_internal_suspend(slot, status) == CLKS_TRUE) {
+        /*
+         * Synchronous exec is used by the user shell for foreground commands.
+         * If the child waits for TTY input, cooperative suspend must remain an
+         * internal scheduler detail; otherwise the shell receives CLKSSUSP as
+         * the command exit code and returns to the prompt too early.
+         */
+        clks_exec_sync_wait_idle_once();
+        status = (u64)-1;
+        if (clks_exec_run_proc_slot(slot, &status) == CLKS_FALSE) {
+            return CLKS_FALSE;
+        }
+    }
+
+    *io_status = status;
+    return CLKS_TRUE;
+}
+
 static clks_bool clks_exec_run_path_internal(const char *path, const char *argv_line, const char *env_line,
                                              u64 stdin_fd, u64 stdout_fd, u64 stderr_fd, u64 *out_status,
                                              u64 *out_pid) {
@@ -2483,6 +2531,10 @@ static clks_bool clks_exec_run_path_internal(const char *path, const char *argv_
     }
 
     if (clks_exec_run_proc_slot(slot, &status) == CLKS_FALSE) {
+        return CLKS_FALSE;
+    }
+
+    if (clks_exec_wait_sync_proc_slot(slot, &status) == CLKS_FALSE) {
         return CLKS_FALSE;
     }
 
