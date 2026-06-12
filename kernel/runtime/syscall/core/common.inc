@@ -15,7 +15,7 @@
 #define CLKS_SYSCALL_KDBG_TEXT_MAX 2048U
 #define CLKS_SYSCALL_KDBG_BT_MAX_FRAMES 16U
 #define CLKS_SYSCALL_KDBG_STACK_WINDOW_BYTES (128ULL * 1024ULL)
-#define CLKS_SYSCALL_KERNEL_SYMBOL_FILE "/system/kernel.sym"
+#define CLKS_SYSCALL_KERNEL_SYMBOL_FILE "/system/others/kernel.sym"
 #define CLKS_SYSCALL_KERNEL_ADDR_BASE 0xFFFF800000000000ULL
 #define CLKS_SYSCALL_STATS_MAX_ID CLKS_SYSCALL_NET_TCP_ACCEPT
 #define CLKS_SYSCALL_DISK_SECTOR_BYTES 512U
@@ -313,6 +313,11 @@ struct clks_syscall_sysinfo_user {
     u64 task_count;
     u64 service_count;
     u64 service_ready_count;
+    u64 runnable_tasks;
+    u64 sleeping_tasks;
+    u64 blocked_tasks;
+    u64 scheduler_yields;
+    u64 scheduler_wakeups;
 };
 
 static clks_bool clks_syscall_ready = CLKS_FALSE;

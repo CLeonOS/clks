@@ -11,6 +11,22 @@
 #define CLKS_EXEC_PROC_STATE_EXITED 3ULL
 #define CLKS_EXEC_PROC_STATE_STOPPED 4ULL
 
+#define CLKS_EXEC_THREAD_STATE_NONE 0ULL
+#define CLKS_EXEC_THREAD_STATE_READY 1ULL
+#define CLKS_EXEC_THREAD_STATE_RUNNING 2ULL
+#define CLKS_EXEC_THREAD_STATE_BLOCKED 3ULL
+#define CLKS_EXEC_THREAD_STATE_SLEEPING 4ULL
+#define CLKS_EXEC_THREAD_STATE_STOPPED 5ULL
+#define CLKS_EXEC_THREAD_STATE_ZOMBIE 6ULL
+
+#define CLKS_EXEC_BLOCK_NONE 0ULL
+#define CLKS_EXEC_BLOCK_TTY_INPUT 1ULL
+#define CLKS_EXEC_BLOCK_PTY_INPUT 2ULL
+#define CLKS_EXEC_BLOCK_SLEEP 3ULL
+#define CLKS_EXEC_BLOCK_WAIT_CHILD 4ULL
+#define CLKS_EXEC_BLOCK_YIELD 5ULL
+#define CLKS_EXEC_BLOCK_IO 6ULL
+
 #define CLKS_EXEC_SIGNAL_KILL 9ULL
 #define CLKS_EXEC_SIGNAL_TERM 15ULL
 #define CLKS_EXEC_SIGNAL_CONT 18ULL
@@ -41,6 +57,13 @@ struct clks_exec_proc_snapshot {
     u64 uid;
     u64 role;
     char path[CLKS_EXEC_PROC_PATH_MAX];
+    u64 main_thread_id;
+    u64 thread_state;
+    u64 scheduler_task_id;
+    u64 blocked_reason;
+    u64 wake_tick;
+    u64 wait_target_pid;
+    u64 parent_waiting;
 };
 
 void clks_exec_init(void);
@@ -86,6 +109,7 @@ u64 clks_exec_current_fault_rip(void);
 u64 clks_exec_proc_count(void);
 clks_bool clks_exec_proc_pid_at(u64 index, u64 *out_pid);
 clks_bool clks_exec_proc_snapshot(u64 pid, struct clks_exec_proc_snapshot *out_snapshot);
+clks_bool clks_exec_proc_snapshot_copy(u64 pid, void *out_snapshot, u64 out_size);
 u64 clks_exec_proc_kill(u64 pid, u64 signal);
 u64 clks_exec_force_stop_tty_running_process(u32 tty_index, u64 *out_pid);
 clks_bool clks_exec_try_unwind_signaled_process(u64 interrupted_rip, u64 *io_rip, u64 *io_rdi, u64 *io_rsi);
@@ -97,6 +121,7 @@ void clks_exec_tick(u64 tick);
 u64 clks_exec_request_count(void);
 u64 clks_exec_success_count(void);
 clks_bool clks_exec_is_running(void);
+clks_bool clks_exec_has_user_process(void);
 clks_bool clks_exec_tty_has_user_process(u32 tty_index);
 clks_bool clks_exec_current_path_is_user(void);
 clks_bool clks_exec_current_user_ptr_readable(u64 addr, u64 size);

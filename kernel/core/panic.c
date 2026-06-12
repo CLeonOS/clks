@@ -27,7 +27,7 @@
 
 #define CLKS_PANIC_BACKTRACE_MAX 20U
 #define CLKS_PANIC_STACK_WINDOW_BYTES (128ULL * 1024ULL)
-#define CLKS_PANIC_SYMBOL_FILE "/system/kernel.sym"
+#define CLKS_PANIC_SYMBOL_FILE "/system/others/kernel.sym"
 #define CLKS_PANIC_KERNEL_ADDR_BASE 0xFFFF800000000000ULL
 #define CLKS_PANIC_QR_HINT "\nSPACE toggles panic log QR. Full dump is also on serial.\n"
 #define CLKS_PANIC_QR_HINT_ZH "\nSPACE 切换 panic 日志 QR。完整转储也会输出到串口。\n"

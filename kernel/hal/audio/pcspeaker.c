@@ -64,7 +64,7 @@ void clks_audio_init(void) {
     clks_audio_stop();
 
     clks_log(CLKS_LOG_INFO, "AUDIO", "PC SPEAKER ONLINE");
-    clks_log_hex(CLKS_LOG_INFO, "AUDIO", "PIT_BASE_HZ", CLKS_AUDIO_PIT_BASE_HZ);
+    clks_log_u64(CLKS_LOG_INFO, "AUDIO", "PIT base Hz", CLKS_AUDIO_PIT_BASE_HZ);
 #else
     clks_audio_ready = CLKS_FALSE;
     clks_audio_played_count = 0ULL;

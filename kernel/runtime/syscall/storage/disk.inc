@@ -70,6 +70,11 @@ static u64 clks_syscall_sysinfo(u64 arg0, u64 arg1) {
     info.task_count = sched.task_count;
     info.service_count = clks_service_count();
     info.service_ready_count = clks_service_ready_count();
+    info.runnable_tasks = sched.runnable_count;
+    info.sleeping_tasks = sched.sleeping_count;
+    info.blocked_tasks = sched.blocked_count;
+    info.scheduler_yields = sched.yield_count;
+    info.scheduler_wakeups = sched.wakeup_count;
 
     clks_memcpy((void *)(usize)arg0, &info, sizeof(info));
     return 1ULL;

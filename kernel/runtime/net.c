@@ -364,6 +364,59 @@ static inline void clks_net_write_be32(u8 *ptr, u32 value) {
     ptr[3] = (u8)(value & 0xFFU);
 }
 
+static void clks_net_append_dec_u8(char *out, usize out_size, usize *cursor, u8 value) {
+    char digits[3];
+    usize count = 0U;
+
+    if (out == CLKS_NULL || cursor == CLKS_NULL || out_size == 0U) {
+        return;
+    }
+
+    if (value == 0U) {
+        if (*cursor + 1U < out_size) {
+            out[(*cursor)++] = '0';
+        }
+        return;
+    }
+
+    while (value != 0U && count < (usize)sizeof(digits)) {
+        digits[count++] = (char)('0' + (char)(value % 10U));
+        value = (u8)(value / 10U);
+    }
+
+    while (count > 0U && *cursor + 1U < out_size) {
+        count--;
+        out[(*cursor)++] = digits[count];
+    }
+}
+
+static void clks_net_format_ipv4(u32 ipv4_be, char *out, usize out_size) {
+    usize cursor = 0U;
+    u32 i;
+
+    if (out == CLKS_NULL || out_size == 0U) {
+        return;
+    }
+
+    for (i = 0U; i < 4U; i++) {
+        u8 octet = (u8)((ipv4_be >> ((3U - i) * 8U)) & 0xFFU);
+        if (i != 0U && cursor + 1U < out_size) {
+            out[cursor++] = '.';
+        }
+        clks_net_append_dec_u8(out, out_size, &cursor, octet);
+    }
+
+    out[(cursor < out_size) ? cursor : (out_size - 1U)] = '\0';
+}
+
+static void clks_net_log_ipv4(enum clks_log_level level, const char *label, u32 ipv4_be) {
+    char text[32];
+
+    clks_net_format_ipv4(ipv4_be, text, sizeof(text));
+    clks_log(level, "NET", label);
+    clks_log(level, "NET", text);
+}
+
 static clks_bool clks_net_mac_equal(const u8 *left, const u8 *right) {
     u32 i;
     if (left == CLKS_NULL || right == CLKS_NULL) {
@@ -1799,9 +1852,9 @@ static void clks_net_dhcp_process_payload(u32 src_ipv4_be, const u8 *payload, u1
         clks_net_dhcp_offer_dns_be = dns_be;
         clks_net_dhcp_offer_ready = CLKS_TRUE;
         clks_log(CLKS_LOG_INFO, "NET", "DHCP OFFER RECEIVED");
-        clks_log_hex(CLKS_LOG_INFO, "NET", "DHCP_OFFER_IP", clks_net_dhcp_offer_ip_be);
-        clks_log_hex(CLKS_LOG_INFO, "NET", "DHCP_OFFER_GW", clks_net_dhcp_offer_gateway_be);
-        clks_log_hex(CLKS_LOG_INFO, "NET", "DHCP_OFFER_DNS", clks_net_dhcp_offer_dns_be);
+        clks_net_log_ipv4(CLKS_LOG_INFO, "offer IPv4", clks_net_dhcp_offer_ip_be);
+        clks_net_log_ipv4(CLKS_LOG_INFO, "offer gateway", clks_net_dhcp_offer_gateway_be);
+        clks_net_log_ipv4(CLKS_LOG_INFO, "offer DNS", clks_net_dhcp_offer_dns_be);
         return;
     }
 
@@ -1827,9 +1880,9 @@ static void clks_net_dhcp_process_payload(u32 src_ipv4_be, const u8 *payload, u1
         }
         clks_net_dhcp_ack_ready = CLKS_TRUE;
         clks_log(CLKS_LOG_INFO, "NET", "DHCP ACK RECEIVED");
-        clks_log_hex(CLKS_LOG_INFO, "NET", "DHCP_ACK_IP", clks_net_dhcp_offer_ip_be);
-        clks_log_hex(CLKS_LOG_INFO, "NET", "DHCP_ACK_GW", clks_net_dhcp_offer_gateway_be);
-        clks_log_hex(CLKS_LOG_INFO, "NET", "DHCP_ACK_DNS", clks_net_dhcp_offer_dns_be);
+        clks_net_log_ipv4(CLKS_LOG_INFO, "ack IPv4", clks_net_dhcp_offer_ip_be);
+        clks_net_log_ipv4(CLKS_LOG_INFO, "ack gateway", clks_net_dhcp_offer_gateway_be);
+        clks_net_log_ipv4(CLKS_LOG_INFO, "ack DNS", clks_net_dhcp_offer_dns_be);
         return;
     }
 
@@ -2431,10 +2484,10 @@ void clks_net_init(void) {
             }
             clks_net_apply_fallback_config();
         }
-        clks_log_hex(CLKS_LOG_INFO, "NET", "IPV4_BE", clks_net_ipv4_be);
-        clks_log_hex(CLKS_LOG_INFO, "NET", "NETMASK_BE", clks_net_netmask_be);
-        clks_log_hex(CLKS_LOG_INFO, "NET", "GATEWAY_BE", clks_net_gateway_be);
-        clks_log_hex(CLKS_LOG_INFO, "NET", "DNS_BE", clks_net_dns_be);
+        clks_net_log_ipv4(CLKS_LOG_INFO, "IPv4", clks_net_ipv4_be);
+        clks_net_log_ipv4(CLKS_LOG_INFO, "netmask", clks_net_netmask_be);
+        clks_net_log_ipv4(CLKS_LOG_INFO, "gateway", clks_net_gateway_be);
+        clks_net_log_ipv4(CLKS_LOG_INFO, "DNS", clks_net_dns_be);
         clks_net_ready = CLKS_TRUE;
     }
 }

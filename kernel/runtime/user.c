@@ -707,8 +707,7 @@ void clks_user_init(void) {
     }
 #if CLKS_CFG_USER_BOOT_LOG
     clks_log(CLKS_LOG_INFO, "USER", "KERNEL USER SYSTEM ONLINE");
-    clks_log_hex(CLKS_LOG_INFO, "USER", "DISK_LOGIN_REQUIRED",
-                 (clks_user_disk_login_required == CLKS_TRUE) ? 1ULL : 0ULL);
+    clks_log_bool(CLKS_LOG_INFO, "USER", "disk login required", clks_user_disk_login_required);
 #endif
 }
 

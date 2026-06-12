@@ -232,7 +232,7 @@ void clks_vm_init(void) {
 
     if (clks_vm_ready == CLKS_TRUE) {
         clks_log(CLKS_LOG_INFO, "VM", "PAGING MANAGER ONLINE");
-        clks_log_hex(CLKS_LOG_INFO, "VM", "NXE", (clks_vm_nxe_ready == CLKS_TRUE) ? 1ULL : 0ULL);
+        clks_log_bool(CLKS_LOG_INFO, "VM", "NXE enabled", clks_vm_nxe_ready);
     } else {
         clks_log(CLKS_LOG_WARN, "VM", "PAGING MANAGER UNAVAILABLE");
     }

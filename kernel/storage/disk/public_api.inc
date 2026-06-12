@@ -47,8 +47,8 @@ void clks_disk_init(void) {
 
     if (cache_bytes < CLKS_DISK_MIN_BYTES) {
         clks_log(CLKS_LOG_WARN, "DISK", "ATA DISK TOO SMALL FOR FAT32");
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "BYTES", cache_bytes);
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "MIN_BYTES", CLKS_DISK_MIN_BYTES);
+        clks_log_bytes(CLKS_LOG_WARN, "DISK", "cache size", cache_bytes);
+        clks_log_bytes(CLKS_LOG_WARN, "DISK", "minimum size", CLKS_DISK_MIN_BYTES);
         return;
     }
 
@@ -64,9 +64,9 @@ void clks_disk_init(void) {
 
     if (heap_usable_bytes < CLKS_DISK_MIN_BYTES) {
         clks_log(CLKS_LOG_WARN, "DISK", "INSUFFICIENT HEAP FOR DISK CACHE");
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "HEAP_FREE_BYTES", heap_stats.free_bytes);
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "HEAP_RESERVE_BYTES", CLKS_DISK_HEAP_RESERVE_BYTES);
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "MIN_BYTES", CLKS_DISK_MIN_BYTES);
+        clks_log_bytes(CLKS_LOG_WARN, "DISK", "heap free", heap_stats.free_bytes);
+        clks_log_bytes(CLKS_LOG_WARN, "DISK", "heap reserve", CLKS_DISK_HEAP_RESERVE_BYTES);
+        clks_log_bytes(CLKS_LOG_WARN, "DISK", "minimum size", CLKS_DISK_MIN_BYTES);
         return;
     }
 
@@ -77,9 +77,9 @@ void clks_disk_init(void) {
     alloc_bytes -= (alloc_bytes % CLKS_DISK_SECTOR_SIZE);
     if (alloc_bytes < CLKS_DISK_MIN_BYTES) {
         clks_log(CLKS_LOG_WARN, "DISK", "DISK CACHE HEAP BUDGET TOO SMALL");
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "HEAP_FREE_BYTES", heap_stats.free_bytes);
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "HEAP_USABLE_BYTES", heap_usable_bytes);
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "MIN_BYTES", CLKS_DISK_MIN_BYTES);
+        clks_log_bytes(CLKS_LOG_WARN, "DISK", "heap free", heap_stats.free_bytes);
+        clks_log_bytes(CLKS_LOG_WARN, "DISK", "heap usable", heap_usable_bytes);
+        clks_log_bytes(CLKS_LOG_WARN, "DISK", "minimum size", CLKS_DISK_MIN_BYTES);
         return;
     }
     retry_step = CLKS_DISK_ALLOC_RETRY_STEP_BYTES;
@@ -110,11 +110,11 @@ void clks_disk_init(void) {
 
     if (clks_disk_bytes == CLKS_NULL) {
         clks_log(CLKS_LOG_WARN, "DISK", "DISK BACKEND ALLOCATION FAILED");
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "CACHE_BYTES", cache_bytes);
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "HEAP_FREE_BYTES", heap_stats.free_bytes);
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "HEAP_RESERVE_BYTES", CLKS_DISK_HEAP_RESERVE_BYTES);
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "HEAP_USABLE_BYTES", heap_usable_bytes);
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "MIN_BYTES", CLKS_DISK_MIN_BYTES);
+        clks_log_bytes(CLKS_LOG_WARN, "DISK", "cache size", cache_bytes);
+        clks_log_bytes(CLKS_LOG_WARN, "DISK", "heap free", heap_stats.free_bytes);
+        clks_log_bytes(CLKS_LOG_WARN, "DISK", "heap reserve", CLKS_DISK_HEAP_RESERVE_BYTES);
+        clks_log_bytes(CLKS_LOG_WARN, "DISK", "heap usable", heap_usable_bytes);
+        clks_log_bytes(CLKS_LOG_WARN, "DISK", "minimum size", CLKS_DISK_MIN_BYTES);
         return;
     }
 
@@ -133,7 +133,7 @@ void clks_disk_init(void) {
     clks_disk_loaded_bitmap = (u8 *)clks_kmalloc((usize)clks_disk_loaded_bitmap_bytes);
     if (clks_disk_loaded_bitmap == CLKS_NULL) {
         clks_log(CLKS_LOG_WARN, "DISK", "DISK LOADED BITMAP ALLOCATION FAILED");
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "BITMAP_BYTES", clks_disk_loaded_bitmap_bytes);
+        clks_log_bytes(CLKS_LOG_WARN, "DISK", "bitmap size", clks_disk_loaded_bitmap_bytes);
         clks_kfree(clks_disk_bytes);
         clks_disk_bytes = CLKS_NULL;
         clks_disk_bytes_len = 0ULL;
@@ -167,10 +167,10 @@ void clks_disk_init(void) {
 
     clks_log(CLKS_LOG_INFO, "DISK", "DISK BACKEND ONLINE");
     clks_log(CLKS_LOG_INFO, "DISK", "CACHE MODE: LAZY LOAD");
-    clks_log_hex(CLKS_LOG_INFO, "DISK", "BYTES", clks_disk_bytes_len);
-    clks_log_hex(CLKS_LOG_INFO, "DISK", "SECTORS", clks_disk_sector_total);
-    clks_log_hex(CLKS_LOG_INFO, "DISK", "FAT32", (clks_disk_formatted == CLKS_TRUE) ? 1ULL : 0ULL);
-    clks_log_hex(CLKS_LOG_INFO, "DISK", "HW_BACKED", (clks_disk_hw_backed == CLKS_TRUE) ? 1ULL : 0ULL);
+    clks_log_bytes(CLKS_LOG_INFO, "DISK", "cache size", clks_disk_bytes_len);
+    clks_log_u64(CLKS_LOG_INFO, "DISK", "sectors", clks_disk_sector_total);
+    clks_log_bool(CLKS_LOG_INFO, "DISK", "FAT32", clks_disk_formatted);
+    clks_log_bool(CLKS_LOG_INFO, "DISK", "hardware backed", clks_disk_hw_backed);
 }
 
 clks_bool clks_disk_present(void) {
@@ -245,8 +245,8 @@ clks_bool clks_disk_format_fat32(const char *label) {
     clks_disk_file_cache_clear();
     if (clks_disk_write_fat32_boot_sector(label) == CLKS_FALSE) {
         clks_log(CLKS_LOG_WARN, "DISK", "FAT32 FORMAT FAILED: BOOT/FAT INIT");
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "BYTES", clks_disk_bytes_len);
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "SECTORS", clks_disk_sector_total);
+        clks_log_bytes(CLKS_LOG_WARN, "DISK", "disk size", clks_disk_bytes_len);
+        clks_log_u64(CLKS_LOG_WARN, "DISK", "sectors", clks_disk_sector_total);
         clks_disk_formatted = CLKS_FALSE;
         clks_memset(&clks_disk_fat32, 0, sizeof(clks_disk_fat32));
         return CLKS_FALSE;
@@ -361,8 +361,8 @@ const void *clks_disk_read_all(const char *path, u64 *out_size) {
     if (clks_disk_prepare_read_cache((u64)lookup.info.size) == CLKS_FALSE) {
         struct clks_heap_stats heap_stats = clks_heap_get_stats();
         clks_log(CLKS_LOG_WARN, "DISK", "READ_ALL CACHE ALLOC FAILED");
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "READ_SIZE", (u64)lookup.info.size);
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "HEAP_FREE_BYTES", heap_stats.free_bytes);
+        clks_log_bytes(CLKS_LOG_WARN, "DISK", "read size", (u64)lookup.info.size);
+        clks_log_bytes(CLKS_LOG_WARN, "DISK", "heap free", heap_stats.free_bytes);
         return CLKS_NULL;
     }
 
@@ -658,14 +658,14 @@ clks_bool clks_disk_write_all(const char *path, const void *data, u64 size) {
     clks_disk_file_cache_clear();
     if (clks_disk_ready == CLKS_FALSE || clks_disk_formatted == CLKS_FALSE || relative[0] == '\0') {
         clks_log(CLKS_LOG_WARN, "DISK", "WRITE_ALL FAILED: NOT READY");
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "READY", (clks_disk_ready == CLKS_TRUE) ? 1ULL : 0ULL);
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "FAT32", (clks_disk_formatted == CLKS_TRUE) ? 1ULL : 0ULL);
+        clks_log_bool(CLKS_LOG_WARN, "DISK", "ready", clks_disk_ready);
+        clks_log_bool(CLKS_LOG_WARN, "DISK", "FAT32", clks_disk_formatted);
         return CLKS_FALSE;
     }
 
     if (size > 0ULL && data == CLKS_NULL) {
         clks_log(CLKS_LOG_WARN, "DISK", "WRITE_ALL FAILED: NULL DATA");
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "SIZE", size);
+        clks_log_bytes(CLKS_LOG_WARN, "DISK", "size", size);
         return CLKS_FALSE;
     }
 
@@ -688,7 +688,7 @@ clks_bool clks_disk_write_all(const char *path, const void *data, u64 size) {
         if (clks_disk_cluster_valid(lookup.parent_cluster) == CLKS_FALSE) {
             clks_log(CLKS_LOG_WARN, "DISK", "WRITE_ALL FAILED: BAD PARENT");
             clks_log(CLKS_LOG_WARN, "DISK", relative);
-            clks_log_hex(CLKS_LOG_WARN, "DISK", "PARENT_CLUSTER", lookup.parent_cluster);
+            clks_log_u64(CLKS_LOG_WARN, "DISK", "parent cluster", lookup.parent_cluster);
             return CLKS_FALSE;
         }
         clks_memset(&target_slot, 0, sizeof(target_slot));
@@ -699,9 +699,9 @@ clks_bool clks_disk_write_all(const char *path, const void *data, u64 size) {
         u64 need64 = (size + cluster_size - 1ULL) / cluster_size;
         if (need64 == 0ULL || need64 > (u64)clks_disk_fat32.cluster_count) {
             clks_log(CLKS_LOG_WARN, "DISK", "WRITE_ALL FAILED: SIZE");
-            clks_log_hex(CLKS_LOG_WARN, "DISK", "SIZE", size);
-            clks_log_hex(CLKS_LOG_WARN, "DISK", "NEED_CLUSTERS", need64);
-            clks_log_hex(CLKS_LOG_WARN, "DISK", "CLUSTER_COUNT", (u64)clks_disk_fat32.cluster_count);
+            clks_log_bytes(CLKS_LOG_WARN, "DISK", "size", size);
+            clks_log_u64(CLKS_LOG_WARN, "DISK", "needed clusters", need64);
+            clks_log_u64(CLKS_LOG_WARN, "DISK", "cluster count", (u64)clks_disk_fat32.cluster_count);
             return CLKS_FALSE;
         }
         needed_clusters = (u32)need64;
@@ -715,16 +715,16 @@ clks_bool clks_disk_write_all(const char *path, const void *data, u64 size) {
         if (clks_disk_alloc_chain(needed_clusters, &new_cluster) == CLKS_FALSE) {
             clks_log(CLKS_LOG_WARN, "DISK", "WRITE_ALL FAILED: ALLOC_CHAIN");
             clks_log(CLKS_LOG_WARN, "DISK", relative);
-            clks_log_hex(CLKS_LOG_WARN, "DISK", "SIZE", size);
-            clks_log_hex(CLKS_LOG_WARN, "DISK", "NEED_CLUSTERS", (u64)needed_clusters);
+            clks_log_bytes(CLKS_LOG_WARN, "DISK", "size", size);
+            clks_log_u64(CLKS_LOG_WARN, "DISK", "needed clusters", (u64)needed_clusters);
             return CLKS_FALSE;
         }
 
         if (clks_disk_write_file_chain(new_cluster, data, size) == CLKS_FALSE) {
             clks_log(CLKS_LOG_WARN, "DISK", "WRITE_ALL FAILED: DATA_CHAIN");
             clks_log(CLKS_LOG_WARN, "DISK", relative);
-            clks_log_hex(CLKS_LOG_WARN, "DISK", "SIZE", size);
-            clks_log_hex(CLKS_LOG_WARN, "DISK", "FIRST_CLUSTER", (u64)new_cluster);
+            clks_log_bytes(CLKS_LOG_WARN, "DISK", "size", size);
+            clks_log_u64(CLKS_LOG_WARN, "DISK", "first cluster", (u64)new_cluster);
             clks_disk_free_chain(new_cluster);
             return CLKS_FALSE;
         }
@@ -745,9 +745,9 @@ clks_bool clks_disk_write_all(const char *path, const void *data, u64 size) {
                                                (u32)size, &target_slot) == CLKS_FALSE) {
         clks_log(CLKS_LOG_WARN, "DISK", "WRITE_ALL FAILED: CREATE DIRENT");
         clks_log(CLKS_LOG_WARN, "DISK", relative);
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "PARENT_CLUSTER", lookup.parent_cluster);
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "FIRST_CLUSTER", (u64)new_cluster);
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "SIZE", size);
+        clks_log_u64(CLKS_LOG_WARN, "DISK", "parent cluster", lookup.parent_cluster);
+        clks_log_u64(CLKS_LOG_WARN, "DISK", "first cluster", (u64)new_cluster);
+        clks_log_bytes(CLKS_LOG_WARN, "DISK", "size", size);
         if (new_cluster != CLKS_DISK_INVALID_CLUSTER) {
             clks_disk_free_chain(new_cluster);
         }
@@ -814,7 +814,7 @@ clks_bool clks_disk_append(const char *path, const void *data, u64 size) {
 
     if (new_size > 0xFFFFFFFFULL) {
         clks_log(CLKS_LOG_WARN, "DISK", "APPEND FAILED: TOO LARGE");
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "NEW_SIZE", new_size);
+        clks_log_bytes(CLKS_LOG_WARN, "DISK", "new size", new_size);
         return CLKS_FALSE;
     }
 
@@ -822,9 +822,9 @@ clks_bool clks_disk_append(const char *path, const void *data, u64 size) {
     if (clks_disk_append_file_chain(first_cluster, old_size, data, size, &first_cluster) == CLKS_FALSE) {
         clks_log(CLKS_LOG_WARN, "DISK", "APPEND FAILED: FILE_CHAIN");
         clks_log(CLKS_LOG_WARN, "DISK", relative);
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "OLD_SIZE", old_size);
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "APPEND_SIZE", size);
-        clks_log_hex(CLKS_LOG_WARN, "DISK", "FIRST_CLUSTER", (u64)first_cluster);
+        clks_log_bytes(CLKS_LOG_WARN, "DISK", "old size", old_size);
+        clks_log_bytes(CLKS_LOG_WARN, "DISK", "append size", size);
+        clks_log_u64(CLKS_LOG_WARN, "DISK", "first cluster", (u64)first_cluster);
         return CLKS_FALSE;
     }
 

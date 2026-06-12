@@ -15,7 +15,7 @@
 #define CLKS_INPUTM_SPLIT_MAX_PARTS 12U
 #define CLKS_INPUTM_SPLIT_MAX_SYLLABLE 6U
 #define CLKS_INPUTM_SPLIT_ALT_MAX 2U
-#define CLKS_INPUTM_DIR "/shell/inputm"
+#define CLKS_INPUTM_DIR "/shell/apps/inputm"
 
 struct clks_inputm_entry {
     clks_bool used;
@@ -366,7 +366,7 @@ static void clks_inputm_detect_userland_imes(void) {
             name[child_len - 4U] = '\0';
         }
 
-        clks_inputm_copy_string(rule_path, sizeof(rule_path), "/system/inputm/");
+        clks_inputm_copy_string(rule_path, sizeof(rule_path), "/inputm/");
         clks_inputm_copy_string(rule_path + clks_strlen(rule_path), sizeof(rule_path) - clks_strlen(rule_path), name);
         clks_inputm_copy_string(rule_path + clks_strlen(rule_path), sizeof(rule_path) - clks_strlen(rule_path), ".db");
 
@@ -736,7 +736,7 @@ void clks_inputm_init(void) {
     clks_inputm_refresh_status();
 
     clks_log(CLKS_LOG_INFO, "INPUTM", "INPUT METHOD FRAMEWORK ONLINE");
-    clks_log_hex(CLKS_LOG_INFO, "INPUTM", "COUNT", clks_inputm_entry_count);
+    clks_log_u64(CLKS_LOG_INFO, "INPUTM", "registered methods", clks_inputm_entry_count);
 }
 
 u64 clks_inputm_count(void) {

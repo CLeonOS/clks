@@ -130,10 +130,9 @@ u64 clks_syscall_dispatch(void *frame_ptr) {
         struct clks_scheduler_stats stats = clks_scheduler_get_stats();
         CLKS_SYSCALL_DISPATCH_RETURN(stats.context_switch_count);
     }
-    case CLKS_SYSCALL_KELF_COUNT:
-        CLKS_SYSCALL_DISPATCH_RETURN(clks_kelf_count());
-    case CLKS_SYSCALL_KELF_RUNS:
-        CLKS_SYSCALL_DISPATCH_RETURN(clks_kelf_total_runs());
+    case CLKS_SYSCALL_RESERVED_7:
+    case CLKS_SYSCALL_RESERVED_8:
+        CLKS_SYSCALL_DISPATCH_RETURN((u64)-1);
     case CLKS_SYSCALL_FS_NODE_COUNT:
         CLKS_SYSCALL_DISPATCH_RETURN(clks_fs_node_count());
     case CLKS_SYSCALL_FS_CHILD_COUNT:

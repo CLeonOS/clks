@@ -291,8 +291,8 @@ void clks_mouse_init(void) {
 
     clks_mouse.ready = CLKS_TRUE;
     clks_log(CLKS_LOG_INFO, "MOUSE", "PS2 POINTER ONLINE");
-    clks_log_hex(CLKS_LOG_INFO, "MOUSE", "MAX_X", (u64)clks_mouse.max_x);
-    clks_log_hex(CLKS_LOG_INFO, "MOUSE", "MAX_Y", (u64)clks_mouse.max_y);
+    clks_log_u64(CLKS_LOG_INFO, "MOUSE", "max x", (u64)clks_mouse.max_x);
+    clks_log_u64(CLKS_LOG_INFO, "MOUSE", "max y", (u64)clks_mouse.max_y);
 }
 
 void clks_mouse_handle_byte(u8 data_byte) {

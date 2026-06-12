@@ -617,17 +617,17 @@ void clks_fs_init(void) {
 
         ramdisk_online = CLKS_TRUE;
         clks_log(CLKS_LOG_INFO, "FS", "RAMDISK VFS ONLINE");
-        clks_log_hex(CLKS_LOG_INFO, "FS", "MODULE_SIZE", module->size);
-        clks_log_hex(CLKS_LOG_INFO, "FS", "NODE_COUNT", (u64)clks_fs_nodes_used);
-        clks_log_hex(CLKS_LOG_INFO, "FS", "FILE_COUNT", stats.file_count);
+        clks_log_bytes(CLKS_LOG_INFO, "FS", "ramdisk size", module->size);
+        clks_log_u64(CLKS_LOG_INFO, "FS", "node count", (u64)clks_fs_nodes_used);
+        clks_log_u64(CLKS_LOG_INFO, "FS", "file count", stats.file_count);
     } else {
         clks_log(CLKS_LOG_WARN, "FS", "NO RAMDISK MODULE FROM LIMINE");
     }
 
     clks_disk_init();
     if (clks_disk_present() == CLKS_TRUE) {
-        clks_log_hex(CLKS_LOG_INFO, "FS", "DISK_BYTES", clks_disk_size_bytes());
-        clks_log_hex(CLKS_LOG_INFO, "FS", "DISK_FAT32", (clks_disk_is_formatted_fat32() == CLKS_TRUE) ? 1ULL : 0ULL);
+        clks_log_bytes(CLKS_LOG_INFO, "FS", "disk size", clks_disk_size_bytes());
+        clks_log_bool(CLKS_LOG_INFO, "FS", "disk FAT32", clks_disk_is_formatted_fat32());
         if (ramdisk_online == CLKS_FALSE && clks_disk_is_formatted_fat32() == CLKS_TRUE &&
             clks_disk_mount("/") == CLKS_TRUE) {
             clks_log(CLKS_LOG_INFO, "FS", "DISK ROOT VFS ONLINE");
@@ -640,7 +640,39 @@ void clks_fs_init(void) {
         return;
     }
 
+    if (clks_fs_require_directory("/system/configs") == CLKS_FALSE) {
+        return;
+    }
+
+    if (clks_fs_require_directory("/system/cache") == CLKS_FALSE) {
+        return;
+    }
+
+    if (clks_fs_require_directory("/system/databases") == CLKS_FALSE) {
+        return;
+    }
+
+    if (clks_fs_require_directory("/system/others") == CLKS_FALSE) {
+        return;
+    }
+
+    if (clks_fs_require_directory("/system/drivers") == CLKS_FALSE) {
+        return;
+    }
+
     if (clks_fs_require_directory("/shell") == CLKS_FALSE) {
+        return;
+    }
+
+    if (clks_fs_require_directory("/shell/apps") == CLKS_FALSE) {
+        return;
+    }
+
+    if (clks_fs_require_directory("/shell/data") == CLKS_FALSE) {
+        return;
+    }
+
+    if (clks_fs_require_directory("/inputm") == CLKS_FALSE) {
         return;
     }
 
@@ -648,7 +680,7 @@ void clks_fs_init(void) {
         return;
     }
 
-    if (clks_fs_require_directory("/driver") == CLKS_FALSE) {
+    if (clks_fs_require_directory("/tests") == CLKS_FALSE) {
         return;
     }
 
@@ -657,7 +689,7 @@ void clks_fs_init(void) {
     }
 
     clks_fs_ready = CLKS_TRUE;
-    clks_log(CLKS_LOG_INFO, "FS", "LAYOUT /SYSTEM /SHELL /TEMP /DRIVER /DEV OK");
+    clks_log(CLKS_LOG_INFO, "FS", "NEW ROOT LAYOUT OK");
 }
 
 clks_bool clks_fs_is_ready(void) {

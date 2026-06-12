@@ -11,8 +11,8 @@
 #define CLKS_SYSCALL_SERVICE_COUNT 4ULL
 #define CLKS_SYSCALL_SERVICE_READY_COUNT 5ULL
 #define CLKS_SYSCALL_CONTEXT_SWITCHES 6ULL
-#define CLKS_SYSCALL_KELF_COUNT 7ULL
-#define CLKS_SYSCALL_KELF_RUNS 8ULL
+#define CLKS_SYSCALL_RESERVED_7 7ULL
+#define CLKS_SYSCALL_RESERVED_8 8ULL
 #define CLKS_SYSCALL_FS_NODE_COUNT 9ULL
 #define CLKS_SYSCALL_FS_CHILD_COUNT 10ULL
 #define CLKS_SYSCALL_FS_GET_CHILD_NAME 11ULL
@@ -250,6 +250,11 @@ struct clks_sysinfo {
     u64 task_count;
     u64 service_count;
     u64 service_ready_count;
+    u64 runnable_tasks;
+    u64 sleeping_tasks;
+    u64 blocked_tasks;
+    u64 scheduler_yields;
+    u64 scheduler_wakeups;
 };
 
 void clks_syscall_init(void);

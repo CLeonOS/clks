@@ -7,7 +7,7 @@
 #define CLKS_USER_HOME_MAX 96U
 #define CLKS_USER_HASH_HEX_LEN 64U
 #define CLKS_USER_RECORD_MAX 192U
-#define CLKS_USER_DB_PATH "/system/users.db"
+#define CLKS_USER_DB_PATH "/system/databases/users.db"
 #define CLKS_USER_ROLE_USER 0ULL
 #define CLKS_USER_ROLE_ADMIN 1ULL
 #define CLKS_USER_UID_ROOT 0ULL

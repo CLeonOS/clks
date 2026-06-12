@@ -224,21 +224,19 @@ static u64 clks_syscall_proc_pid_at(u64 arg0, u64 arg1) {
 }
 
 static u64 clks_syscall_proc_snapshot(u64 arg0, u64 arg1, u64 arg2) {
-    struct clks_exec_proc_snapshot snap;
-
-    if (arg1 == 0ULL || arg2 < (u64)sizeof(snap)) {
+    if (arg1 == 0ULL || arg2 == 0ULL) {
         return 0ULL;
     }
 
-    if (clks_syscall_user_ptr_writable(arg1, (u64)sizeof(snap)) == CLKS_FALSE) {
+    if (clks_syscall_user_ptr_writable(arg1, arg2) == CLKS_FALSE) {
         return 0ULL;
     }
 
-    if (clks_exec_proc_snapshot(arg0, &snap) == CLKS_FALSE) {
+    clks_memset((void *)arg1, 0, (usize)arg2);
+    if (clks_exec_proc_snapshot_copy(arg0, (void *)arg1, arg2) == CLKS_FALSE) {
         return 0ULL;
     }
 
-    clks_memcpy((void *)arg1, &snap, sizeof(snap));
     return 1ULL;
 }
 

@@ -10,7 +10,6 @@
 #include <clks/heap.h>
 #include <clks/interrupts.h>
 #include <clks/inputm.h>
-#include <clks/kelf.h>
 #include <clks/keyboard.h>
 #include <clks/locale.h>
 #include <clks/log.h>

@@ -9,6 +9,7 @@
 #define CLKS_DRIVER_MAX 32U
 #define CLKS_DRIVER_CHILD_NAME_MAX 96U
 #define CLKS_DRIVER_SCAN_PATH_MAX 224U
+#define CLKS_DRIVER_DIR "/system/drivers"
 
 static struct clks_driver_info clks_driver_table[CLKS_DRIVER_MAX];
 static u64 clks_driver_table_count = 0ULL;
@@ -84,7 +85,7 @@ static u64 clks_driver_alloc_load_id(void) {
 }
 
 static clks_bool clks_driver_build_path(const char *child_name, char *out_path, usize out_size) {
-    static const char prefix[] = "/driver/";
+    static const char prefix[] = CLKS_DRIVER_DIR "/";
     usize prefix_len = sizeof(prefix) - 1U;
     usize child_len;
 
@@ -260,7 +261,7 @@ u64 clks_driver_reload_elf_dir(void) {
         return 0ULL;
     }
 
-    child_count = clks_fs_count_children("/driver");
+    child_count = clks_fs_count_children(CLKS_DRIVER_DIR);
 
     for (i = 0ULL; i < child_count; i++) {
         char child_name[CLKS_DRIVER_CHILD_NAME_MAX];
@@ -269,7 +270,7 @@ u64 clks_driver_reload_elf_dir(void) {
         clks_memset(child_name, 0, sizeof(child_name));
         clks_memset(full_path, 0, sizeof(full_path));
 
-        if (clks_fs_get_child_name("/driver", i, child_name, sizeof(child_name)) == CLKS_FALSE) {
+        if (clks_fs_get_child_name(CLKS_DRIVER_DIR, i, child_name, sizeof(child_name)) == CLKS_FALSE) {
             continue;
         }
 

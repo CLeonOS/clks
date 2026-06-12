@@ -2,7 +2,6 @@
 #include <clks/inputm.h>
 #include <clks/keyboard.h>
 #include <clks/log.h>
-#include <clks/shell.h>
 #include <clks/tty.h>
 #include <clks/types.h>
 
@@ -146,8 +145,8 @@ static clks_bool clks_keyboard_queue_push_for_tty(u32 tty_index, char ch) {
 
         if ((clks_kbd_drop_count % CLKS_KBD_DROP_LOG_EVERY) == 1ULL) {
             clks_log(CLKS_LOG_WARN, "KBD", "INPUT QUEUE OVERFLOW");
-            clks_log_hex(CLKS_LOG_WARN, "KBD", "TTY", (u64)tty);
-            clks_log_hex(CLKS_LOG_WARN, "KBD", "DROPPED", clks_kbd_drop_count);
+            clks_log_u64(CLKS_LOG_WARN, "KBD", "terminal", (u64)tty);
+            clks_log_u64(CLKS_LOG_WARN, "KBD", "dropped keys", clks_kbd_drop_count);
         }
 
         return CLKS_FALSE;
@@ -180,24 +179,6 @@ clks_bool clks_keyboard_inject_text_for_tty(u32 tty_index, const char *text) {
     }
 
     return ok;
-}
-
-static clks_bool clks_keyboard_shell_input_enabled(void) {
-    return (clks_tty_active() == 0U) ? CLKS_TRUE : CLKS_FALSE;
-}
-
-static clks_bool clks_keyboard_should_pump_shell_now(void) {
-    u32 active_tty = clks_tty_active();
-
-    if (clks_keyboard_shell_input_enabled() == CLKS_FALSE) {
-        return CLKS_FALSE;
-    }
-
-    if (clks_exec_tty_has_user_process(active_tty) == CLKS_TRUE) {
-        return CLKS_FALSE;
-    }
-
-    return CLKS_TRUE;
 }
 
 static char clks_keyboard_translate_scancode(u8 code) {
@@ -271,12 +252,7 @@ static clks_bool clks_keyboard_try_emit_ctrl_shortcut(u8 code, u32 tty_index) {
         return CLKS_FALSE;
     }
 
-    if (clks_keyboard_queue_push_for_tty(tty_index, shortcut) == CLKS_TRUE &&
-        clks_keyboard_should_pump_shell_now() == CLKS_TRUE) {
-        clks_shell_pump_input(1U);
-    }
-
-    return CLKS_TRUE;
+    return clks_keyboard_queue_push_for_tty(tty_index, shortcut);
 }
 
 static clks_bool clks_keyboard_try_force_stop_hotkey(u8 code) {
@@ -304,7 +280,7 @@ static clks_bool clks_keyboard_try_force_stop_hotkey(u8 code) {
 
     if (stop_ret == 1ULL) {
         clks_log(CLKS_LOG_WARN, "KBD", "HOTKEY CTRL+ALT+C FORCE STOP");
-        clks_log_hex(CLKS_LOG_WARN, "KBD", "PID", pid);
+        clks_log_u64(CLKS_LOG_WARN, "KBD", "pid", pid);
     } else {
         clks_log(CLKS_LOG_WARN, "KBD", "HOTKEY CTRL+ALT+C NO RUNNING USER PROC");
     }
@@ -343,7 +319,7 @@ void clks_keyboard_init(void) {
     }
 
     clks_log(CLKS_LOG_INFO, "KBD", "PS2 INPUT QUEUE ONLINE");
-    clks_log_hex(CLKS_LOG_INFO, "KBD", "QUEUE_CAP", CLKS_KBD_INPUT_CAP);
+    clks_log_u64(CLKS_LOG_INFO, "KBD", "queue capacity", CLKS_KBD_INPUT_CAP);
 }
 
 void clks_keyboard_flush(void) {
@@ -455,10 +431,7 @@ void clks_keyboard_handle_scancode(u8 scancode) {
         ext = clks_keyboard_translate_ext_scancode(code);
 
         if (ext != '\0') {
-            if (clks_keyboard_queue_push_for_tty(active_tty, ext) == CLKS_TRUE &&
-                clks_keyboard_should_pump_shell_now() == CLKS_TRUE) {
-                clks_shell_pump_input(1U);
-            }
+            (void)clks_keyboard_queue_push_for_tty(active_tty, ext);
         }
 
         return;
@@ -476,8 +449,8 @@ void clks_keyboard_handle_scancode(u8 scancode) {
         if (after != before) {
             clks_kbd_hotkey_switches++;
             clks_log(CLKS_LOG_INFO, "TTY", "HOTKEY SWITCH");
-            clks_log_hex(CLKS_LOG_INFO, "TTY", "ACTIVE", (u64)after);
-            clks_log_hex(CLKS_LOG_INFO, "TTY", "HOTKEY_SWITCHES", clks_kbd_hotkey_switches);
+            clks_log_u64(CLKS_LOG_INFO, "TTY", "active terminal", (u64)after);
+            clks_log_u64(CLKS_LOG_INFO, "TTY", "hotkey switches", clks_kbd_hotkey_switches);
         }
 
         return;
@@ -497,9 +470,6 @@ void clks_keyboard_handle_scancode(u8 scancode) {
         u32 active_tty = clks_tty_active();
 
         if (clks_inputm_handle_char(active_tty, 27) == CLKS_TRUE) {
-            if (clks_keyboard_should_pump_shell_now() == CLKS_TRUE) {
-                clks_shell_pump_input(32U);
-            }
             return;
         }
     }
@@ -523,15 +493,9 @@ void clks_keyboard_handle_scancode(u8 scancode) {
                 return;
             }
             if (clks_inputm_handle_char(active_tty, translated) == CLKS_TRUE) {
-                if (clks_keyboard_should_pump_shell_now() == CLKS_TRUE) {
-                    clks_shell_pump_input(32U);
-                }
                 return;
             }
-            if (clks_keyboard_queue_push_for_tty(active_tty, translated) == CLKS_TRUE &&
-                clks_keyboard_should_pump_shell_now() == CLKS_TRUE) {
-                clks_shell_pump_input(1U);
-            }
+            (void)clks_keyboard_queue_push_for_tty(active_tty, translated);
         }
     }
 }

@@ -4,7 +4,7 @@
 #include <clks/types.h>
 
 #define CLKS_LOCALE_MAX 32U
-#define CLKS_LOCALE_CONFIG_PATH "/system/locale.conf"
+#define CLKS_LOCALE_CONFIG_PATH "/system/configs/locale.conf"
 #define CLKS_LOCALE_DEFAULT "en_US.UTF-8"
 
 void clks_locale_init(void);

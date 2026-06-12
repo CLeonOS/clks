@@ -1,7 +1,6 @@
 #include <clks/driver.h>
 #include <clks/fs.h>
 #include <clks/heap.h>
-#include <clks/kelf.h>
 #include <clks/log.h>
 #include <clks/scheduler.h>
 #include <clks/service.h>
@@ -77,15 +76,13 @@ void clks_service_init(void) {
     clks_service_register(CLKS_SERVICE_DRIVER, "driver",
                           (clks_driver_count() > 0ULL) ? CLKS_SERVICE_STATE_READY : CLKS_SERVICE_STATE_DEGRADED);
     clks_service_register(CLKS_SERVICE_SCHED, "scheduler", CLKS_SERVICE_STATE_READY);
-    clks_service_register(CLKS_SERVICE_KELF, "kelf",
-                          (clks_kelf_count() > 0ULL) ? CLKS_SERVICE_STATE_READY : CLKS_SERVICE_STATE_DEGRADED);
     clks_service_register(CLKS_SERVICE_USER, "userland",
                           (clks_userland_shell_ready() == CLKS_TRUE) ? CLKS_SERVICE_STATE_READY
                                                                      : CLKS_SERVICE_STATE_DEGRADED);
 
     clks_log(CLKS_LOG_INFO, "SRV", "KERNEL SERVICES ONLINE");
-    clks_log_hex(CLKS_LOG_INFO, "SRV", "COUNT", clks_service_count());
-    clks_log_hex(CLKS_LOG_INFO, "SRV", "READY", clks_service_ready_count());
+    clks_log_u64(CLKS_LOG_INFO, "SRV", "service count", clks_service_count());
+    clks_log_u64(CLKS_LOG_INFO, "SRV", "ready services", clks_service_ready_count());
 }
 
 clks_bool clks_service_heartbeat(u32 service_id, u64 tick) {

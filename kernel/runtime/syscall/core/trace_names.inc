@@ -30,10 +30,10 @@ static const char *clks_syscall_name(u64 id) {
         return "SERVICE_READY_COUNT";
     case CLKS_SYSCALL_CONTEXT_SWITCHES:
         return "CONTEXT_SWITCHES";
-    case CLKS_SYSCALL_KELF_COUNT:
-        return "KELF_COUNT";
-    case CLKS_SYSCALL_KELF_RUNS:
-        return "KELF_RUNS";
+    case CLKS_SYSCALL_RESERVED_7:
+        return "RESERVED_7";
+    case CLKS_SYSCALL_RESERVED_8:
+        return "RESERVED_8";
     case CLKS_SYSCALL_FS_NODE_COUNT:
         return "FS_NODE_COUNT";
     case CLKS_SYSCALL_FS_CHILD_COUNT:

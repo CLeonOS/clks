@@ -8,7 +8,6 @@
 #include <clks/desktop.h>
 #include <clks/display.h>
 #include <clks/driver.h>
-#include <clks/elfrunner.h>
 #include <clks/exec.h>
 #include <clks/framebuffer.h>
 #include <clks/fs.h>
@@ -16,7 +15,6 @@
 #include <clks/interrupts.h>
 #include <clks/inputm.h>
 #include <clks/keyboard.h>
-#include <clks/kelf.h>
 #include <clks/kernel.h>
 #include <clks/locale.h>
 #include <clks/log.h>
@@ -26,7 +24,6 @@
 #include <clks/scheduler.h>
 #include <clks/serial.h>
 #include <clks/service.h>
-#include <clks/shell.h>
 #include <clks/string.h>
 #include <clks/syscall.h>
 #include <clks/tty.h>
@@ -87,7 +84,7 @@ static void clks_kmain_emit_clboot_log(void) {
     }
 
     clks_log(CLKS_LOG_INFO, "CLBOOT", "BOOT LOG BEGIN");
-    clks_log_hex(CLKS_LOG_INFO, "CLBOOT", "ENTRY_COUNT", entries);
+    clks_log_u64(CLKS_LOG_INFO, "CLBOOT", "entry count", entries);
 
     while (pos < size && bootlog[pos] != '\0') {
         usize out = 0U;
@@ -129,10 +126,6 @@ static void clks_kmain_emit_clboot_log(void) {
 #define CLKS_CFG_DRIVER_MANAGER 1
 #endif
 
-#ifndef CLKS_CFG_KELF
-#define CLKS_CFG_KELF 1
-#endif
-
 #ifndef CLKS_CFG_HEAP_SELFTEST
 #define CLKS_CFG_HEAP_SELFTEST 1
 #endif
@@ -143,10 +136,6 @@ static void clks_kmain_emit_clboot_log(void) {
 
 #ifndef CLKS_CFG_KEYBOARD
 #define CLKS_CFG_KEYBOARD 1
-#endif
-
-#ifndef CLKS_CFG_ELFRUNNER_PROBE
-#define CLKS_CFG_ELFRUNNER_PROBE 1
 #endif
 
 #ifndef CLKS_CFG_KLOGD_TASK
@@ -181,10 +170,6 @@ static void clks_kmain_emit_clboot_log(void) {
 #define CLKS_CFG_SYSTEM_DIR_CHECK 1
 #endif
 
-#ifndef CLKS_CFG_ELFRUNNER_INIT
-#define CLKS_CFG_ELFRUNNER_INIT 1
-#endif
-
 #ifndef CLKS_CFG_SYSCALL_TICK_QUERY
 #define CLKS_CFG_SYSCALL_TICK_QUERY 1
 #endif
@@ -205,10 +190,6 @@ static void clks_kmain_emit_clboot_log(void) {
 #define CLKS_CFG_INTERRUPT_READY_LOG 1
 #endif
 
-#ifndef CLKS_CFG_SHELL_MODE_LOG
-#define CLKS_CFG_SHELL_MODE_LOG 1
-#endif
-
 #if CLKS_CFG_KLOGD_TASK
 static void clks_task_klogd(u64 tick) {
     static u64 last_emit = 0ULL;
@@ -216,7 +197,7 @@ static void clks_task_klogd(u64 tick) {
     clks_service_heartbeat(CLKS_SERVICE_LOG, tick);
 
     if (tick - last_emit >= 1000ULL) {
-        clks_log_hex(CLKS_LOG_DEBUG, "TASK", "KLOGD_TICK", tick);
+        clks_log_u64(CLKS_LOG_DEBUG, "TASK", "klogd tick", tick);
         last_emit = tick;
     }
 }
@@ -247,13 +228,6 @@ static void clks_task_kworker(u64 tick) {
 }
 #endif
 
-#if CLKS_CFG_KELF
-static void clks_task_kelfd(u64 tick) {
-    clks_service_heartbeat(CLKS_SERVICE_KELF, tick);
-    clks_kelf_tick(tick);
-}
-#endif
-
 #if CLKS_CFG_USRD_TASK
 static void clks_task_usrd(u64 tick) {
     clks_service_heartbeat(CLKS_SERVICE_USER, tick);
@@ -267,7 +241,6 @@ static void clks_task_usrd(u64 tick) {
     }
 #endif
     clks_tty_tick(tick);
-    clks_shell_tick(tick);
 }
 #endif
 
@@ -328,10 +301,10 @@ void clks_kernel_main(void) {
         clks_log(CLKS_LOG_WARN, "VIDEO", "NO FRAMEBUFFER FROM LIMINE");
     } else {
 #if CLKS_CFG_BOOT_VIDEO_LOG
-        clks_log_hex(CLKS_LOG_INFO, "VIDEO", "WIDTH", boot_fb->width);
-        clks_log_hex(CLKS_LOG_INFO, "VIDEO", "HEIGHT", boot_fb->height);
-        clks_log_hex(CLKS_LOG_INFO, "VIDEO", "PITCH", boot_fb->pitch);
-        clks_log_hex(CLKS_LOG_INFO, "VIDEO", "BPP", boot_fb->bpp);
+        clks_log_u64(CLKS_LOG_INFO, "VIDEO", "width px", boot_fb->width);
+        clks_log_u64(CLKS_LOG_INFO, "VIDEO", "height px", boot_fb->height);
+        clks_log_bytes(CLKS_LOG_INFO, "VIDEO", "pitch", boot_fb->pitch);
+        clks_log_u64(CLKS_LOG_INFO, "VIDEO", "bits per pixel", boot_fb->bpp);
 #else
         clks_log(CLKS_LOG_WARN, "CFG", "BOOT VIDEO LOGS DISABLED BY MENUCONFIG");
 #endif
@@ -358,10 +331,10 @@ void clks_kernel_main(void) {
     clks_bootsplash_step(22U, "memory manager");
 
 #if CLKS_CFG_PMM_STATS_LOG
-    clks_log_hex(CLKS_LOG_INFO, "PMM", "MANAGED_PAGES", pmm_stats.managed_pages);
-    clks_log_hex(CLKS_LOG_INFO, "PMM", "FREE_PAGES", pmm_stats.free_pages);
-    clks_log_hex(CLKS_LOG_INFO, "PMM", "USED_PAGES", pmm_stats.used_pages);
-    clks_log_hex(CLKS_LOG_INFO, "PMM", "DROPPED_PAGES", pmm_stats.dropped_pages);
+    clks_log_u64(CLKS_LOG_INFO, "PMM", "managed pages", pmm_stats.managed_pages);
+    clks_log_u64(CLKS_LOG_INFO, "PMM", "free pages", pmm_stats.free_pages);
+    clks_log_u64(CLKS_LOG_INFO, "PMM", "used pages", pmm_stats.used_pages);
+    clks_log_u64(CLKS_LOG_INFO, "PMM", "dropped pages", pmm_stats.dropped_pages);
 #else
     (void)pmm_stats;
     clks_log(CLKS_LOG_WARN, "CFG", "PMM STATS LOGS DISABLED BY MENUCONFIG");
@@ -372,8 +345,8 @@ void clks_kernel_main(void) {
     clks_bootsplash_step(28U, "heap allocator");
 
 #if CLKS_CFG_HEAP_STATS_LOG
-    clks_log_hex(CLKS_LOG_INFO, "HEAP", "TOTAL_BYTES", heap_stats.total_bytes);
-    clks_log_hex(CLKS_LOG_INFO, "HEAP", "FREE_BYTES", heap_stats.free_bytes);
+    clks_log_bytes(CLKS_LOG_INFO, "HEAP", "total", heap_stats.total_bytes);
+    clks_log_bytes(CLKS_LOG_INFO, "HEAP", "free", heap_stats.free_bytes);
 #else
     (void)heap_stats;
     clks_log(CLKS_LOG_WARN, "CFG", "HEAP STATS LOGS DISABLED BY MENUCONFIG");
@@ -406,7 +379,7 @@ void clks_kernel_main(void) {
 
     fs_root_children = clks_fs_count_children("/");
 #if CLKS_CFG_FS_ROOT_LOG
-    clks_log_hex(CLKS_LOG_INFO, "FS", "ROOT_CHILDREN", fs_root_children);
+    clks_log_u64(CLKS_LOG_INFO, "FS", "root entries", fs_root_children);
 #else
     (void)fs_root_children;
 #endif
@@ -428,25 +401,25 @@ void clks_kernel_main(void) {
         u64 tty_ttf_size = 0ULL;
         u64 emoji_ttf_size = 0ULL;
 
-        tty_ttf_blob = clks_fs_read_all("/system/tty.ttf", &tty_ttf_size);
+        tty_ttf_blob = clks_fs_read_all("/system/others/fonts/tty.ttf", &tty_ttf_size);
 
         if (tty_ttf_blob != CLKS_NULL && clks_fb_load_ttf_font(tty_ttf_blob, tty_ttf_size) == CLKS_TRUE) {
-            emoji_ttf_blob = clks_fs_read_all("/system/emoji.ttf", &emoji_ttf_size);
+            emoji_ttf_blob = clks_fs_read_all("/system/others/fonts/emoji.ttf", &emoji_ttf_size);
             if (emoji_ttf_blob != CLKS_NULL &&
                 clks_fb_load_emoji_ttf_font(emoji_ttf_blob, emoji_ttf_size) == CLKS_TRUE) {
-                clks_log(CLKS_LOG_INFO, "TTY", "EMOJI TTF LOADED /SYSTEM/EMOJI.TTF");
-                clks_log_hex(CLKS_LOG_INFO, "TTY", "EMOJI_TTF_SIZE", emoji_ttf_size);
+                clks_log(CLKS_LOG_INFO, "TTY", "EMOJI TTF LOADED");
+                clks_log_bytes(CLKS_LOG_INFO, "TTY", "emoji font size", emoji_ttf_size);
             } else {
                 clks_log(CLKS_LOG_WARN, "TTY", "EMOJI TTF LOAD FAILED, EMOJI FALLBACK DISABLED");
-                clks_log_hex(CLKS_LOG_WARN, "TTY", "EMOJI_TTF_SIZE", emoji_ttf_size);
+                clks_log_bytes(CLKS_LOG_WARN, "TTY", "emoji font size", emoji_ttf_size);
             }
             clks_tty_init();
             clks_bootsplash_step(50U, "tty font loaded");
-            clks_log(CLKS_LOG_INFO, "TTY", "EXTERNAL TTF LOADED /SYSTEM/TTY.TTF");
-            clks_log_hex(CLKS_LOG_INFO, "TTY", "TTF_SIZE", tty_ttf_size);
+            clks_log(CLKS_LOG_INFO, "TTY", "EXTERNAL TTF LOADED");
+            clks_log_bytes(CLKS_LOG_INFO, "TTY", "font size", tty_ttf_size);
         } else {
             clks_log(CLKS_LOG_WARN, "TTY", "EXTERNAL TTF LOAD FAILED, USING BUILTIN");
-            clks_log_hex(CLKS_LOG_WARN, "TTY", "TTF_SIZE", tty_ttf_size);
+            clks_log_bytes(CLKS_LOG_WARN, "TTY", "font size", tty_ttf_size);
             clks_bootsplash_step(50U, "builtin tty font");
         }
 #else
@@ -497,11 +470,6 @@ void clks_kernel_main(void) {
     clks_log(CLKS_LOG_WARN, "CFG", "DRIVER MANAGER DISABLED BY MENUCONFIG");
 #endif
 
-#if CLKS_CFG_KELF
-    clks_kelf_init();
-#else
-    clks_log(CLKS_LOG_WARN, "CFG", "KELF DISABLED BY MENUCONFIG");
-#endif
     clks_bootsplash_step(84U, "drivers online");
 
     /* Scheduler init is the "okay, now this mess is actually alive" moment. */
@@ -524,14 +492,6 @@ void clks_kernel_main(void) {
     clks_log(CLKS_LOG_WARN, "SCHED", "KWORKER TASK DISABLED BY MENUCONFIG");
 #endif
 
-#if CLKS_CFG_KELF
-    if (clks_scheduler_add_kernel_task_ex("kelfd", 5U, clks_task_kelfd) == CLKS_FALSE) {
-        clks_log(CLKS_LOG_WARN, "SCHED", "FAILED TO ADD KELFD TASK");
-    }
-#else
-    clks_log(CLKS_LOG_WARN, "SCHED", "KELFD TASK DISABLED BY MENUCONFIG");
-#endif
-
 #if CLKS_CFG_USRD_TASK
     if (clks_scheduler_add_kernel_task_ex("usrd", 4U, clks_task_usrd) == CLKS_FALSE) {
         clks_log(CLKS_LOG_WARN, "SCHED", "FAILED TO ADD USRD TASK");
@@ -543,7 +503,7 @@ void clks_kernel_main(void) {
 #if CLKS_CFG_SCHED_TASK_COUNT_LOG
     {
         struct clks_scheduler_stats sched_stats = clks_scheduler_get_stats();
-        clks_log_hex(CLKS_LOG_INFO, "SCHED", "TASK_COUNT", sched_stats.task_count);
+        clks_log_u64(CLKS_LOG_INFO, "SCHED", "task count", sched_stats.task_count);
     }
 #else
     clks_log(CLKS_LOG_WARN, "CFG", "SCHED TASK COUNT LOG DISABLED BY MENUCONFIG");
@@ -551,24 +511,6 @@ void clks_kernel_main(void) {
 
     clks_service_init();
     clks_bootsplash_step(91U, "kernel services");
-
-#if CLKS_CFG_ELFRUNNER_INIT
-    clks_elfrunner_init();
-#else
-    clks_log(CLKS_LOG_WARN, "CFG", "ELFRUNNER INIT DISABLED BY MENUCONFIG");
-#endif
-
-#if CLKS_CFG_ELFRUNNER_INIT
-#if CLKS_CFG_ELFRUNNER_PROBE
-    if (clks_elfrunner_probe_kernel_executable() == CLKS_FALSE) {
-        clks_log(CLKS_LOG_ERROR, "ELF", "KERNEL ELF PROBE FAILED");
-    }
-#else
-    clks_log(CLKS_LOG_WARN, "CFG", "ELFRUNNER PROBE DISABLED BY MENUCONFIG");
-#endif
-#else
-    clks_log(CLKS_LOG_WARN, "CFG", "ELFRUNNER PROBE SKIPPED (INIT DISABLED)");
-#endif
 
     clks_syscall_init();
     clks_bootsplash_step(95U, "syscalls online");
@@ -581,32 +523,21 @@ void clks_kernel_main(void) {
 
 #if CLKS_CFG_SYSCALL_TICK_QUERY
     syscall_ticks = clks_syscall_invoke_kernel(CLKS_SYSCALL_TIMER_TICKS, 0ULL, 0ULL, 0ULL);
-    clks_log_hex(CLKS_LOG_INFO, "SYSCALL", "TICKS", syscall_ticks);
+    clks_log_u64(CLKS_LOG_INFO, "SYSCALL", "timer ticks", syscall_ticks);
 #else
     (void)syscall_ticks;
     clks_log(CLKS_LOG_WARN, "CFG", "SYSCALL TICK QUERY DISABLED BY MENUCONFIG");
 #endif
 
-    clks_shell_init();
-    clks_bootsplash_step(99U, "shell online");
+    clks_bootsplash_step(99U, "user entry armed");
 
-#if CLKS_CFG_USRD_TASK
-#if CLKS_CFG_SHELL_MODE_LOG
-    if (clks_userland_shell_auto_exec_enabled() == CLKS_TRUE) {
-        clks_log(CLKS_LOG_INFO, "SHELL", "DEFAULT ENTER USER SHELL MODE");
-    } else {
-        clks_log(CLKS_LOG_INFO, "SHELL", "KERNEL SHELL ACTIVE");
-    }
-#endif
-#else
-#if CLKS_CFG_SHELL_MODE_LOG
-    clks_log(CLKS_LOG_WARN, "SHELL", "USRD TASK DISABLED; INTERACTIVE SHELL TICK OFF");
-#endif
+#if CLKS_CFG_KEYBOARD
+    clks_keyboard_set_input_ready(CLKS_TRUE);
 #endif
 
 #if CLKS_CFG_TTY_READY_LOG
-    clks_log_hex(CLKS_LOG_INFO, "TTY", "COUNT", (u64)clks_tty_count());
-    clks_log_hex(CLKS_LOG_INFO, "TTY", "ACTIVE", (u64)clks_tty_active());
+    clks_log_u64(CLKS_LOG_INFO, "TTY", "terminal count", (u64)clks_tty_count());
+    clks_log_u64(CLKS_LOG_INFO, "TTY", "active terminal", (u64)clks_tty_active());
     clks_log(CLKS_LOG_INFO, "TTY", "VIRTUAL TTY0 READY");
     clks_log(CLKS_LOG_INFO, "TTY", "CURSOR ENABLED");
 #endif
@@ -618,14 +549,13 @@ void clks_kernel_main(void) {
     clks_bootsplash_finish();
     if (boot_splash_was_active == CLKS_TRUE) {
         clks_tty_clear_active();
-        clks_shell_redraw_ready_prompt();
     }
 
     /* Infinite idle loop: glamorous name for "wait forever and hope interrupts behave". */
     for (;;) {
         clks_net_poll();
         u64 tick_now = clks_interrupts_timer_ticks();
-        clks_scheduler_dispatch_current(tick_now);
+        clks_scheduler_dispatch_ready(tick_now);
 #if defined(CLKS_ARCH_X86_64)
         __asm__ volatile("hlt");
 #elif defined(CLKS_ARCH_AARCH64)

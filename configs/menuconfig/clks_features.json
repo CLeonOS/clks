@@ -110,25 +110,11 @@
       "default": true
     },
     {
-      "key": "CLEONOS_CLKS_ENABLE_KELF",
-      "title": "KELF Executor",
-      "title_zh": "KELF 执行器",
-      "description": "Enable kernel ELF app dispatcher and kelfd task.",
-      "description_zh": "启用内核 ELF 应用分发器和 kelfd 任务。",
-      "type": "bool",
-      "default": true,
-      "depends_on": "CLEONOS_CLKS_ENABLE_DRIVER_MANAGER && CLEONOS_CLKS_ENABLE_ELFRUNNER_INIT",
-      "imply": [
-        "CLEONOS_CLKS_ENABLE_ELFRUNNER_PROBE",
-        "CLEONOS_CLKS_ENABLE_USER_SYSTEM_APP_PROBE"
-      ]
-    },
-    {
-      "key": "CLEONOS_CLKS_ENABLE_USERLAND_AUTO_EXEC",
-      "title": "Auto Enter User Shell",
-      "title_zh": "自动进入用户 Shell",
-      "description": "Auto-exec /shell/shell.elf after kernel boot.",
-      "description_zh": "内核启动后自动执行 /shell/shell.elf。",
+      "key": "CLEONOS_CLKS_ENABLE_USER_SPACE_ENTER",
+      "title": "Config Driven User Space Entry",
+      "title_zh": "配置驱动用户态入口",
+      "description": "Start the first user program from /system/configs/user_space_enter.conf after kernel boot.",
+      "description_zh": "内核启动后从 /system/configs/user_space_enter.conf 启动第一个用户程序。",
       "type": "bool",
       "default": true,
       "depends_on": "CLEONOS_CLKS_ENABLE_USRD_TASK && CLEONOS_CLKS_ENABLE_KEYBOARD",
@@ -136,10 +122,32 @@
         "CLEONOS_CLKS_ENABLE_USRD_TASK",
         "CLEONOS_CLKS_ENABLE_KEYBOARD"
       ],
-      "imply": [
-        "CLEONOS_CLKS_ENABLE_USER_INIT_SCRIPT_PROBE",
-        "CLEONOS_CLKS_ENABLE_SHELL_MODE_LOG"
-      ]
+      "group": "Userland",
+      "group_zh": "用户态"
+    },
+    {
+      "key": "CLEONOS_CLKS_ENABLE_USER_SPACE_ENTER_CONFIG",
+      "title": "Boot Mode User Entry Config Selection",
+      "title_zh": "启动模式入口配置选择",
+      "description": "Select user_space_enter install/repair/update/verify configs from boot mode.",
+      "description_zh": "根据启动模式选择 install/repair/update/verify 的 user_space_enter 配置。",
+      "type": "bool",
+      "default": true,
+      "depends_on": "CLEONOS_CLKS_ENABLE_USER_SPACE_ENTER",
+      "group": "Userland",
+      "group_zh": "用户态"
+    },
+    {
+      "key": "CLEONOS_CLKS_ENABLE_USER_SPACE_ENTER_STRICT_PANIC",
+      "title": "Panic On Invalid User Entry",
+      "title_zh": "入口无效时 Panic",
+      "description": "Panic instead of continuing when user_space_enter config or entry ELF is invalid.",
+      "description_zh": "user_space_enter 配置或入口 ELF 无效时直接 panic。",
+      "type": "bool",
+      "default": true,
+      "depends_on": "CLEONOS_CLKS_ENABLE_USER_SPACE_ENTER",
+      "group": "Userland",
+      "group_zh": "用户态"
     },
     {
       "key": "CLEONOS_CLKS_ENABLE_USER_SYSTEM",
@@ -225,8 +233,8 @@
       "key": "CLEONOS_CLKS_ENABLE_EXTERNAL_TTY_FONT",
       "title": "Load External TTY TTF Font",
       "title_zh": "加载外部 TTY TTF 字体",
-      "description": "Load /system/tty.ttf and apply it to framebuffer TTY.",
-      "description_zh": "加载 /system/tty.ttf 并应用到 framebuffer TTY。",
+      "description": "Load /system/others/fonts/tty.ttf and apply it to framebuffer TTY.",
+      "description_zh": "加载 /system/others/fonts/tty.ttf 并应用到 framebuffer TTY。",
       "type": "bool",
       "default": true
     },
@@ -242,16 +250,6 @@
         "CLEONOS_CLKS_ENABLE_KBD_TTY_SWITCH_HOTKEY",
         "CLEONOS_CLKS_ENABLE_KBD_CTRL_SHORTCUTS"
       ]
-    },
-    {
-      "key": "CLEONOS_CLKS_ENABLE_ELFRUNNER_PROBE",
-      "title": "ELFRUNNER Probe",
-      "title_zh": "ELFRUNNER 探测",
-      "description": "Probe kernel ELF runtime metadata after ELFRUNNER init.",
-      "description_zh": "在 ELFRUNNER 初始化后探测内核 ELF 运行时元数据。",
-      "type": "bool",
-      "default": true,
-      "depends_on": "CLEONOS_CLKS_ENABLE_ELFRUNNER_INIT && CLEONOS_CLKS_ENABLE_KELF"
     },
     {
       "key": "CLEONOS_CLKS_ENABLE_KLOGD_TASK",
@@ -323,15 +321,6 @@
       "title_zh": "FS /SYSTEM 健全性检查",
       "description": "Require /system directory check during boot.",
       "description_zh": "在启动时要求通过 /system 目录检查。",
-      "type": "bool",
-      "default": true
-    },
-    {
-      "key": "CLEONOS_CLKS_ENABLE_ELFRUNNER_INIT",
-      "title": "ELFRUNNER Init",
-      "title_zh": "ELFRUNNER 初始化",
-      "description": "Initialize ELFRUNNER framework in kernel boot path.",
-      "description_zh": "在内核启动路径中初始化 ELFRUNNER 框架。",
       "type": "bool",
       "default": true
     },
@@ -692,26 +681,6 @@
       "depends_on": "CLEONOS_CLKS_ENABLE_KEYBOARD && CLEONOS_CLKS_ENABLE_PROCFS"
     },
     {
-      "key": "CLEONOS_CLKS_ENABLE_USER_INIT_SCRIPT_PROBE",
-      "title": "User Init Script Probe",
-      "title_zh": "用户初始化脚本探测",
-      "description": "Probe and log /shell/init.cmd presence during userland init.",
-      "description_zh": "在用户态初始化期间探测并记录 /shell/init.cmd 是否存在。",
-      "type": "bool",
-      "default": true,
-      "depends_on": "CLEONOS_CLKS_ENABLE_USERLAND_AUTO_EXEC"
-    },
-    {
-      "key": "CLEONOS_CLKS_ENABLE_USER_SYSTEM_APP_PROBE",
-      "title": "User System App Probe",
-      "title_zh": "用户系统应用探测",
-      "description": "Probe /system/elfrunner.elf and /system/memc.elf during userland init.",
-      "description_zh": "在用户态初始化期间探测 /system/elfrunner.elf 与 /system/memc.elf。",
-      "type": "bool",
-      "default": true,
-      "depends_on": "CLEONOS_CLKS_ENABLE_KELF"
-    },
-    {
       "key": "CLEONOS_CLKS_ENABLE_SCHED_TASK_COUNT_LOG",
       "title": "Scheduler Task Count Log",
       "title_zh": "调度任务数量日志",
@@ -727,15 +696,6 @@
       "title_zh": "中断就绪日志",
       "description": "Print IDT/PIC initialized log after interrupt setup.",
       "description_zh": "在完成中断初始化后打印 IDT/PIC 就绪日志。",
-      "type": "tristate",
-      "default": "y"
-    },
-    {
-      "key": "CLEONOS_CLKS_ENABLE_SHELL_MODE_LOG",
-      "title": "Shell Mode Log",
-      "title_zh": "Shell 模式日志",
-      "description": "Print whether boot default mode is user shell or kernel shell.",
-      "description_zh": "打印默认启动模式是用户 Shell 还是内核 Shell。",
       "type": "tristate",
       "default": "y"
     }
