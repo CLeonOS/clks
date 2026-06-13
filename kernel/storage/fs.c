@@ -4,6 +4,7 @@
 #include <clks/heap.h>
 #include <clks/log.h>
 #include <clks/ramdisk.h>
+#include <clks/rust.h>
 #include <clks/string.h>
 #include <clks/types.h>
 
@@ -38,72 +39,7 @@ static clks_bool clks_fs_ready = CLKS_FALSE;
 static const u8 clks_fs_empty_file_data[1] = {0U};
 
 static clks_bool clks_fs_normalize_external_path(const char *path, char *out_internal, usize out_size) {
-    usize in_pos = 0;
-    usize out_pos = 0;
-
-    if (path == CLKS_NULL || out_internal == CLKS_NULL || out_size == 0U) {
-        return CLKS_FALSE;
-    }
-
-    if (path[0] != '/') {
-        return CLKS_FALSE;
-    }
-
-    while (path[in_pos] == '/') {
-        in_pos++;
-    }
-
-    /* Normalize aggressively; weird paths are where bugs and exploits like to party. */
-    while (path[in_pos] != '\0') {
-        usize comp_start = in_pos;
-        usize comp_len;
-
-        while (path[in_pos] != '\0' && path[in_pos] != '/') {
-            in_pos++;
-        }
-
-        comp_len = in_pos - comp_start;
-
-        if (comp_len == 0U) {
-            while (path[in_pos] == '/') {
-                in_pos++;
-            }
-            continue;
-        }
-
-        if (comp_len == 1U && path[comp_start] == '.') {
-            while (path[in_pos] == '/') {
-                in_pos++;
-            }
-            continue;
-        }
-
-        /* No parent traversal here. Not today, not ever. */
-        if (comp_len == 2U && path[comp_start] == '.' && path[comp_start + 1U] == '.') {
-            return CLKS_FALSE;
-        }
-
-        if (out_pos != 0U) {
-            if (out_pos + 1U >= out_size) {
-                return CLKS_FALSE;
-            }
-            out_internal[out_pos++] = '/';
-        }
-
-        if (out_pos + comp_len >= out_size) {
-            return CLKS_FALSE;
-        }
-
-        clks_memcpy(out_internal + out_pos, path + comp_start, comp_len);
-        out_pos += comp_len;
-
-        while (path[in_pos] == '/') {
-            in_pos++;
-        }
-    }
-
-    out_internal[out_pos] = '\0';
-    return CLKS_TRUE;
+    return clks_rust_path_normalize_external_internal(path, out_internal, out_size);
 }
 
 static i32 clks_fs_find_node_by_internal(const char *internal_path) {

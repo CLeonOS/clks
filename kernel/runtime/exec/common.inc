@@ -13,6 +13,7 @@
 #include <clks/net.h>
 #include <clks/pmm.h>
 #include <clks/pty.h>
+#include <clks/rust.h>
 #include <clks/scheduler.h>
 #include <clks/serial.h>
 #include <clks/string.h>
@@ -62,6 +63,7 @@ typedef u64 (*clks_exec_entry_fn)(void);
 #define CLKS_EXEC_USER_ROLE_USER 0ULL
 #define CLKS_EXEC_USER_ROLE_ADMIN 1ULL
 #define CLKS_EXEC_USER_UID_NOBODY 65534ULL
+#define CLKS_EXEC_SCHED_TASK_INVALID 0xFFFFFFFFULL
 
 #ifndef CLKS_CFG_EXEC_SERIAL_LOG
 #define CLKS_CFG_EXEC_SERIAL_LOG 1
@@ -308,6 +310,11 @@ static struct clks_exec_dynlib_slot clks_exec_dynlib_table[CLKS_EXEC_DYNLIB_MAX]
 static u64 clks_exec_next_dynlib_handle = 1ULL;
 
 static struct clks_exec_proc_record *clks_exec_current_proc(void);
+static clks_bool clks_exec_proc_bind_scheduler_task(struct clks_exec_proc_record *proc);
+static enum clks_task_state clks_exec_proc_to_task_state(enum clks_exec_proc_state proc_state,
+                                                         enum clks_exec_thread_state thread_state,
+                                                         enum clks_exec_block_reason blocked_reason);
+static void clks_exec_proc_sync_scheduler_state(struct clks_exec_proc_record *proc);
 static void clks_exec_proc_set_state(struct clks_exec_proc_record *proc, enum clks_exec_proc_state proc_state,
                                      enum clks_exec_thread_state thread_state,
                                      enum clks_exec_block_reason blocked_reason);
@@ -315,4 +322,7 @@ static void clks_exec_proc_set_block(struct clks_exec_proc_record *proc,
                                      enum clks_exec_block_reason blocked_reason, u64 wake_tick,
                                      u64 wait_target_pid);
 static void clks_exec_proc_clear_block(struct clks_exec_proc_record *proc);
+static u64 clks_exec_proc_address_space(const struct clks_exec_proc_record *proc);
+static void clks_exec_switch_address_space(u64 target_cr3, u64 *out_prev_cr3, clks_bool *out_switched);
+static void clks_exec_restore_address_space(u64 prev_cr3, clks_bool switched);
 

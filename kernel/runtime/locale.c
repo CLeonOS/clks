@@ -1,6 +1,7 @@
 #include <clks/fs.h>
 #include <clks/locale.h>
 #include <clks/log.h>
+#include <clks/rust.h>
 #include <clks/string.h>
 #include <clks/types.h>
 
@@ -24,33 +25,6 @@ static void clks_locale_copy(char *dst, usize dst_size, const char *src) {
     }
 
     dst[i] = '\0';
-}
-
-static void clks_locale_trim_line(char *text) {
-    usize start = 0U;
-    usize len;
-
-    if (text == CLKS_NULL) {
-        return;
-    }
-
-    while (text[start] == ' ' || text[start] == '\t' || text[start] == '\r' || text[start] == '\n') {
-        start++;
-    }
-
-    if (start > 0U) {
-        clks_memmove(text, text + start, clks_strlen(text + start) + 1U);
-    }
-
-    len = clks_strlen(text);
-    while (len > 0U) {
-        char ch = text[len - 1U];
-        if (ch != ' ' && ch != '\t' && ch != '\r' && ch != '\n') {
-            break;
-        }
-        text[len - 1U] = '\0';
-        len--;
-    }
 }
 
 clks_bool clks_locale_is_valid(const char *locale) {
@@ -108,21 +82,13 @@ void clks_locale_init(void) {
     const char *data;
     u64 size = 0ULL;
     char candidate[CLKS_LOCALE_MAX];
-    u64 copy_len;
 
     clks_locale_copy(clks_locale_value, sizeof(clks_locale_value), CLKS_LOCALE_DEFAULT);
 
     data = (const char *)clks_fs_read_all(CLKS_LOCALE_CONFIG_PATH, &size);
     if (data != CLKS_NULL && size > 0ULL) {
-        copy_len = size;
-        if (copy_len >= (u64)sizeof(candidate)) {
-            copy_len = (u64)sizeof(candidate) - 1ULL;
-        }
-
-        clks_memcpy(candidate, data, (usize)copy_len);
-        candidate[copy_len] = '\0';
-        clks_locale_trim_line(candidate);
-
+        candidate[0] = '\0';
+        (void)clks_rust_trim_copy(data, size, candidate, sizeof(candidate));
         if (clks_locale_is_valid(candidate) == CLKS_TRUE) {
             clks_locale_copy(clks_locale_value, sizeof(clks_locale_value), candidate);
         }

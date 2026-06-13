@@ -3,6 +3,7 @@
 #include <clks/exec.h>
 #include <clks/fs.h>
 #include <clks/log.h>
+#include <clks/rust.h>
 #include <clks/string.h>
 #include <clks/types.h>
 #include <clks/user.h>
@@ -87,38 +88,6 @@ static void clks_user_append(char *dst, usize dst_size, const char *src) {
 
 static clks_bool clks_user_streq(const char *left, const char *right) {
     return (left != CLKS_NULL && right != CLKS_NULL && clks_strcmp(left, right) == 0) ? CLKS_TRUE : CLKS_FALSE;
-}
-
-static clks_bool clks_user_has_prefix(const char *text, const char *prefix) {
-    usize i = 0U;
-
-    if (text == CLKS_NULL || prefix == CLKS_NULL) {
-        return CLKS_FALSE;
-    }
-
-    while (prefix[i] != '\0') {
-        if (text[i] != prefix[i]) {
-            return CLKS_FALSE;
-        }
-        i++;
-    }
-
-    return CLKS_TRUE;
-}
-
-static clks_bool clks_user_path_is_at_or_under(const char *path, const char *prefix) {
-    usize prefix_len;
-
-    if (path == CLKS_NULL || prefix == CLKS_NULL) {
-        return CLKS_FALSE;
-    }
-
-    prefix_len = clks_strlen(prefix);
-    if (clks_user_has_prefix(path, prefix) == CLKS_FALSE) {
-        return CLKS_FALSE;
-    }
-
-    return (path[prefix_len] == '\0' || path[prefix_len] == '/') ? CLKS_TRUE : CLKS_FALSE;
 }
 
 static void clks_user_trim(char *text) {
@@ -988,9 +957,14 @@ clks_bool clks_user_remove(const char *name) {
 
 clks_bool clks_user_path_read_allowed(const char *path) {
     struct clks_user_public_info info;
-    char home_prefix[CLKS_USER_HOME_MAX + 2U];
+    char normalized[CLKS_USER_HOME_MAX * 2U];
+    u32 policy_flags;
 
     if (path == CLKS_NULL || path[0] != '/') {
+        return CLKS_FALSE;
+    }
+
+    if (clks_rust_path_normalize_absolute(path, normalized, sizeof(normalized)) == CLKS_FALSE) {
         return CLKS_FALSE;
     }
 
@@ -1006,22 +980,22 @@ clks_bool clks_user_path_read_allowed(const char *path) {
         return CLKS_TRUE;
     }
 
-    if (clks_user_streq(path, CLKS_USER_DB_PATH) == CLKS_TRUE) {
+    policy_flags = clks_rust_path_policy_flags(normalized, info.home);
+
+    if ((policy_flags & CLKS_RUST_PATH_POLICY_USER_DB) != 0U) {
         return CLKS_FALSE;
     }
 
-    if (clks_user_path_is_at_or_under(path, "/temp") == CLKS_TRUE) {
+    if ((policy_flags & CLKS_RUST_PATH_POLICY_TEMP) != 0U) {
         return CLKS_TRUE;
     }
 
-    clks_user_copy(home_prefix, sizeof(home_prefix), info.home);
-    clks_user_append(home_prefix, sizeof(home_prefix), "/");
-    if (clks_user_streq(path, info.home) == CLKS_TRUE || clks_user_has_prefix(path, home_prefix) == CLKS_TRUE) {
+    if ((policy_flags & CLKS_RUST_PATH_POLICY_HOME) != 0U) {
         return CLKS_TRUE;
     }
 
-    if (clks_user_path_is_at_or_under(path, "/home") == CLKS_TRUE) {
-        return (clks_user_streq(path, "/home") == CLKS_TRUE) ? CLKS_TRUE : CLKS_FALSE;
+    if ((policy_flags & CLKS_RUST_PATH_POLICY_UNDER_HOME_ROOT) != 0U) {
+        return ((policy_flags & CLKS_RUST_PATH_POLICY_HOME_ROOT) != 0U) ? CLKS_TRUE : CLKS_FALSE;
     }
 
     return CLKS_TRUE;
@@ -1029,9 +1003,14 @@ clks_bool clks_user_path_read_allowed(const char *path) {
 
 clks_bool clks_user_path_write_allowed(const char *path) {
     struct clks_user_public_info info;
-    char home_prefix[CLKS_USER_HOME_MAX + 2U];
+    char normalized[CLKS_USER_HOME_MAX * 2U];
+    u32 policy_flags;
 
     if (path == CLKS_NULL || path[0] != '/') {
+        return CLKS_FALSE;
+    }
+
+    if (clks_rust_path_normalize_absolute(path, normalized, sizeof(normalized)) == CLKS_FALSE) {
         return CLKS_FALSE;
     }
 
@@ -1047,14 +1026,13 @@ clks_bool clks_user_path_write_allowed(const char *path) {
         return CLKS_TRUE;
     }
 
-    if (clks_user_path_is_at_or_under(path, "/temp") == CLKS_TRUE) {
+    policy_flags = clks_rust_path_policy_flags(normalized, info.home);
+
+    if ((policy_flags & CLKS_RUST_PATH_POLICY_TEMP) != 0U) {
         return CLKS_TRUE;
     }
 
-    clks_user_copy(home_prefix, sizeof(home_prefix), info.home);
-    clks_user_append(home_prefix, sizeof(home_prefix), "/");
-
-    if (clks_user_streq(path, info.home) == CLKS_TRUE || clks_user_has_prefix(path, home_prefix) == CLKS_TRUE) {
+    if ((policy_flags & CLKS_RUST_PATH_POLICY_HOME) != 0U) {
         return CLKS_TRUE;
     }
 

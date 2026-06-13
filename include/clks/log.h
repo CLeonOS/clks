@@ -10,6 +10,7 @@ enum clks_log_level {
     CLKS_LOG_ERROR = 3,
 };
 
+void clks_log_init(void);
 void clks_log_set_min_level(enum clks_log_level level);
 enum clks_log_level clks_log_min_level(void);
 void clks_log(enum clks_log_level level, const char *tag, const char *message);
@@ -20,5 +21,8 @@ void clks_log_hex(enum clks_log_level level, const char *tag, const char *label,
 
 u64 clks_log_journal_count(void);
 clks_bool clks_log_journal_read(u64 index_from_oldest, char *out_line, usize out_line_size);
+u64 clks_log_journal_count_filtered(enum clks_log_level min_level, const char *tag);
+clks_bool clks_log_journal_read_filtered(enum clks_log_level min_level, const char *tag, u64 index_from_oldest_matching,
+                                         char *out_line, usize out_line_size);
 
 #endif

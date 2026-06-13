@@ -1,11 +1,11 @@
 #include <clks/log.h>
 #include <clks/bootsplash.h>
+#include <clks/rust.h>
 #include <clks/serial.h>
 #include <clks/tty.h>
 #include <clks/types.h>
 
 #define CLKS_LOG_LINE_MAX 256
-#define CLKS_LOG_JOURNAL_CAP 256
 
 #define CLKS_LOG_ANSI_RESET "\x1B[0m"
 
@@ -37,9 +37,6 @@
 #define CLKS_CFG_LOG_OUTPUT_JOURNAL 1
 #endif
 
-static char clks_log_journal[CLKS_LOG_JOURNAL_CAP][CLKS_LOG_LINE_MAX];
-static u32 clks_log_journal_head = 0U;
-static u32 clks_log_journal_count_live = 0U;
 static enum clks_log_level clks_log_runtime_min_level = CLKS_LOG_DEBUG;
 
 static void clks_log_build_line(enum clks_log_level level, const char *tag, const char *message, char *line);
@@ -58,6 +55,10 @@ static const char *clks_log_level_name(enum clks_log_level level) {
     default:
         return "UNK";
     }
+}
+
+void clks_log_init(void) {
+    clks_rust_klog_init();
 }
 
 static clks_bool clks_log_level_enabled(enum clks_log_level level) {
@@ -158,33 +159,13 @@ static void clks_log_emit_value_message(enum clks_log_level level, const char *t
     clks_log_emit_line(level, tag, message, line);
 }
 
-static void clks_log_journal_copy_line(char *dst, usize dst_size, const char *src) {
-    usize i = 0U;
-
-    if (dst == CLKS_NULL || src == CLKS_NULL || dst_size == 0U) {
-        return;
-    }
-
-    while (i + 1U < dst_size && src[i] != '\0') {
-        dst[i] = src[i];
-        i++;
-    }
-
-    dst[i] = '\0';
-}
-
 #if CLKS_CFG_LOG_OUTPUT_JOURNAL != 0
-static void clks_log_journal_push(const char *line) {
+static void clks_log_journal_push(enum clks_log_level level, const char *tag, const char *line) {
     if (line == CLKS_NULL) {
         return;
     }
 
-    clks_log_journal_copy_line(clks_log_journal[clks_log_journal_head], CLKS_LOG_LINE_MAX, line);
-    clks_log_journal_head = (clks_log_journal_head + 1U) % CLKS_LOG_JOURNAL_CAP;
-
-    if (clks_log_journal_count_live < CLKS_LOG_JOURNAL_CAP) {
-        clks_log_journal_count_live++;
-    }
+    (void)clks_rust_klog_push((u32)level, tag, line);
 }
 #endif
 
@@ -305,7 +286,7 @@ static void clks_log_emit_line(enum clks_log_level level, const char *tag, const
     }
 
 #if CLKS_CFG_LOG_OUTPUT_JOURNAL != 0
-    clks_log_journal_push(line);
+    clks_log_journal_push(level, tag, line);
 #endif
 
 #if CLKS_CFG_LOG_OUTPUT_SERIAL != 0
@@ -410,26 +391,38 @@ void clks_log_hex(enum clks_log_level level, const char *tag, const char *label,
 }
 
 u64 clks_log_journal_count(void) {
-    return (u64)clks_log_journal_count_live;
+    return clks_rust_klog_count();
 }
 
 clks_bool clks_log_journal_read(u64 index_from_oldest, char *out_line, usize out_line_size) {
-    u32 oldest;
-    u32 slot;
-
     if (out_line == CLKS_NULL || out_line_size == 0U) {
         return CLKS_FALSE;
     }
 
     out_line[0] = '\0';
 
-    if (index_from_oldest >= (u64)clks_log_journal_count_live) {
+    return clks_rust_klog_read(index_from_oldest, out_line, out_line_size);
+}
+
+u64 clks_log_journal_count_filtered(enum clks_log_level min_level, const char *tag) {
+    if (min_level > CLKS_LOG_ERROR) {
+        min_level = CLKS_LOG_ERROR;
+    }
+
+    return clks_rust_klog_count_filtered((u32)min_level, tag);
+}
+
+clks_bool clks_log_journal_read_filtered(enum clks_log_level min_level, const char *tag, u64 index_from_oldest_matching,
+                                         char *out_line, usize out_line_size) {
+    if (out_line == CLKS_NULL || out_line_size == 0U) {
         return CLKS_FALSE;
     }
 
-    oldest = (clks_log_journal_head + CLKS_LOG_JOURNAL_CAP - clks_log_journal_count_live) % CLKS_LOG_JOURNAL_CAP;
-    slot = (oldest + (u32)index_from_oldest) % CLKS_LOG_JOURNAL_CAP;
+    out_line[0] = '\0';
 
-    clks_log_journal_copy_line(out_line, out_line_size, clks_log_journal[slot]);
-    return CLKS_TRUE;
+    if (min_level > CLKS_LOG_ERROR) {
+        min_level = CLKS_LOG_ERROR;
+    }
+
+    return clks_rust_klog_read_filtered((u32)min_level, tag, index_from_oldest_matching, out_line, out_line_size);
 }

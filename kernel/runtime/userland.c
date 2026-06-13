@@ -4,6 +4,7 @@
 #include <clks/fs.h>
 #include <clks/log.h>
 #include <clks/panic.h>
+#include <clks/rust.h>
 #include <clks/string.h>
 #include <clks/types.h>
 #include <clks/userland.h>
@@ -60,71 +61,6 @@ static void clks_userland_copy_text(char *dst, usize dst_size, const char *src) 
     dst[i] = '\0';
 }
 
-static clks_bool clks_userland_is_space(char ch) {
-    return (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') ? CLKS_TRUE : CLKS_FALSE;
-}
-
-static void clks_userland_trim_in_place(char *text) {
-    usize start = 0U;
-    usize end;
-    usize i;
-
-    if (text == CLKS_NULL) {
-        return;
-    }
-
-    while (text[start] != '\0' && clks_userland_is_space(text[start]) == CLKS_TRUE) {
-        start++;
-    }
-
-    end = clks_strlen(text + start);
-    while (end > 0U && clks_userland_is_space(text[start + end - 1U]) == CLKS_TRUE) {
-        end--;
-    }
-
-    for (i = 0U; i < end; i++) {
-        text[i] = text[start + i];
-    }
-    text[end] = '\0';
-}
-
-static clks_bool clks_userland_copy_line_value(char *dst, usize dst_size, const char *src, u64 len) {
-    u64 i;
-    u64 limit;
-
-    if (dst == CLKS_NULL || dst_size == 0U || src == CLKS_NULL) {
-        return CLKS_FALSE;
-    }
-
-    limit = len;
-    if (limit + 1ULL > (u64)dst_size) {
-        limit = (u64)dst_size - 1ULL;
-    }
-
-    for (i = 0ULL; i < limit; i++) {
-        dst[i] = src[i];
-    }
-    dst[limit] = '\0';
-    clks_userland_trim_in_place(dst);
-    return CLKS_TRUE;
-}
-
-static clks_bool clks_userland_key_equals(const char *line, u64 key_len, const char *key) {
-    u64 i;
-
-    if (line == CLKS_NULL || key == CLKS_NULL || clks_strlen(key) != (usize)key_len) {
-        return CLKS_FALSE;
-    }
-
-    for (i = 0ULL; i < key_len; i++) {
-        if (line[i] != key[i]) {
-            return CLKS_FALSE;
-        }
-    }
-
-    return CLKS_TRUE;
-}
-
 static void clks_userland_select_config_path(void) {
     char mode[32];
 
@@ -174,7 +110,7 @@ static void clks_userland_panic_config(const char *reason) {
 static clks_bool clks_userland_parse_config(void) {
     const char *data;
     u64 size = 0ULL;
-    u64 pos = 0ULL;
+    clks_rust_kv_entry entries[3];
 
     clks_user_entry_path[0] = '\0';
     clks_user_entry_args[0] = '\0';
@@ -186,62 +122,24 @@ static clks_bool clks_userland_parse_config(void) {
         return CLKS_FALSE;
     }
 
-    while (pos < size) {
-        u64 line_start = pos;
-        u64 line_end;
-        u64 key_start;
-        u64 key_end;
-        u64 value_start;
+    entries[0].key = "path";
+    entries[0].out_value = clks_user_entry_path;
+    entries[0].out_size = sizeof(clks_user_entry_path);
+    entries[1].key = "args";
+    entries[1].out_value = clks_user_entry_args;
+    entries[1].out_size = sizeof(clks_user_entry_args);
+    entries[2].key = "env";
+    entries[2].out_value = clks_user_entry_env;
+    entries[2].out_size = sizeof(clks_user_entry_env);
 
-        while (pos < size && data[pos] != '\n' && data[pos] != '\r') {
-            pos++;
-        }
-        line_end = pos;
-        while (pos < size && (data[pos] == '\n' || data[pos] == '\r')) {
-            pos++;
-        }
+    if (clks_rust_parse_key_values(data, size, entries, 3ULL) == CLKS_FALSE) {
+        clks_userland_panic_config("user_space_enter parse failed");
+        return CLKS_FALSE;
+    }
 
-        key_start = line_start;
-        while (key_start < line_end && clks_userland_is_space(data[key_start]) == CLKS_TRUE) {
-            key_start++;
-        }
-        if (key_start >= line_end || data[key_start] == '#' || data[key_start] == ';') {
-            continue;
-        }
-
-        key_end = key_start;
-        while (key_end < line_end && data[key_end] != '=') {
-            key_end++;
-        }
-        if (key_end >= line_end || data[key_end] != '=') {
-            continue;
-        }
-
-        while (key_end > key_start && clks_userland_is_space(data[key_end - 1ULL]) == CLKS_TRUE) {
-            key_end--;
-        }
-
-        value_start = key_end;
-        while (value_start < line_end && data[value_start] != '=') {
-            value_start++;
-        }
-        if (value_start < line_end && data[value_start] == '=') {
-            value_start++;
-        }
-        while (value_start < line_end && clks_userland_is_space(data[value_start]) == CLKS_TRUE) {
-            value_start++;
-        }
-
-        if (clks_userland_key_equals(data + key_start, key_end - key_start, "path") == CLKS_TRUE) {
-            (void)clks_userland_copy_line_value(clks_user_entry_path, sizeof(clks_user_entry_path), data + value_start,
-                                                line_end - value_start);
-        } else if (clks_userland_key_equals(data + key_start, key_end - key_start, "args") == CLKS_TRUE) {
-            (void)clks_userland_copy_line_value(clks_user_entry_args, sizeof(clks_user_entry_args), data + value_start,
-                                                line_end - value_start);
-        } else if (clks_userland_key_equals(data + key_start, key_end - key_start, "env") == CLKS_TRUE) {
-            (void)clks_userland_copy_line_value(clks_user_entry_env, sizeof(clks_user_entry_env), data + value_start,
-                                                line_end - value_start);
-        }
+    if (entries[0].truncated == CLKS_TRUE || entries[1].truncated == CLKS_TRUE || entries[2].truncated == CLKS_TRUE) {
+        clks_userland_panic_config("user_space_enter value too long");
+        return CLKS_FALSE;
     }
 
     if (clks_user_entry_path[0] == '\0') {
@@ -289,6 +187,8 @@ static clks_bool clks_userland_request_entry_exec(void) {
     }
 
     clks_user_launch_attempt_count++;
+    clks_log(CLKS_LOG_INFO, "USER", "USER ENTRY SPAWN START");
+    clks_log(CLKS_LOG_INFO, "USER", clks_user_entry_path);
 
     if (clks_exec_spawn_pathv(clks_user_entry_path, clks_user_entry_args, clks_user_entry_env, &pid) == CLKS_TRUE) {
         clks_user_entry_exec_requested_flag = CLKS_TRUE;

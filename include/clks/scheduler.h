@@ -17,14 +17,21 @@ struct clks_scheduler_stats {
 };
 
 void clks_scheduler_init(void);
+clks_bool clks_scheduler_is_online(void);
 clks_bool clks_scheduler_add_kernel_task(const char *name, u32 time_slice_ticks);
 clks_bool clks_scheduler_add_kernel_task_ex(const char *name, u32 time_slice_ticks, clks_task_entry_fn entry);
+clks_bool clks_scheduler_add_kernel_task_ex_id(const char *name, u32 time_slice_ticks, clks_task_entry_fn entry,
+                                               u32 *out_task_id);
+clks_bool clks_scheduler_remove_task(u32 task_id);
 void clks_scheduler_on_timer_tick(u64 tick);
 void clks_scheduler_dispatch_current(u64 tick);
 void clks_scheduler_dispatch_ready(u64 tick);
 void clks_scheduler_yield_current(void);
+clks_bool clks_scheduler_yield_task(u32 task_id);
 clks_bool clks_scheduler_sleep_current_until(u64 wake_tick);
 clks_bool clks_scheduler_sleep_current_ticks(u64 ticks, u64 now_tick);
+clks_bool clks_scheduler_sleep_task_until(u32 task_id, u64 wake_tick);
+clks_bool clks_scheduler_sleep_task_ticks(u32 task_id, u64 ticks, u64 now_tick);
 clks_bool clks_scheduler_set_task_state(u32 task_id, enum clks_task_state state);
 clks_bool clks_scheduler_wake_task(u32 task_id);
 struct clks_scheduler_stats clks_scheduler_get_stats(void);

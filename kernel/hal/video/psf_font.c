@@ -1,5 +1,6 @@
 #include "psf_font.h"
 
+#include <clks/rust.h>
 #include <clks/string.h>
 #include <clks/types.h>
 
@@ -238,62 +239,11 @@ const struct clks_psf_font *clks_psf_default_font(void) {
 
 static clks_bool clks_psf_decode_utf8_table_codepoint(const u8 *table, u64 table_size, u64 *io_offset,
                                                       u32 *out_codepoint) {
-    u8 b0;
-    u32 value;
-    u32 need;
-    u64 offset;
-    u32 i;
-
     if (table == CLKS_NULL || io_offset == CLKS_NULL || out_codepoint == CLKS_NULL || *io_offset >= table_size) {
         return CLKS_FALSE;
     }
 
-    offset = *io_offset;
-    b0 = table[offset++];
-
-    if (b0 < 0x80U) {
-        *io_offset = offset;
-        *out_codepoint = (u32)b0;
-        return CLKS_TRUE;
-    }
-
-    if ((b0 & 0xE0U) == 0xC0U) {
-        value = (u32)(b0 & 0x1FU);
-        need = 1U;
-    } else if ((b0 & 0xF0U) == 0xE0U) {
-        value = (u32)(b0 & 0x0FU);
-        need = 2U;
-    } else if ((b0 & 0xF8U) == 0xF0U) {
-        value = (u32)(b0 & 0x07U);
-        need = 3U;
-    } else {
-        *io_offset = offset;
-        return CLKS_FALSE;
-    }
-
-    if (offset + (u64)need > table_size) {
-        *io_offset = table_size;
-        return CLKS_FALSE;
-    }
-
-    for (i = 0U; i < need; i++) {
-        u8 bx = table[offset++];
-        if ((bx & 0xC0U) != 0x80U) {
-            *io_offset = offset;
-            return CLKS_FALSE;
-        }
-        value = (value << 6U) | (u32)(bx & 0x3FU);
-    }
-
-    if ((need == 1U && value < 0x80U) || (need == 2U && value < 0x800U) ||
-        (need == 3U && value < 0x10000U) || value > 0x10FFFFU || (value >= 0xD800U && value <= 0xDFFFU)) {
-        *io_offset = offset;
-        return CLKS_FALSE;
-    }
-
-    *io_offset = offset;
-    *out_codepoint = value;
-    return CLKS_TRUE;
+    return clks_rust_utf8_next_strict((const char *)table, table_size, io_offset, out_codepoint);
 }
 
 static u32 clks_psf_unicode_lookup(const struct clks_psf_font *font, u32 codepoint) {

@@ -6,6 +6,7 @@
 #include <clks/log.h>
 #include <clks/panic.h>
 #include <clks/panic_qr.h>
+#include <clks/rust.h>
 #include <clks/serial.h>
 #include <clks/string.h>
 #include <clks/types.h>
@@ -954,84 +955,21 @@ static clks_bool clks_panic_locale_is_zh(void) {
 }
 
 static u32 clks_panic_codepoint_width(u32 codepoint) {
-    if (codepoint == 0U) {
-        return 0U;
-    }
-
-    if (codepoint < 0x1100U) {
-        return 1U;
-    }
-
-    if ((codepoint >= 0x1100U && codepoint <= 0x115FU) || codepoint == 0x2329U || codepoint == 0x232AU ||
-        (codepoint >= 0x2E80U && codepoint <= 0xA4CFU) || (codepoint >= 0xAC00U && codepoint <= 0xD7A3U) ||
-        (codepoint >= 0xF900U && codepoint <= 0xFAFFU) || (codepoint >= 0xFE10U && codepoint <= 0xFE19U) ||
-        (codepoint >= 0xFE30U && codepoint <= 0xFE6FU) || (codepoint >= 0xFF00U && codepoint <= 0xFF60U) ||
-        (codepoint >= 0xFFE0U && codepoint <= 0xFFE6U) || (codepoint >= 0x20000U && codepoint <= 0x3FFFDUL)) {
-        return 2U;
-    }
-
-    return 1U;
+    return clks_rust_unicode_width(codepoint);
 }
 
 static clks_bool clks_panic_utf8_next(const char *text, usize text_len, usize *io_index, u32 *out_codepoint) {
-    u8 b0;
-    u32 value;
-    u32 need;
-    usize index;
-    u32 i;
+    u64 index;
+    clks_bool ok;
 
     if (text == CLKS_NULL || io_index == CLKS_NULL || out_codepoint == CLKS_NULL || *io_index >= text_len) {
         return CLKS_FALSE;
     }
 
-    index = *io_index;
-    b0 = (u8)text[index++];
-
-    if (b0 < 0x80U) {
-        *io_index = index;
-        *out_codepoint = (u32)b0;
-        return CLKS_TRUE;
-    }
-
-    if ((b0 & 0xE0U) == 0xC0U) {
-        value = (u32)(b0 & 0x1FU);
-        need = 1U;
-    } else if ((b0 & 0xF0U) == 0xE0U) {
-        value = (u32)(b0 & 0x0FU);
-        need = 2U;
-    } else if ((b0 & 0xF8U) == 0xF0U) {
-        value = (u32)(b0 & 0x07U);
-        need = 3U;
-    } else {
-        *io_index = index;
-        *out_codepoint = 0xFFFDU;
-        return CLKS_TRUE;
-    }
-
-    if (index + (usize)need > text_len) {
-        *io_index = text_len;
-        *out_codepoint = 0xFFFDU;
-        return CLKS_TRUE;
-    }
-
-    for (i = 0U; i < need; i++) {
-        u8 bx = (u8)text[index++];
-        if ((bx & 0xC0U) != 0x80U) {
-            *io_index = index;
-            *out_codepoint = 0xFFFDU;
-            return CLKS_TRUE;
-        }
-        value = (value << 6U) | (u32)(bx & 0x3FU);
-    }
-
-    if ((need == 1U && value < 0x80U) || (need == 2U && value < 0x800U) ||
-        (need == 3U && value < 0x10000U) || value > 0x10FFFFU || (value >= 0xD800U && value <= 0xDFFFU)) {
-        value = 0xFFFDU;
-    }
-
-    *io_index = index;
-    *out_codepoint = value;
-    return CLKS_TRUE;
+    index = (u64)*io_index;
+    ok = clks_rust_utf8_next(text, (u64)text_len, &index, out_codepoint);
+    *io_index = (usize)index;
+    return ok;
 }
 
 static void clks_panic_ui_text_at(u32 x, u32 y, const char *text, u32 fg, u32 bg, u32 style) {

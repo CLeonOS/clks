@@ -1,6 +1,7 @@
 #include <clks/disk.h>
 #include <clks/heap.h>
 #include <clks/log.h>
+#include <clks/rust.h>
 #include <clks/string.h>
 #include <clks/types.h>
 

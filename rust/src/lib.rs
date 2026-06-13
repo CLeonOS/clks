@@ -1,5 +1,10 @@
-// 这个文件似乎没用了（
 #![no_std]
+
+mod config;
+mod klog;
+mod path;
+mod syscall_meta;
+mod unicode;
 
 use core::hint::spin_loop;
 use core::panic::PanicInfo;

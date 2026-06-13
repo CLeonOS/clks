@@ -12,33 +12,11 @@ static void clks_tty_reset_ansi_state(u32 tty_index) {
     clks_tty_ansi[tty_index].saw_csi = CLKS_FALSE;
     clks_tty_ansi[tty_index].len = 0U;
     clks_tty_ansi[tty_index].params[0] = '\0';
-    clks_tty_utf8[tty_index].codepoint = 0U;
-    clks_tty_utf8[tty_index].remaining = 0U;
-    clks_tty_utf8[tty_index].expected = 0U;
+    clks_rust_utf8_state_reset(&clks_tty_utf8[tty_index]);
 }
 
 static u32 clks_tty_codepoint_width(u32 codepoint) {
-    if (codepoint == 0U) {
-        return 0U;
-    }
-
-    if ((codepoint >= 0x1F000U && codepoint <= 0x1FAFFU) || (codepoint >= 0x2600U && codepoint <= 0x27BFU)) {
-        return 2U;
-    }
-
-    if (codepoint < 0x1100U) {
-        return 1U;
-    }
-
-    if ((codepoint >= 0x1100U && codepoint <= 0x115FU) || codepoint == 0x2329U || codepoint == 0x232AU ||
-        (codepoint >= 0x2E80U && codepoint <= 0xA4CFU) || (codepoint >= 0xAC00U && codepoint <= 0xD7A3U) ||
-        (codepoint >= 0xF900U && codepoint <= 0xFAFFU) || (codepoint >= 0xFE10U && codepoint <= 0xFE19U) ||
-        (codepoint >= 0xFE30U && codepoint <= 0xFE6FU) || (codepoint >= 0xFF00U && codepoint <= 0xFF60U) ||
-        (codepoint >= 0xFFE0U && codepoint <= 0xFFE6U) || (codepoint >= 0x20000U && codepoint <= 0x3FFFDUL)) {
-        return 2U;
-    }
-
-    return 1U;
+    return clks_rust_unicode_width(codepoint);
 }
 
 static void clks_tty_fill_row(u32 tty_index, u32 row, u32 codepoint) {

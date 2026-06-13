@@ -1,9 +1,10 @@
 // Kernel main function
 
-#include <clks/boot.h>
 #include <clks/audio.h>
+#include <clks/boot.h>
 #include <clks/bootsplash.h>
 #include <clks/clboot.h>
+#include <clks/config.h>
 #include <clks/cpu.h>
 #include <clks/desktop.h>
 #include <clks/display.h>
@@ -192,14 +193,7 @@ static void clks_kmain_emit_clboot_log(void) {
 
 #if CLKS_CFG_KLOGD_TASK
 static void clks_task_klogd(u64 tick) {
-    static u64 last_emit = 0ULL;
-
     clks_service_heartbeat(CLKS_SERVICE_LOG, tick);
-
-    if (tick - last_emit >= 1000ULL) {
-        clks_log_u64(CLKS_LOG_DEBUG, "TASK", "klogd tick", tick);
-        last_emit = tick;
-    }
 }
 #endif
 
@@ -230,9 +224,16 @@ static void clks_task_kworker(u64 tick) {
 
 #if CLKS_CFG_USRD_TASK
 static void clks_task_usrd(u64 tick) {
+    static clks_bool first_tick_logged = CLKS_FALSE;
+
+    if (first_tick_logged == CLKS_FALSE) {
+        clks_log_u64(CLKS_LOG_INFO, "USER", "USRD FIRST TICK", tick);
+        first_tick_logged = CLKS_TRUE;
+    }
+
     clks_service_heartbeat(CLKS_SERVICE_USER, tick);
-    clks_exec_tick(tick);
     clks_userland_tick(tick);
+    clks_exec_tick(tick);
 #if CLKS_CFG_DESKTOP
     if (clks_wm_ready() == CLKS_TRUE) {
         clks_wm_tick(tick);
@@ -263,6 +264,7 @@ void clks_kernel_main(void) {
 
     /* Serial first, because when graphics dies we still need a heartbeat. */
     clks_serial_init();
+    clks_log_init();
     clks_cpu_init_fpu();
 
     /* If boot protocol handshake fails, continuing would be pure fantasy. */
@@ -375,6 +377,7 @@ void clks_kernel_main(void) {
 
     clks_locale_init();
     clks_kmain_apply_boot_locale();
+    clks_config_init();
     clks_bootsplash_step(42U, "filesystem online");
 
     fs_root_children = clks_fs_count_children("/");
@@ -557,7 +560,7 @@ void clks_kernel_main(void) {
         u64 tick_now = clks_interrupts_timer_ticks();
         clks_scheduler_dispatch_ready(tick_now);
 #if defined(CLKS_ARCH_X86_64)
-        __asm__ volatile("hlt");
+        __asm__ volatile("sti; hlt" : : : "memory");
 #elif defined(CLKS_ARCH_AARCH64)
         __asm__ volatile("wfe");
 #endif

@@ -1,5 +1,6 @@
 #include <clks/framebuffer.h>
 #include <clks/heap.h>
+#include <clks/rust.h>
 #include <clks/string.h>
 #include <clks/ttf.h>
 #include <clks/types.h>
@@ -375,23 +376,7 @@ static u32 clks_fb_layout_cell_width(void) {
 }
 
 static u32 clks_fb_codepoint_width(u32 codepoint) {
-    if (codepoint == 0U) {
-        return 0U;
-    }
-
-    if (codepoint < 0x1100U) {
-        return 1U;
-    }
-
-    if ((codepoint >= 0x1100U && codepoint <= 0x115FU) || codepoint == 0x2329U || codepoint == 0x232AU ||
-        (codepoint >= 0x2E80U && codepoint <= 0xA4CFU) || (codepoint >= 0xAC00U && codepoint <= 0xD7A3U) ||
-        (codepoint >= 0xF900U && codepoint <= 0xFAFFU) || (codepoint >= 0xFE10U && codepoint <= 0xFE19U) ||
-        (codepoint >= 0xFE30U && codepoint <= 0xFE6FU) || (codepoint >= 0xFF00U && codepoint <= 0xFF60U) ||
-        (codepoint >= 0xFFE0U && codepoint <= 0xFFE6U) || (codepoint >= 0x20000U && codepoint <= 0x3FFFDUL)) {
-        return 2U;
-    }
-
-    return 1U;
+    return clks_rust_unicode_width(codepoint);
 }
 
 void clks_fb_init(const struct limine_framebuffer *fb) {

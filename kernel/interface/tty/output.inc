@@ -94,68 +94,22 @@ void clks_tty_clear_active(void) {
     clks_tty_redraw_active();
 }
 
-static void clks_tty_utf8_reset(u32 tty_index) {
-    clks_tty_utf8[tty_index].codepoint = 0U;
-    clks_tty_utf8[tty_index].remaining = 0U;
-    clks_tty_utf8[tty_index].expected = 0U;
-}
-
 static clks_bool clks_tty_utf8_emit_byte(u32 tty_index, u8 byte) {
-    clks_tty_utf8_state *state = &clks_tty_utf8[tty_index];
+    u32 codepoint = CLKS_TTY_UTF8_REPLACEMENT;
+    u32 status = clks_rust_utf8_decode_byte(&clks_tty_utf8[tty_index], byte, &codepoint);
 
-    if (state->remaining == 0U) {
-        if (byte < 0x80U) {
-            clks_tty_put_codepoint_raw(tty_index, (u32)byte);
-            return CLKS_TRUE;
-        }
-
-        if ((byte & 0xE0U) == 0xC0U) {
-            state->codepoint = (u32)(byte & 0x1FU);
-            state->remaining = 1U;
-            state->expected = 2U;
-            return CLKS_TRUE;
-        }
-
-        if ((byte & 0xF0U) == 0xE0U) {
-            state->codepoint = (u32)(byte & 0x0FU);
-            state->remaining = 2U;
-            state->expected = 3U;
-            return CLKS_TRUE;
-        }
-
-        if ((byte & 0xF8U) == 0xF0U) {
-            state->codepoint = (u32)(byte & 0x07U);
-            state->remaining = 3U;
-            state->expected = 4U;
-            return CLKS_TRUE;
-        }
-
-        clks_tty_put_codepoint_raw(tty_index, CLKS_TTY_UTF8_REPLACEMENT);
-        return CLKS_FALSE;
+    if (status == CLKS_RUST_UTF8_NEED_MORE) {
+        return CLKS_TRUE;
     }
 
-    if ((byte & 0xC0U) != 0x80U) {
-        clks_tty_utf8_reset(tty_index);
-        clks_tty_put_codepoint_raw(tty_index, CLKS_TTY_UTF8_REPLACEMENT);
-        return CLKS_FALSE;
+    if (status == CLKS_RUST_UTF8_CODEPOINT) {
+        clks_tty_put_codepoint_raw(tty_index, codepoint);
+        return CLKS_TRUE;
     }
 
-    state->codepoint = (state->codepoint << 6U) | (u32)(byte & 0x3FU);
-    state->remaining--;
-
-    if (state->remaining == 0U) {
-        u32 codepoint = state->codepoint;
-        u8 expected = state->expected;
-        clks_bool valid = CLKS_TRUE;
-
-        if ((expected == 2U && codepoint < 0x80U) || (expected == 3U && codepoint < 0x800U) ||
-            (expected == 4U && codepoint < 0x10000U) || codepoint > 0x10FFFFU ||
-            (codepoint >= 0xD800U && codepoint <= 0xDFFFU)) {
-            valid = CLKS_FALSE;
-        }
-
-        clks_tty_utf8_reset(tty_index);
-        clks_tty_put_codepoint_raw(tty_index, (valid == CLKS_TRUE) ? codepoint : CLKS_TTY_UTF8_REPLACEMENT);
+    clks_tty_put_codepoint_raw(tty_index, CLKS_TTY_UTF8_REPLACEMENT);
+    if (status == CLKS_RUST_UTF8_REPLACEMENT) {
+        return CLKS_FALSE;
     }
 
     return CLKS_TRUE;

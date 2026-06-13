@@ -16,6 +16,7 @@
 #include <clks/mouse.h>
 #include <clks/net.h>
 #include <clks/pmm.h>
+#include <clks/rust.h>
 #include <clks/serial.h>
 #include <clks/scheduler.h>
 #include <clks/service.h>
@@ -29,6 +30,7 @@
 #include <clks/wm.h>
 
 /* Syscall implementation is split by category under kernel/runtime/syscall/. */
+#include "syscall/core/metadata.inc"
 #include "syscall/core/common.inc"
 #include "syscall/devices/console_fb.inc"
 #include "syscall/storage/disk.inc"

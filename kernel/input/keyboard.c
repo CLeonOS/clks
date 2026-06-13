@@ -522,6 +522,11 @@ clks_bool clks_keyboard_pop_char(char *out_ch) {
     return clks_keyboard_pop_char_for_tty(clks_tty_active(), out_ch);
 }
 
+u64 clks_keyboard_buffered_count_for_tty(u32 tty_index) {
+    u32 tty = clks_keyboard_clamp_tty_index(tty_index);
+    return (u64)clks_kbd_input_count[tty];
+}
+
 u64 clks_keyboard_buffered_count(void) {
     u64 total = 0ULL;
     u32 tty;

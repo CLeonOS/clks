@@ -5,8 +5,13 @@ u64 clks_exec_sleep_ticks(u64 ticks) {
     if (ticks == 0ULL) {
         if (proc != CLKS_NULL) {
             clks_exec_proc_set_block(proc, CLKS_EXEC_BLOCK_REASON_YIELD, 0ULL, 0ULL);
+            if (proc->scheduler_task_id != 0ULL && proc->scheduler_task_id != CLKS_EXEC_SCHED_TASK_INVALID &&
+                proc->scheduler_task_id <= 0xFFFFFFFFULL) {
+                (void)clks_scheduler_yield_task((u32)proc->scheduler_task_id);
+            }
+        } else {
+            clks_scheduler_yield_current();
         }
-        clks_scheduler_yield_current();
         if (proc != CLKS_NULL) {
             clks_exec_proc_clear_block(proc);
         }
@@ -15,12 +20,17 @@ u64 clks_exec_sleep_ticks(u64 ticks) {
 
     if (proc != CLKS_NULL) {
         clks_exec_proc_set_block(proc, CLKS_EXEC_BLOCK_REASON_SLEEP, start + ticks, 0ULL);
+        if (proc->scheduler_task_id != 0ULL && proc->scheduler_task_id != CLKS_EXEC_SCHED_TASK_INVALID &&
+            proc->scheduler_task_id <= 0xFFFFFFFFULL) {
+            (void)clks_scheduler_sleep_task_ticks((u32)proc->scheduler_task_id, ticks, start);
+        }
+    } else {
+        (void)clks_scheduler_sleep_current_ticks(ticks, start);
     }
-    (void)clks_scheduler_sleep_current_ticks(ticks, start);
 
     while ((clks_interrupts_timer_ticks() - start) < ticks) {
 #if defined(CLKS_ARCH_X86_64)
-        __asm__ volatile("sti; hlt; cli" : : : "memory");
+        __asm__ volatile("sti; hlt" : : : "memory");
 #elif defined(CLKS_ARCH_AARCH64)
         clks_cpu_pause();
 #endif
@@ -38,11 +48,16 @@ u64 clks_exec_yield(void) {
 
     if (proc != CLKS_NULL) {
         clks_exec_proc_set_block(proc, CLKS_EXEC_BLOCK_REASON_YIELD, 0ULL, 0ULL);
+        if (proc->scheduler_task_id != 0ULL && proc->scheduler_task_id != CLKS_EXEC_SCHED_TASK_INVALID &&
+            proc->scheduler_task_id <= 0xFFFFFFFFULL) {
+            (void)clks_scheduler_yield_task((u32)proc->scheduler_task_id);
+        }
+    } else {
+        clks_scheduler_yield_current();
     }
-    clks_scheduler_yield_current();
 
 #if defined(CLKS_ARCH_X86_64)
-    __asm__ volatile("sti; hlt; cli" : : : "memory");
+    __asm__ volatile("sti; hlt" : : : "memory");
 #elif defined(CLKS_ARCH_AARCH64)
     clks_cpu_pause();
 #endif

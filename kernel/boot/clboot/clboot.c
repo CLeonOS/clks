@@ -1,6 +1,7 @@
 #include <clks/boot.h>
 #include <clks/clboot.h>
 #include <clks/limine.h>
+#include <clks/rust.h>
 #include <clks/string.h>
 
 #define CLKS_CLBOOT_MAX_MEMMAP 128U
@@ -158,116 +159,25 @@ const char *clks_boot_get_cmdline(void) {
     return (const char *)(usize)clks_clboot_info->cmdline;
 }
 
-static clks_bool clks_boot_token_matches(const char *token, const char *name, usize name_len) {
-    usize i;
-
-    if (token == CLKS_NULL || name == CLKS_NULL || name_len == 0U) {
-        return CLKS_FALSE;
-    }
-
-    for (i = 0U; i < name_len; i++) {
-        if (token[i] != name[i]) {
-            return CLKS_FALSE;
-        }
-    }
-
-    if (token[name_len] == '\0' || token[name_len] == ' ' || token[name_len] == '\t') {
-        return CLKS_TRUE;
-    }
-
-    if (token[name_len] == '=') {
-        char value = token[name_len + 1U];
-        return (value == '1' || value == 'y' || value == 'Y' || value == 't' || value == 'T') ? CLKS_TRUE
-                                                                                              : CLKS_FALSE;
-    }
-
-    return CLKS_FALSE;
-}
-
 clks_bool clks_boot_cmdline_flag_enabled(const char *name) {
     const char *cmdline = clks_boot_get_cmdline();
-    usize name_len = 0U;
-    usize i = 0U;
 
-    if (name == CLKS_NULL || name[0] == '\0') {
+    if (name == CLKS_NULL || name[0] == '\0' || cmdline == CLKS_NULL) {
         return CLKS_FALSE;
     }
 
-    while (name[name_len] != '\0') {
-        name_len++;
-    }
-
-    while (cmdline[i] != '\0') {
-        while (cmdline[i] == ' ' || cmdline[i] == '\t') {
-            i++;
-        }
-        if (cmdline[i] == '\0') {
-            break;
-        }
-
-        if (clks_boot_token_matches(cmdline + i, name, name_len) == CLKS_TRUE) {
-            return CLKS_TRUE;
-        }
-
-        while (cmdline[i] != '\0' && cmdline[i] != ' ' && cmdline[i] != '\t') {
-            i++;
-        }
-    }
-
-    return CLKS_FALSE;
+    return clks_rust_cmdline_flag_enabled(cmdline, name);
 }
 
 clks_bool clks_boot_cmdline_get_value(const char *name, char *out_value, usize out_size) {
     const char *cmdline = clks_boot_get_cmdline();
-    usize name_len = 0U;
-    usize i = 0U;
-    usize out_pos;
 
-    if (name == CLKS_NULL || name[0] == '\0' || out_value == CLKS_NULL || out_size == 0U) {
+    if (name == CLKS_NULL || name[0] == '\0' || out_value == CLKS_NULL || out_size == 0U || cmdline == CLKS_NULL) {
         return CLKS_FALSE;
     }
 
     out_value[0] = '\0';
-
-    while (name[name_len] != '\0') {
-        name_len++;
-    }
-
-    while (cmdline[i] != '\0') {
-        usize j;
-
-        while (cmdline[i] == ' ' || cmdline[i] == '\t') {
-            i++;
-        }
-        if (cmdline[i] == '\0') {
-            break;
-        }
-
-        for (j = 0U; j < name_len; j++) {
-            if (cmdline[i + j] != name[j]) {
-                break;
-            }
-        }
-
-        if (j == name_len && cmdline[i + name_len] == '=') {
-            i += name_len + 1U;
-            out_pos = 0U;
-            while (cmdline[i] != '\0' && cmdline[i] != ' ' && cmdline[i] != '\t') {
-                if (out_pos + 1U < out_size) {
-                    out_value[out_pos++] = cmdline[i];
-                }
-                i++;
-            }
-            out_value[out_pos] = '\0';
-            return (out_pos > 0U) ? CLKS_TRUE : CLKS_FALSE;
-        }
-
-        while (cmdline[i] != '\0' && cmdline[i] != ' ' && cmdline[i] != '\t') {
-            i++;
-        }
-    }
-
-    return CLKS_FALSE;
+    return clks_rust_cmdline_get_value(cmdline, name, out_value, out_size);
 }
 
 clks_bool clks_boot_rescue_mode(void) {

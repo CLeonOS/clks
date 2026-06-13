@@ -86,28 +86,16 @@ clks_tty_status_render:
     col = 0U;
     cursor = 0U;
     while (col < clks_tty_cols && cursor < clks_tty_cols && cursor < CLKS_TTY_MAX_COLS) {
-        u8 byte = (u8)line[cursor];
         u32 codepoint = (u32)' ';
-        u32 used = 1U;
         u32 width;
         u32 j;
+        u64 next_cursor = (u64)cursor;
 
-        if (byte == 0U) {
+        if (line[cursor] == '\0') {
             codepoint = (u32)' ';
-        } else if (byte < 0x80U) {
-            codepoint = (u32)byte;
-        } else if ((byte & 0xE0U) == 0xC0U && cursor + 1U < CLKS_TTY_MAX_COLS) {
-            codepoint = ((u32)(byte & 0x1FU) << 6U) | (u32)(((u8)line[cursor + 1U]) & 0x3FU);
-            used = 2U;
-        } else if ((byte & 0xF0U) == 0xE0U && cursor + 2U < CLKS_TTY_MAX_COLS) {
-            codepoint = ((u32)(byte & 0x0FU) << 12U) | ((u32)(((u8)line[cursor + 1U]) & 0x3FU) << 6U) |
-                        (u32)(((u8)line[cursor + 2U]) & 0x3FU);
-            used = 3U;
-        } else if ((byte & 0xF8U) == 0xF0U && cursor + 3U < CLKS_TTY_MAX_COLS) {
-            codepoint = ((u32)(byte & 0x07U) << 18U) | ((u32)(((u8)line[cursor + 1U]) & 0x3FU) << 12U) |
-                        ((u32)(((u8)line[cursor + 2U]) & 0x3FU) << 6U) |
-                        (u32)(((u8)line[cursor + 3U]) & 0x3FU);
-            used = 4U;
+            next_cursor = (u64)cursor + 1ULL;
+        } else if (clks_rust_utf8_next(line, (u64)CLKS_TTY_MAX_COLS, &next_cursor, &codepoint) == CLKS_FALSE) {
+            break;
         }
 
         width = clks_tty_codepoint_width(codepoint);
@@ -132,7 +120,7 @@ clks_tty_status_render:
         }
 
         col += width;
-        cursor += used;
+        cursor = (u32)next_cursor;
     }
 
     while (col < clks_tty_cols) {

@@ -2,6 +2,7 @@
 #include <clks/exec.h>
 #include <clks/framebuffer.h>
 #include <clks/inputm.h>
+#include <clks/rust.h>
 #include <clks/string.h>
 #include <clks/tty.h>
 #include <clks/types.h>
@@ -47,12 +48,6 @@ typedef struct clks_tty_ansi_state {
     char params[CLKS_TTY_ANSI_MAX_LEN + 1U];
 } clks_tty_ansi_state;
 
-typedef struct clks_tty_utf8_state {
-    u32 codepoint;
-    u8 remaining;
-    u8 expected;
-} clks_tty_utf8_state;
-
 static u32 clks_tty_cells[CLKS_TTY_COUNT][CLKS_TTY_MAX_ROWS][CLKS_TTY_MAX_COLS];
 static u32 clks_tty_cell_fg[CLKS_TTY_COUNT][CLKS_TTY_MAX_ROWS][CLKS_TTY_MAX_COLS];
 static u32 clks_tty_cell_bg[CLKS_TTY_COUNT][CLKS_TTY_MAX_ROWS][CLKS_TTY_MAX_COLS];
@@ -63,7 +58,7 @@ static u32 clks_tty_cursor_col[CLKS_TTY_COUNT];
 static u32 clks_tty_current_fg[CLKS_TTY_COUNT];
 static u32 clks_tty_current_bg[CLKS_TTY_COUNT];
 static clks_tty_ansi_state clks_tty_ansi[CLKS_TTY_COUNT];
-static clks_tty_utf8_state clks_tty_utf8[CLKS_TTY_COUNT];
+static clks_rust_utf8_state clks_tty_utf8[CLKS_TTY_COUNT];
 static u8 clks_tty_line_scale[CLKS_TTY_COUNT];
 static u32 clks_tty_scrollback_cells[CLKS_TTY_COUNT][CLKS_TTY_SCROLLBACK_LINES][CLKS_TTY_MAX_COLS];
 static u32 clks_tty_scrollback_fg[CLKS_TTY_COUNT][CLKS_TTY_SCROLLBACK_LINES][CLKS_TTY_MAX_COLS];

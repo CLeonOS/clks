@@ -85,6 +85,10 @@ static struct clks_exec_proc_record *clks_exec_prepare_proc_record(i32 slot, u64
                              (state == CLKS_EXEC_PROC_PENDING) ? CLKS_EXEC_THREAD_READY
                                                                : CLKS_EXEC_THREAD_RUNNING,
                              CLKS_EXEC_BLOCK_REASON_NONE);
+    if (clks_exec_proc_bind_scheduler_task(proc) == CLKS_FALSE) {
+        clks_log(CLKS_LOG_WARN, "EXEC", "SCHEDULER TASK BIND FAILED");
+        clks_log(CLKS_LOG_WARN, "EXEC", path);
+    }
     clks_exec_proc_inherit_user(proc, parent_proc);
     clks_exec_fd_init_defaults(proc);
 
@@ -152,19 +156,12 @@ static u64 clks_exec_read_rflags(void) {
     return flags;
 }
 
-static clks_bool clks_exec_enable_interrupt_window(void) {
+static void clks_exec_enable_interrupt_window(void) {
     if ((clks_exec_read_rflags() & (1ULL << 9)) != 0ULL) {
-        return CLKS_FALSE;
+        return;
     }
 
     __asm__ volatile("sti" : : : "memory");
-    return CLKS_TRUE;
-}
-
-static void clks_exec_restore_interrupt_window(clks_bool need_disable) {
-    if (need_disable == CLKS_TRUE) {
-        __asm__ volatile("cli" : : : "memory");
-    }
 }
 #endif
 
@@ -184,7 +181,6 @@ static clks_bool clks_exec_invoke_entry(struct clks_exec_proc_record *proc, void
         u64 stack_bytes = 0ULL;
         u64 unwind_slot;
         u64 call_ret = (u64)-1;
-        clks_bool restore_irq_disable = CLKS_FALSE;
         u32 candidate_index;
 
         if (proc->saved_frame_valid == CLKS_FALSE) {
@@ -225,9 +221,7 @@ static clks_bool clks_exec_invoke_entry(struct clks_exec_proc_record *proc, void
         clks_exec_unwind_slot_stack[depth_index] = unwind_slot;
         clks_exec_unwind_slot_valid_stack[depth_index] = CLKS_TRUE;
 
-        if (clks_exec_pending_dispatch_active == CLKS_FALSE) {
-            restore_irq_disable = clks_exec_enable_interrupt_window();
-        }
+        clks_exec_enable_interrupt_window();
 
         if (proc->saved_frame_valid == CLKS_TRUE) {
             call_ret = clks_exec_resume_frame_x86_64(&proc->saved_frame, (void *)unwind_slot);
@@ -241,7 +235,6 @@ static clks_bool clks_exec_invoke_entry(struct clks_exec_proc_record *proc, void
         clks_exec_stack_begin_stack[depth_index] = 0ULL;
         clks_exec_stack_end_stack[depth_index] = 0ULL;
 
-        clks_exec_restore_interrupt_window(restore_irq_disable);
         *out_ret = call_ret;
         if (call_ret != CLKS_EXEC_INTERNAL_SUSPEND_STATUS && proc->run_stack_base != CLKS_NULL) {
             clks_kfree(proc->run_stack_base);
@@ -525,11 +518,29 @@ static clks_bool clks_exec_dispatch_pending_once(void) {
         u32 i = (clks_exec_dispatch_cursor + attempt) % CLKS_EXEC_MAX_PROCS;
         if (clks_exec_proc_table[i].used == CLKS_TRUE && clks_exec_proc_table[i].state == CLKS_EXEC_PROC_PENDING) {
             u64 ignored_status = (u64)-1;
+            enum clks_exec_block_reason blocked_reason = clks_exec_proc_table[i].blocked_reason;
+
+            if (blocked_reason == CLKS_EXEC_BLOCK_REASON_TTY_INPUT &&
+                clks_keyboard_buffered_count_for_tty(clks_exec_proc_table[i].tty_index) == 0ULL) {
+                continue;
+            }
+
+            if (blocked_reason == CLKS_EXEC_BLOCK_REASON_SLEEP &&
+                (clks_exec_proc_table[i].wake_tick == 0ULL ||
+                 clks_interrupts_timer_ticks() < clks_exec_proc_table[i].wake_tick)) {
+                continue;
+            }
+
+            if (blocked_reason == CLKS_EXEC_BLOCK_REASON_PTY_INPUT ||
+                blocked_reason == CLKS_EXEC_BLOCK_REASON_WAIT_CHILD ||
+                blocked_reason == CLKS_EXEC_BLOCK_REASON_IO) {
+                continue;
+            }
 
             clks_exec_dispatch_cursor = (i + 1U) % CLKS_EXEC_MAX_PROCS;
-            if (clks_exec_proc_table[i].blocked_reason == CLKS_EXEC_BLOCK_REASON_YIELD ||
-                clks_exec_proc_table[i].blocked_reason == CLKS_EXEC_BLOCK_REASON_TTY_INPUT ||
-                clks_exec_proc_table[i].blocked_reason == CLKS_EXEC_BLOCK_REASON_PTY_INPUT) {
+            if (blocked_reason == CLKS_EXEC_BLOCK_REASON_YIELD ||
+                blocked_reason == CLKS_EXEC_BLOCK_REASON_TTY_INPUT ||
+                blocked_reason == CLKS_EXEC_BLOCK_REASON_SLEEP) {
                 clks_exec_proc_clear_block(&clks_exec_proc_table[i]);
             }
             clks_exec_pending_dispatch_active = CLKS_TRUE;
@@ -544,7 +555,7 @@ static clks_bool clks_exec_dispatch_pending_once(void) {
 
 static void clks_exec_sync_wait_idle_once(void) {
 #if defined(CLKS_ARCH_X86_64)
-    __asm__ volatile("sti; hlt; cli" : : : "memory");
+    __asm__ volatile("sti; hlt" : : : "memory");
 #elif defined(CLKS_ARCH_AARCH64)
     clks_cpu_pause();
 #endif
