@@ -94,9 +94,16 @@ clks_isr_common:
     push rax
 
     mov rdi, rsp
+    mov rax, rsp
+    and rax, 15
+    jz 1f
     sub rsp, 8
     call clks_interrupt_dispatch
     add rsp, 8
+    jmp 2f
+1:
+    call clks_interrupt_dispatch
+2:
 
     pop rax
     pop rbx

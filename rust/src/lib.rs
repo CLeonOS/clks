@@ -3,7 +3,7 @@
 mod config;
 mod klog;
 mod path;
-mod syscall_meta;
+mod syscall;
 mod unicode;
 
 use core::hint::spin_loop;

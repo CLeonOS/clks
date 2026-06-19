@@ -1,5 +1,9 @@
 use core::ptr;
 
+pub const FLAG_TRACE_SUPPRESS: u32 = 0x0000_0002;
+pub const FLAG_TRACE_SKIP_ZERO_RET: u32 = 0x0000_0004;
+pub const FLAG_TRACE_RETURN_ONLY: u32 = 0x0000_0008;
+
 #[repr(C)]
 pub struct ClksRustSyscallMeta {
     pub id: u64,
@@ -207,4 +211,28 @@ pub unsafe extern "C" fn clks_rust_syscall_meta_fill(id: u64, out: *mut ClksRust
         },
     );
     1
+}
+
+pub fn fill(id: u64) -> Option<ClksRustSyscallMeta> {
+    let mut meta = ClksRustSyscallMeta {
+        id: 0,
+        name: core::ptr::null(),
+        category: 0,
+        argc: 0,
+        flags: 0,
+        usc_gate: 0,
+    };
+    let ok = unsafe { clks_rust_syscall_meta_fill(id, &mut meta as *mut ClksRustSyscallMeta) };
+    if ok != 0 { Some(meta) } else { None }
+}
+
+pub fn name(id: u64) -> *const u8 {
+    fill(id)
+        .map(|entry| entry.name)
+        .filter(|ptr| !ptr.is_null())
+        .unwrap_or(b"UNKNOWN\0".as_ptr())
+}
+
+pub fn flags(id: u64) -> u32 {
+    fill(id).map(|entry| entry.flags).unwrap_or(0)
 }

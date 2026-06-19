@@ -1,51 +1,6 @@
-#include <clks/cpu.h>
-#include <clks/audio.h>
-#include <clks/boot.h>
-#include <clks/display.h>
-#include <clks/disk.h>
-#include <clks/driver.h>
-#include <clks/exec.h>
-#include <clks/framebuffer.h>
-#include <clks/fs.h>
-#include <clks/heap.h>
-#include <clks/interrupts.h>
-#include <clks/inputm.h>
-#include <clks/keyboard.h>
-#include <clks/locale.h>
-#include <clks/log.h>
-#include <clks/mouse.h>
-#include <clks/net.h>
-#include <clks/pmm.h>
-#include <clks/rust.h>
-#include <clks/serial.h>
-#include <clks/scheduler.h>
-#include <clks/service.h>
-#include <clks/string.h>
-#include <clks/syscall.h>
-#include <clks/tty.h>
-#include <clks/types.h>
-#include <clks/user.h>
-#include <clks/userland.h>
-#include <clks/version.h>
-#include <clks/wm.h>
-
-/* Syscall implementation is split by category under kernel/runtime/syscall/. */
-#include "syscall/core/metadata.inc"
-#include "syscall/core/common.inc"
-#include "syscall/devices/console_fb.inc"
-#include "syscall/storage/disk.inc"
-#include "syscall/network/net.inc"
-#include "syscall/ui/wm.inc"
-#include "syscall/ui/inputm.inc"
-#include "syscall/runtime/fd_driver_dl.inc"
-#include "syscall/runtime/procfs_kdbg.inc"
-#include "syscall/storage/fs_read.inc"
-#include "syscall/runtime/process.inc"
-#include "syscall/devices/audio.inc"
-#include "syscall/storage/fs_write.inc"
-#include "syscall/core/journal.inc"
-#include "syscall/core/trace_names.inc"
-#include "syscall/security/usc.inc"
-#include "syscall/security/user.inc"
-#include "syscall/core/stats.inc"
-#include "syscall/core/dispatch.inc"
+/*
+ * Syscall ABI/dispatch/handler implementation moved to clks/rust/src/syscall/.
+ *
+ * This file intentionally exports no clks_syscall_* symbols. It remains only as
+ * a migration note for the old .inc based implementation.
+ */
